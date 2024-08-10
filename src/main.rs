@@ -175,10 +175,9 @@ fn main() {
     )
     .unwrap();
 
-    let mut last_update = Instant::now();
-    let update_interval = Duration::from_secs(1);
-
     loop {
+        let start_time = Instant::now();
+
         if event::poll(Duration::from_millis(100)).unwrap() {
             if let Event::Key(key_event) = event::read().unwrap() {
                 if key_event.code == KeyCode::Esc || key_event.code == KeyCode::F(10) {
@@ -192,37 +191,39 @@ fn main() {
             }
         }
 
-        // Only update the GPU info and screen every `update_interval`
-        if last_update.elapsed() >= update_interval {
-            execute!(stdout, cursor::MoveTo(0, 0)).unwrap();
+        execute!(stdout, cursor::MoveTo(0, 0)).unwrap();
 
-            let current_time = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-            print_colored_text(&mut stdout, &format!("{}\r\n", current_time), Color::White, None, None);
+        let current_time = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        print_colored_text(&mut stdout, &format!("{}\r\n", current_time), Color::White, None, None);
 
-            let (cols, _rows) = size().unwrap();
-            let half_width = (cols / 2 - 2) as usize;
+        let (cols, _rows) = size().unwrap();
+        let half_width = (cols / 2 - 2) as usize;
 
-            let all_gpu_info: Vec<GpuInfo> = gpu_readers
-                .iter()
-                .flat_map(|reader| reader.get_gpu_info())
-                .collect();
+        let all_gpu_info: Vec<GpuInfo> = gpu_readers
+            .iter()
+            .flat_map(|reader| reader.get_gpu_info())
+            .collect();
 
-            for (index, info) in all_gpu_info.iter().enumerate() {
-                print_gpu_info(&mut stdout, index, info, half_width);
+        for (index, info) in all_gpu_info.iter().enumerate() {
+            print_gpu_info(&mut stdout, index, info, half_width);
 
-                if index < all_gpu_info.len() - 1 {
-                    execute!(stdout, Print("\r\n")).unwrap();
-                }
+            if index < all_gpu_info.len() - 1 {
+                execute!(stdout, Print("\r\n")).unwrap();
             }
+        }
 
-            print_function_keys(&mut stdout, cols);
+        print_function_keys(&mut stdout, cols);
 
-            stdout.flush().unwrap(); // Ensure all output is flushed to the terminal
+        stdout.flush().unwrap(); // Ensure all output is flushed to the terminal
 
-            last_update = Instant::now();
+        // Calculate elapsed time and sleep for the remaining time of the interval
+        let elapsed_time = start_time.elapsed();
+        let update_interval = Duration::from_secs(1.5);
+
+        if elapsed_time < update_interval {
+            std::thread::sleep(update_interval - elapsed_time);
         }
     }
-
     // Exit alternate screen mode and restore terminal settings
     execute!(stdout, LeaveAlternateScreen).unwrap();
     disable_raw_mode().unwrap(); // Disable raw mode
