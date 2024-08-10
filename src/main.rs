@@ -3,8 +3,6 @@ use std::str::FromStr;
 use std::time::Duration;
 use std::thread;
 use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::io::AsyncReadExt; // AsyncReadExt 트레이트를 사용하기 위해 추가
-use std::os::unix::process::CommandExt; // CommandExt 트레이트를 사용하기 위해 추가
 
 #[derive(Debug)]
 struct GpuInfo {
@@ -79,38 +77,41 @@ async fn get_gpu_info(gpu_type: &str) -> Vec<GpuInfo> {
     match gpu_type {
         "NVIDIA" => {
             // Execute the nvidia-smi command to get GPU information
-            let mut command = Command::new("nvidia-smi")
+            let command = tokio::process::Command::new("nvidia-smi")
                 .arg("--format=csv")
                 .stdout(std::process::Stdio::piped())
-                .spawn() // Uses spawn instead of spawn_async
-                .expect("Failed to execute nvidia-smi command");
+                .spawn();
 
             // Read the output asynchronously
-            let stdout = command.stdout.take().unwrap();
-            let mut reader = BufReader::new(stdout);
-            let mut line = String::new();
+            if let Ok(mut command) = command { 
+                let stdout = command.stdout.take().unwrap();
+                let mut reader = BufReader::new(stdout);
+                let mut line = String::new();
 
-            // Skip the first line as it is the header
-            reader.read_line(&mut line).await.unwrap();
+                // Skip the first line as it is the header
+                reader.read_line(&mut line).await.unwrap();
 
-            // Read each line and extract GPU information
-            while reader.read_line(&mut line).await.unwrap() > 0 {
-                let parts: Vec<&str> = line.trim().split(',').collect();
-                let time = parts[0].to_string();
-                let name = parts[1].to_string();
-                let utilization = f64::from_str(parts[2]).unwrap();
-                let temperature = u32::from_str(parts[3]).unwrap();
-                let used_memory = u64::from_str(parts[4]).unwrap();
-                let total_memory = u64::from_str(parts[5]).unwrap();
+                // Read each line and extract GPU information
+                while reader.read_line(&mut line).await.unwrap() > 0 {
+                    let parts: Vec<&str> = line.trim().split(',').collect();
+                    let time = parts[0].to_string();
+                    let name = parts[1].to_string();
+                    let utilization = f64::from_str(parts[2]).unwrap();
+                    let temperature = u32::from_str(parts[3]).unwrap();
+                    let used_memory = u64::from_str(parts[4]).unwrap();
+                    let total_memory = u64::from_str(parts[5]).unwrap();
 
-                gpu_info.push(GpuInfo {
-                    time,
-                    name,
-                    utilization,
-                    temperature,
-                    used_memory,
-                    total_memory,
-                });
+                    gpu_info.push(GpuInfo {
+                        time,
+                        name,
+                        utilization,
+                        temperature,
+                        used_memory,
+                        total_memory,
+                    });
+                }
+            } else {
+                println!("Failed to execute nvidia-smi command");
             }
         }
         _ => {
