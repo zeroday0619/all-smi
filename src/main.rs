@@ -140,7 +140,8 @@ fn print_gpu_info<W: Write>(stdout: &mut W, index: usize, info: &GpuInfo, half_w
 fn print_function_keys<W: Write>(stdout: &mut W, cols: u16) {
     let key_width = 3; // Width for each function key label
     let total_width = cols as usize; // Total width of the terminal
-    let label_width = (total_width / 10) - key_width; // Width for each label text
+    let min_label_width = 5; // Minimum width for label text
+    let label_width = (total_width / 10).saturating_sub(key_width).max(min_label_width); // Ensure label_width is at least min_label_width
 
     let function_keys = vec!["F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10"];
 
@@ -189,7 +190,7 @@ fn main() {
             let current_time = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
             print_colored_text(&mut stdout, &format!("{}\r\n", current_time), Color::White, None, None);
 
-            let (cols, rows) = size().unwrap();
+            let (cols, _rows) = size().unwrap();
             let half_width = (cols / 2 - 2) as usize;
 
             let all_gpu_info: Vec<GpuInfo> = gpu_readers
@@ -205,7 +206,7 @@ fn main() {
                 }
             }
 
-            print_function_keys(&mut stdout, rows);
+            print_function_keys(&mut stdout, cols);
 
             stdout.flush().unwrap(); // Ensure all output is flushed to the terminal
 
