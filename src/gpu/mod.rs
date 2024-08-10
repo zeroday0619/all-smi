@@ -42,6 +42,7 @@ fn has_nvidia() -> bool {
     Command::new("nvidia-smi").output().is_ok()
 }
 
+/*
 fn has_amd() -> bool {
     false
 }
@@ -53,7 +54,7 @@ fn has_habana() -> bool {
 fn has_rebellion() -> bool {
     false 
 }
-
+*/
 fn is_apple_silicon() -> bool {
     let output = std::process::Command::new("uname")
         .arg("-m")
