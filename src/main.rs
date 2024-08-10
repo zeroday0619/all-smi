@@ -8,7 +8,7 @@ use crossterm::{
     event::{self, Event, KeyCode},
     execute,
     style::{Color, Print, ResetColor, SetForegroundColor},
-    terminal::{self, ClearType, EnterAlternateScreen, LeaveAlternateScreen, size},
+    terminal::{self, ClearType, EnterAlternateScreen, LeaveAlternateScreen, size, enable_raw_mode, disable_raw_mode},
 };
 use chrono::Local;
 use std::io::{stdout, Write};
@@ -114,10 +114,39 @@ fn print_gpu_info<W: Write>(stdout: &mut W, index: usize, info: &GpuInfo, half_w
     print_colored_text(stdout, "FREQ: ", Color::Blue, None);
     print_colored_text(stdout, &format!("{}  ", freq_text), Color::White, None);
     print_colored_text(stdout, "POW: ", Color::Blue, None);
-    print_colored_text(stdout, &format!("{}\n", power_text), Color::White, None);
+    print_colored_text(stdout, &format!("{}\r\n", power_text), Color::White, None);
 
     draw_bar(stdout, "GPU", info.utilization, 100.0, half_width, Some(gpu_percentage_text));
     draw_bar(stdout, "MEM", used_memory_gib, total_memory_gib, half_width, Some(memory_text));
+
+    execute!(stdout, Print("\r\n")).unwrap(); // Move cursor to the start of the next line
+}
+
+fn print_function_keys<W: Write>(stdout: &mut W, cols: u16) {
+    let key_width = 9; // Width for each function key label
+    let padding = (cols as usize).saturating_sub(10 * key_width) / 2; // Center align the keys
+
+    let function_keys = vec![
+        ("F1 Help", Color::White),
+        ("F2", Color::White),
+        ("F3", Color::White),
+        ("F4", Color::White),
+        ("F5", Color::White),
+        ("F6", Color::White),
+        ("F7", Color::White),
+        ("F8", Color::White),
+        ("F9", Color::White),
+        ("F10 Quit", Color::Red),
+    ];
+
+    execute!(stdout, cursor::MoveTo(0, cols.saturating_sub(1) - 1)).unwrap();
+
+    for (index, (label, color)) in function_keys.iter().enumerate() {
+        if index == 0 {
+            print_colored_text(stdout, &" ".repeat(padding), Color::White, None);
+        }
+        print_colored_text(stdout, label, *color, Some(key_width));
+    }
 }
 
 fn main() {
@@ -126,6 +155,7 @@ fn main() {
     let gpu_readers = get_gpu_readers();
     let mut stdout = stdout();
 
+    enable_raw_mode().unwrap(); // Enable raw mode to prevent key echo
     execute!(
         stdout,
         EnterAlternateScreen,
@@ -136,7 +166,7 @@ fn main() {
     loop {
         if event::poll(Duration::from_millis(100)).unwrap() {
             if let Event::Key(key_event) = event::read().unwrap() {
-                if key_event.code == KeyCode::Esc {
+                if key_event.code == KeyCode::Esc || key_event.code == KeyCode::F(10) {
                     break;
                 }
             }
@@ -145,9 +175,9 @@ fn main() {
         execute!(stdout, cursor::MoveTo(0, 0)).unwrap();
 
         let current_time = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-        print_colored_text(&mut stdout, &format!("{}\n", current_time), Color::White, None);
+        print_colored_text(&mut stdout, &format!("{}\r\n", current_time), Color::White, None);
 
-        let (cols, _) = size().unwrap();
+        let (cols, rows) = size().unwrap();
         let half_width = (cols / 2 - 2) as usize;
 
         let all_gpu_info: Vec<GpuInfo> = gpu_readers
@@ -159,12 +189,17 @@ fn main() {
             print_gpu_info(&mut stdout, index, info, half_width);
 
             if index < all_gpu_info.len() - 1 {
-                execute!(stdout, Print("\n\n")).unwrap();
+                execute!(stdout, Print("\r\n")).unwrap();
             }
         }
+
+        print_function_keys(&mut stdout, rows);
+
+        stdout.flush().unwrap(); // Ensure all output is flushed to the terminal
 
         thread::sleep(Duration::from_secs(1));
     }
 
     execute!(stdout, LeaveAlternateScreen).unwrap();
+    disable_raw_mode().unwrap(); // Disable raw mode
 }
