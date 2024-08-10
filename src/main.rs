@@ -117,18 +117,22 @@ fn print_gpu_info<W: Write>(stdout: &mut W, index: usize, info: &GpuInfo, half_w
     let _time = &info.time;
 
     let labels = vec![
-        ("DEVICE", Color::Blue, format!("{}: ", index + 1)),
-        ("NAME", Color::White, format!("{}  ", info.name)),
-        ("Total", Color::Blue, format!("{:.2} GiB  ", total_memory_gib)),
-        ("Used", Color::Blue, format!("{:.2} GiB  ", used_memory_gib)),
-        ("Temp.", Color::Blue, format!("{}°C  ", info.temperature)),
-        ("FREQ", Color::Blue, format!("{}  ", freq_text)),
-        ("POW", Color::Blue, format!("{}\r\n", power_text)),
+        (format!("DEVICE {}: ", index + 1), Color::Blue),
+        (format!("{}  ", info.name), Color::White),
+        (String::from("Total: "), Color::Blue),
+        (format!("{:.2} GiB  ", total_memory_gib), Color::White),
+        (String::from("Used: "), Color::Blue),
+        (format!("{:.2} GiB  ", used_memory_gib), Color::White),
+        (String::from("Temp.: "), Color::Blue),
+        (format!("{}°C  ", info.temperature), Color::White),
+        (String::from("FREQ: "), Color::Blue),
+        (format!("{}  ", freq_text), Color::White),
+        (String::from("POW: "), Color::Blue),
+        (format!("{}\r\n", power_text), Color::White),
     ];
 
-    for (label, color, text) in labels {
-        print_colored_text(stdout, label, color, None, None);
-        print_colored_text(stdout, &text, Color::White, None, None);
+    for (text, color) in labels {
+        print_colored_text(stdout, &text, color, None, None);
     }
 
     draw_bar(stdout, "GPU", info.utilization, 100.0, half_width, Some(gpu_percentage_text));
@@ -179,6 +183,11 @@ fn main() {
             if let Event::Key(key_event) = event::read().unwrap() {
                 if key_event.code == KeyCode::Esc || key_event.code == KeyCode::F(10) {
                     break;
+                }
+                if let KeyCode::Char(c) = key_event.code {
+                    if c.to_ascii_lowercase() == 'q' {
+                        break;
+                    }
                 }
             }
         }
