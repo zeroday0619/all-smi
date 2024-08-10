@@ -1,7 +1,6 @@
 mod gpu;
 
-use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use crate::gpu::{get_gpu_readers, GpuInfo};
 use crossterm::{
     cursor,
@@ -163,6 +162,9 @@ fn main() {
     )
     .unwrap();
 
+    let mut last_update = Instant::now();
+    let update_interval = Duration::from_secs(1);
+
     loop {
         if event::poll(Duration::from_millis(100)).unwrap() {
             if let Event::Key(key_event) = event::read().unwrap() {
@@ -172,34 +174,38 @@ fn main() {
             }
         }
 
-        execute!(stdout, cursor::MoveTo(0, 0)).unwrap();
+        // Only update the GPU info and screen every `update_interval`
+        if last_update.elapsed() >= update_interval {
+            execute!(stdout, cursor::MoveTo(0, 0)).unwrap();
 
-        let current_time = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-        print_colored_text(&mut stdout, &format!("{}\r\n", current_time), Color::White, None);
+            let current_time = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+            print_colored_text(&mut stdout, &format!("{}\r\n", current_time), Color::White, None);
 
-        let (cols, rows) = size().unwrap();
-        let half_width = (cols / 2 - 2) as usize;
+            let (cols, rows) = size().unwrap();
+            let half_width = (cols / 2 - 2) as usize;
 
-        let all_gpu_info: Vec<GpuInfo> = gpu_readers
-            .iter()
-            .flat_map(|reader| reader.get_gpu_info())
-            .collect();
+            let all_gpu_info: Vec<GpuInfo> = gpu_readers
+                .iter()
+                .flat_map(|reader| reader.get_gpu_info())
+                .collect();
 
-        for (index, info) in all_gpu_info.iter().enumerate() {
-            print_gpu_info(&mut stdout, index, info, half_width);
+            for (index, info) in all_gpu_info.iter().enumerate() {
+                print_gpu_info(&mut stdout, index, info, half_width);
 
-            if index < all_gpu_info.len() - 1 {
-                execute!(stdout, Print("\r\n")).unwrap();
+                if index < all_gpu_info.len() - 1 {
+                    execute!(stdout, Print("\r\n")).unwrap();
+                }
             }
+
+            print_function_keys(&mut stdout, rows);
+
+            stdout.flush().unwrap(); // Ensure all output is flushed to the terminal
+
+            last_update = Instant::now();
         }
-
-        print_function_keys(&mut stdout, rows);
-
-        stdout.flush().unwrap(); // Ensure all output is flushed to the terminal
-
-        thread::sleep(Duration::from_secs(1));
     }
 
+    // Exit alternate screen mode and restore terminal settings
     execute!(stdout, LeaveAlternateScreen).unwrap();
     disable_raw_mode().unwrap(); // Disable raw mode
 }
