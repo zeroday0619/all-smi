@@ -12,6 +12,22 @@ use crossterm::{
 };
 use chrono::Local;
 use std::io::{stdout, Write};
+use std::process::Command; // Command 타입 임포트
+
+fn ensure_sudo_permissions() {
+    if cfg!(target_os = "macos") {
+        // Attempt to update sudo timestamp or prompt for password
+        let status = Command::new("sudo")
+            .arg("-v")
+            .status()
+            .expect("Failed to execute sudo command");
+
+        if !status.success() {
+            println!("Failed to acquire sudo privileges.");
+            std::process::exit(1);
+        }
+    }
+}
 
 fn draw_bar<W: Write>(
     stdout: &mut W,
@@ -25,7 +41,7 @@ fn draw_bar<W: Write>(
     let text_width = show_text.as_ref().map_or(0, |text| text.len()); // Calculate text length
     let available_bar_width = width.saturating_sub(label_width + 4); // 4 for label and surrounding characters
 
-    let percentage = (value / max_value) * 100.0;
+    let _percentage = (value / max_value) * 100.0;
     let full_blocks = (value / max_value * available_bar_width as f64).floor() as usize;
     let remainder = (value / max_value * available_bar_width as f64) - full_blocks as f64;
     let filled_char = match remainder {
@@ -70,6 +86,8 @@ fn draw_bar<W: Write>(
 }
 
 fn main() {
+    ensure_sudo_permissions(); // Check for sudo permissions on macOS
+
     let gpu_readers = get_gpu_readers();
     let mut stdout = stdout();
 
@@ -115,6 +133,8 @@ fn main() {
             let total_memory_gib = info.total_memory as f64 / (1024.0 * 1024.0 * 1024.0);
             let memory_text = format!("{:.2}/{:.2}Gi", used_memory_gib, total_memory_gib);
             let gpu_percentage_text = format!("{:.2}%", info.utilization);
+            let freq_text = format!("{} MHz", info.frequency);
+            let power_text = format!("{:.2} W", info.power_consumption);
 
             execute!(
                 stdout,
@@ -137,7 +157,17 @@ fn main() {
                 Print("Temp.: "),
                 ResetColor,
                 SetForegroundColor(Color::White),
-                Print(format!("{}°C\n", info.temperature)),
+                Print(format!("{}°C  ", info.temperature)),
+                SetForegroundColor(Color::Blue),
+                Print("FREQ: "),
+                ResetColor,
+                SetForegroundColor(Color::White),
+                Print(format!("{}  ", freq_text)),
+                SetForegroundColor(Color::Blue),
+                Print("POW: "),
+                ResetColor,
+                SetForegroundColor(Color::White),
+                Print(format!("{}\n", power_text)),
                 ResetColor
             )
             .unwrap();

@@ -15,6 +15,8 @@ pub struct GpuInfo {
     pub temperature: u32,
     pub used_memory: u64,
     pub total_memory: u64,
+    pub frequency: u32,          // Added frequency field
+    pub power_consumption: f64,  // Added power consumption field
 }
 
 pub fn get_gpu_readers() -> Vec<Box<dyn GpuReader>> {
@@ -42,21 +44,8 @@ fn has_nvidia() -> bool {
     Command::new("nvidia-smi").output().is_ok()
 }
 
-/*
-fn has_amd() -> bool {
-    false
-}
-
-fn has_habana() -> bool {
-    false
-}
-
-fn has_rebellion() -> bool {
-    false 
-}
-*/
 fn is_apple_silicon() -> bool {
-    let output = std::process::Command::new("uname")
+    let output = Command::new("uname")
         .arg("-m")
         .output()
         .expect("Failed to execute uname command");
