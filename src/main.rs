@@ -95,6 +95,7 @@ fn draw_bar<W: Write>(
 }
 
 fn print_gpu_info<W: Write>(stdout: &mut W, index: usize, info: &GpuInfo, half_width: usize) {
+    let _time = &info.time; 
     let used_memory_gib = info.used_memory as f64 / (1024.0 * 1024.0 * 1024.0);
     let total_memory_gib = info.total_memory as f64 / (1024.0 * 1024.0 * 1024.0);
     let memory_text = format!("{:.2}/{:.2}Gi", used_memory_gib, total_memory_gib);
