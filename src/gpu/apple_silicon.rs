@@ -4,7 +4,20 @@ use std::process::{Command, Stdio};
 use std::io::{BufRead, BufReader};
 use std::collections::HashMap;
 
-pub struct AppleSiliconGpuReader;
+pub struct AppleSiliconGpuReader {
+    name: String,
+    driver_version: Option<String>,
+}
+
+impl AppleSiliconGpuReader {
+    pub fn new() -> Self {
+        let (name, driver_version) = get_gpu_name_and_version();
+        AppleSiliconGpuReader {
+            name,
+            driver_version,
+        }
+    }
+}
 
 impl GpuReader for AppleSiliconGpuReader {
     fn get_gpu_info(&self) -> Vec<GpuInfo> {
@@ -14,21 +27,25 @@ impl GpuReader for AppleSiliconGpuReader {
         let used_memory = get_used_memory();
 
         let current_time = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-        let name = "Apple Silicon GPU".to_string();
 
         // Get the GPU metrics from powermetrics
         let gpu_metrics = get_gpu_metrics();
 
-        let utilization = gpu_metrics.utilization.unwrap_or(0.0); // 0.0 if utilization is not available
-        let frequency = gpu_metrics.frequency.unwrap_or(0); // 0 if frequency is not available
-        let power_consumption = gpu_metrics.power_consumption.unwrap_or(0.0); // 0.0 if power consumption is not available
+        let utilization = gpu_metrics.utilization.unwrap_or(0.0);
+        let frequency = gpu_metrics.frequency.unwrap_or(0);
+        let power_consumption = gpu_metrics.power_consumption.unwrap_or(0.0);
         let mut detail = HashMap::new();
+
+        // Add driver version to detail map
+        if let Some(version) = &self.driver_version {
+            detail.insert("driver_version".to_string(), version.clone());
+        }
 
         gpu_info.push(GpuInfo {
             time: current_time,
-            name,
+            name: self.name.clone(),
             utilization,
-            temperature: 0, // Temperature not available
+            temperature: 0,
             used_memory,
             total_memory,
             frequency,
@@ -99,6 +116,31 @@ fn get_gpu_metrics() -> GpuMetrics {
         frequency,
         power_consumption,
     }
+}
+
+fn get_gpu_name_and_version() -> (String, Option<String>) {
+    let output = Command::new("system_profiler")
+        .arg("SPDisplaysDataType")
+        .output()
+        .expect("Failed to execute system_profiler command");
+
+    let output_str = String::from_utf8_lossy(&output.stdout);
+    let mut name = String::from("Apple Silicon GPU");
+    let mut driver_version: Option<String> = None;
+
+    for line in output_str.lines() {
+        if line.contains("Chipset Model:") {
+            if let Some(model_str) = line.split(':').nth(1) {
+                name = model_str.trim().to_string();
+            }
+        } else if line.contains("Metal Support:") {
+            if let Some(version_str) = line.split("Metal Support:").nth(1) {
+                driver_version = Some(version_str.trim().to_string());
+            }
+        }
+    }
+
+    (name, driver_version)
 }
 
 fn get_total_memory() -> u64 {

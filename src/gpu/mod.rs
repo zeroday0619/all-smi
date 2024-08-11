@@ -33,7 +33,7 @@ pub fn get_gpu_readers() -> Vec<Box<dyn GpuReader>> {
         },
         "macos" => {
             if is_apple_silicon() {
-                readers.push(Box::new(apple_silicon::AppleSiliconGpuReader {}));
+                readers.push(Box::new(apple_silicon::AppleSiliconGpuReader::new()));
             }
         },
         _ => println!("Unsupported OS type: {}", os_type),

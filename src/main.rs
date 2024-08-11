@@ -114,29 +114,31 @@ fn print_gpu_info<W: Write>(stdout: &mut W, index: usize, info: &GpuInfo, half_w
     let gpu_percentage_text = format!("{:.2}%", info.utilization);
     let freq_text = format!("{} MHz", info.frequency);
     let power_text = format!("{:.2} W", info.power_consumption);
-    let _time = &info.time;
+    let _time = &info.time; // Keep for other device support
 
-    let mut labels = vec![
-        (format!("DEVICE {}: ", index + 1), Color::Blue),
-        (format!("{}  ", info.name), Color::White),
-        (String::from("Total: "), Color::Blue),
-        (format!("{:.2} GiB  ", total_memory_gib), Color::White),
-        (String::from("Used: "), Color::Blue),
-        (format!("{:.2} GiB  ", used_memory_gib), Color::White),
-        (String::from("Temp.: "), Color::Blue),
-        (format!("{}°C  ", info.temperature), Color::White),
-        (String::from("FREQ: "), Color::Blue),
-        (format!("{}  ", freq_text), Color::White),
-        (String::from("POW: "), Color::Blue),
-    ];
+    let mut labels = Vec::new();
+
+    // Helper function to add a label and value pair to the labels vector
+    fn add_label(labels: &mut Vec<(String, Color)>, label: &str, value: String, label_color: Color) {
+        labels.push((label.to_string(), label_color));
+        labels.push((value, Color::White));
+    }
+
+    // Adding device, memory, temperature, frequency, and power information
+    add_label(&mut labels, &format!("DEVICE {}: ", index + 1), format!("{}  ", info.name), Color::Blue);
+    add_label(&mut labels, "Total: ", format!("{:.2} GiB  ", total_memory_gib), Color::Blue);
+    add_label(&mut labels, "Used: ", format!("{:.2} GiB  ", used_memory_gib), Color::Blue);
+    add_label(&mut labels, "Temp.: ", format!("{}°C  ", info.temperature), Color::Blue);
+    add_label(&mut labels, "FREQ: ", format!("{}  ", freq_text), Color::Blue);
+    add_label(&mut labels, "POW: ", format!("{} ", power_text), Color::Blue);
 
     // Check if driver_version exists in the detail map and add it to labels
     if let Some(driver_version) = info.detail.get("driver_version") {
-        labels.push((String::from("DRIV: "), Color::Blue));
-        labels.push((format!("{}\r\n", driver_version), Color::White));
+        add_label(&mut labels, "DRIV: ", format!("{} ", driver_version), Color::Blue);
     }
-    labels.push((format!("{}\r\n", power_text), Color::White));
-    
+
+    labels.push((String::from("\r\n"), Color::White));
+
     for (text, color) in labels {
         print_colored_text(stdout, &text, color, None, None);
     }
