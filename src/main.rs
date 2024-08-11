@@ -1,6 +1,7 @@
 mod gpu;
 
 use std::time::{Duration, Instant};
+use std::cmp::Ordering;
 use crate::gpu::{get_gpu_readers, GpuInfo, ProcessInfo};
 use crossterm::{
     cursor,
@@ -241,6 +242,21 @@ fn print_process_info<W: Write>(
     }
 }
 
+#[derive(Clone, Copy)]
+enum SortCriteria {
+    Pid,
+    Memory,
+}
+
+impl SortCriteria {
+    fn sort(&self, a: &ProcessInfo, b: &ProcessInfo) -> Ordering {
+        match self {
+            SortCriteria::Pid => a.pid.cmp(&b.pid),
+            SortCriteria::Memory => b.used_memory.cmp(&a.used_memory),
+        }
+    }
+}
+
 fn main() {
     ensure_sudo_permissions(); // Check for sudo permissions on macOS
 
@@ -257,6 +273,8 @@ fn main() {
 
     let mut selected_process_index: usize = 0;
     let mut start_index: usize = 0;
+    let mut sort_criteria = SortCriteria::Pid;
+    let (_cols, rows) = size().unwrap();
 
     loop {
         let start_time = Instant::now();
@@ -278,7 +296,12 @@ fn main() {
                         if selected_process_index < usize::MAX {
                             selected_process_index = selected_process_index.saturating_add(1);
                         }
+                        if selected_process_index >= start_index + (rows / 2) as usize {
+                            start_index += 1;
+                        }
                     }
+                    KeyCode::Char('p') => sort_criteria = SortCriteria::Pid,
+                    KeyCode::Char('m') => sort_criteria = SortCriteria::Memory,
                     _ => {}
                 }
             }
@@ -306,15 +329,17 @@ fn main() {
             }
         }
 
-        // Assuming all GPU readers implement the process list query
         let all_processes: Vec<ProcessInfo> = gpu_readers
             .iter()
             .flat_map(|reader| reader.get_process_info())
             .collect();
 
+        let mut sorted_process_info = all_processes.clone();
+        sorted_process_info.sort_by(|a, b| sort_criteria.sort(a, b));
+
         print_process_info(
             &mut stdout,
-            &all_processes,
+            &sorted_process_info,
             selected_process_index,
             start_index,
             half_rows,
@@ -325,7 +350,6 @@ fn main() {
 
         stdout.flush().unwrap(); // Ensure all output is flushed to the terminal
 
-        // Calculate elapsed time and sleep for the remaining time of the interval
         let elapsed_time = start_time.elapsed();
         let update_interval = Duration::from_secs(1);
 
@@ -334,8 +358,6 @@ fn main() {
         }
     }
 
-    // Exit alternate screen mode and restore terminal settings
     execute!(stdout, LeaveAlternateScreen).unwrap();
     disable_raw_mode().unwrap(); // Disable raw mode
 }
-       

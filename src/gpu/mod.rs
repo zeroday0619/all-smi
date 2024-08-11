@@ -22,7 +22,7 @@ pub struct GpuInfo {
     pub detail: HashMap<String, String>,  // Added detail field
 }
 
-#[derive(Debug)]
+#[derive(Clone)]
 pub struct ProcessInfo {
     pub device_id: usize,        // GPU index (internal)
     pub device_uuid: String,     // GPU UUID
