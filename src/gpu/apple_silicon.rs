@@ -1,8 +1,8 @@
-use crate::gpu::{GpuInfo, GpuReader};
+use crate::gpu::{GpuInfo, GpuReader, ProcessInfo};
 use chrono::Local;
+use std::collections::HashMap;
 use std::process::{Command, Stdio};
 use std::io::{BufRead, BufReader};
-use std::collections::HashMap;
 
 pub struct AppleSiliconGpuReader {
     name: String,
@@ -54,6 +54,49 @@ impl GpuReader for AppleSiliconGpuReader {
         });
 
         gpu_info
+    }
+
+    fn get_process_info(&self) -> Vec<ProcessInfo> {
+        let mut process_list = Vec::new();
+
+        // Using `ps` command to get process information as an example
+        let output = Command::new("ps")
+            .arg("aux")
+            .output()
+            .expect("Failed to execute ps command");
+
+        if output.status.success() {
+            let output_str = String::from_utf8_lossy(&output.stdout);
+            let lines = output_str.lines();
+
+            for line in lines.skip(1) {  // Skip the header line
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() > 10 {
+                    let pid = parts[1].parse::<u32>().unwrap_or(0);
+                    let process_name = parts[10].to_string();
+                    let used_memory = parts[5].parse::<u64>().unwrap_or(0) * 1024;  // Convert to bytes
+
+                    // For macOS, we might not have actual GPU usage, so we use hypothetical values
+                    let device_id = 0;  // Assuming single GPU setup
+                    let device_uuid = "AppleSiliconGPU".to_string();  // Example UUID
+
+                    process_list.push(ProcessInfo {
+                        device_id,
+                        device_uuid,
+                        pid,
+                        process_name,
+                        used_memory,
+                    });
+                }
+            }
+        } else {
+            eprintln!(
+                "ps command failed with status: {}",
+                output.status
+            );
+        }
+
+        process_list
     }
 }
 

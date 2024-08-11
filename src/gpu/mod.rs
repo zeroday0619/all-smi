@@ -6,6 +6,7 @@ use std::process::Command;
 
 pub trait GpuReader {
     fn get_gpu_info(&self) -> Vec<GpuInfo>;
+    fn get_process_info(&self) -> Vec<ProcessInfo>;
 }
 
 #[derive(Debug)]
@@ -19,6 +20,15 @@ pub struct GpuInfo {
     pub frequency: u32,
     pub power_consumption: f64,
     pub detail: HashMap<String, String>,  // Added detail field
+}
+
+#[derive(Debug)]
+pub struct ProcessInfo {
+    pub device_id: usize,        // GPU index (internal)
+    pub device_uuid: String,     // GPU UUID
+    pub pid: u32,                // Process ID
+    pub process_name: String,    // Process name
+    pub used_memory: u64,
 }
 
 pub fn get_gpu_readers() -> Vec<Box<dyn GpuReader>> {
