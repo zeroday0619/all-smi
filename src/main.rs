@@ -218,7 +218,7 @@ fn main() {
 
         // Calculate elapsed time and sleep for the remaining time of the interval
         let elapsed_time = start_time.elapsed();
-        let update_interval = Duration::from_secs(1.5);
+        let update_interval = Duration::from_secs(1);
 
         if elapsed_time < update_interval {
             std::thread::sleep(update_interval - elapsed_time);
