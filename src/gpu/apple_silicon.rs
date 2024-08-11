@@ -2,6 +2,7 @@ use crate::gpu::{GpuInfo, GpuReader};
 use chrono::Local;
 use std::process::{Command, Stdio};
 use std::io::{BufRead, BufReader};
+use std::collections::HashMap;
 
 pub struct AppleSiliconGpuReader;
 

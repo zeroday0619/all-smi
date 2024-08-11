@@ -116,7 +116,7 @@ fn print_gpu_info<W: Write>(stdout: &mut W, index: usize, info: &GpuInfo, half_w
     let power_text = format!("{:.2} W", info.power_consumption);
     let _time = &info.time;
 
-    let labels = vec![
+    let mut labels = vec![
         (format!("DEVICE {}: ", index + 1), Color::Blue),
         (format!("{}  ", info.name), Color::White),
         (String::from("Total: "), Color::Blue),
@@ -128,9 +128,15 @@ fn print_gpu_info<W: Write>(stdout: &mut W, index: usize, info: &GpuInfo, half_w
         (String::from("FREQ: "), Color::Blue),
         (format!("{}  ", freq_text), Color::White),
         (String::from("POW: "), Color::Blue),
-        (format!("{}\r\n", power_text), Color::White),
     ];
 
+    // Check if driver_version exists in the detail map and add it to labels
+    if let Some(driver_version) = info.detail.get("driver_version") {
+        labels.push((String::from("DRIV: "), Color::Blue));
+        labels.push((format!("{}\r\n", driver_version), Color::White));
+    }
+    labels.push((format!("{}\r\n", power_text), Color::White))
+    
     for (text, color) in labels {
         print_colored_text(stdout, &text, color, None, None);
     }
