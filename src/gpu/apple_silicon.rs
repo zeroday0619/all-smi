@@ -21,6 +21,7 @@ impl GpuReader for AppleSiliconGpuReader {
         let utilization = gpu_metrics.utilization.unwrap_or(0.0); // 0.0 if utilization is not available
         let frequency = gpu_metrics.frequency.unwrap_or(0); // 0 if frequency is not available
         let power_consumption = gpu_metrics.power_consumption.unwrap_or(0.0); // 0.0 if power consumption is not available
+        let mut detail = HashMap::new();
 
         gpu_info.push(GpuInfo {
             time: current_time,
@@ -31,6 +32,7 @@ impl GpuReader for AppleSiliconGpuReader {
             total_memory,
             frequency,
             power_consumption,
+            detail,
         });
 
         gpu_info

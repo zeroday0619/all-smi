@@ -1,6 +1,7 @@
 pub mod apple_silicon;
 pub mod nvidia;
 
+use std::collections::HashMap;
 use std::process::Command;
 
 pub trait GpuReader {
@@ -15,8 +16,9 @@ pub struct GpuInfo {
     pub temperature: u32,
     pub used_memory: u64,
     pub total_memory: u64,
-    pub frequency: u32,          // Added frequency field
-    pub power_consumption: f64,  // Added power consumption field
+    pub frequency: u32,
+    pub power_consumption: f64,
+    pub detail: HashMap<String, String>,  // Added detail field
 }
 
 pub fn get_gpu_readers() -> Vec<Box<dyn GpuReader>> {
