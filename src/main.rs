@@ -135,7 +135,7 @@ fn print_gpu_info<W: Write>(stdout: &mut W, index: usize, info: &GpuInfo, half_w
         labels.push((String::from("DRIV: "), Color::Blue));
         labels.push((format!("{}\r\n", driver_version), Color::White));
     }
-    labels.push((format!("{}\r\n", power_text), Color::White))
+    labels.push((format!("{}\r\n", power_text), Color::White));
     
     for (text, color) in labels {
         print_colored_text(stdout, &text, color, None, None);
