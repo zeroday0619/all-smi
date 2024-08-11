@@ -1,6 +1,5 @@
 mod gpu;
 
-use std::process::Command;
 use std::time::{Duration, Instant};
 use crate::gpu::{get_gpu_readers, GpuInfo, ProcessInfo};
 use crossterm::{
@@ -12,6 +11,7 @@ use crossterm::{
 };
 use chrono::Local;
 use std::io::{stdout, Write};
+use std::process::Command;
 
 fn ensure_sudo_permissions() {
     if cfg!(target_os = "macos") {
@@ -118,11 +118,13 @@ fn print_gpu_info<W: Write>(stdout: &mut W, index: usize, info: &GpuInfo, half_w
 
     let mut labels = Vec::new();
 
+    // Helper function to add a label and value pair to the labels vector
     fn add_label(labels: &mut Vec<(String, Color)>, label: &str, value: String, label_color: Color) {
         labels.push((label.to_string(), label_color));
         labels.push((value, Color::White));
     }
 
+    // Adding device, memory, temperature, frequency, and power information
     add_label(&mut labels, &format!("DEVICE {}: ", index + 1), format!("{}  ", info.name), Color::Blue);
     add_label(&mut labels, "Total: ", format!("{:.2} GiB  ", total_memory_gib), Color::Blue);
     add_label(&mut labels, "Used: ", format!("{:.2} GiB  ", used_memory_gib), Color::Blue);
@@ -130,6 +132,7 @@ fn print_gpu_info<W: Write>(stdout: &mut W, index: usize, info: &GpuInfo, half_w
     add_label(&mut labels, "FREQ: ", format!("{}  ", freq_text), Color::Blue);
     add_label(&mut labels, "POW: ", format!("{} ", power_text), Color::Blue);
 
+    // Check if driver_version exists in the detail map and add it to labels
     if let Some(driver_version) = info.detail.get("driver_version") {
         add_label(&mut labels, "DRIV: ", format!("{} ", driver_version), Color::Blue);
     }
@@ -146,47 +149,11 @@ fn print_gpu_info<W: Write>(stdout: &mut W, index: usize, info: &GpuInfo, half_w
     execute!(stdout, Print("\r\n")).unwrap(); // Move cursor to the start of the next line
 }
 
-fn print_process_list<W: Write>(
-    stdout: &mut W,
-    processes: &[ProcessInfo],
-    selected_index: usize,
-    rows: u16,
-) {
-    let header = vec!["ID", "UUID", "PID", "Process", "Memory"];
-    for column in header {
-        print_colored_text(stdout, column, Color::White, None, Some(10));
-    }
-    execute!(stdout, Print("\r\n")).unwrap();
-
-    let start_index = selected_index.saturating_sub(rows as usize / 2);
-    let end_index = (start_index + rows as usize).min(processes.len());
-
-    for (i, process) in processes[start_index..end_index].iter().enumerate() {
-        let is_selected = start_index + i == selected_index;
-        let fg_color = if is_selected { Color::Black } else { Color::White };
-        let bg_color = if is_selected { Some(Color::Green) } else { None };
-
-        let columns = vec![
-            format!("{:<10}", process.device_id),
-            format!("{:<36}", process.device_uuid),
-            format!("{:<10}", process.pid),
-            format!("{:<16}", process.process_name),
-            format!("{:<10}", process.used_memory),
-        ];
-
-        for column in columns {
-            print_colored_text(stdout, &column, fg_color, bg_color, None);
-        }
-
-        execute!(stdout, Print("\r\n")).unwrap();
-    }
-}
-
-fn print_function_keys<W: Write>(stdout: &mut W, cols: u16) {
-    let key_width = 3; 
-    let total_width = cols as usize; 
-    let min_label_width = 5; 
-    let label_width = (total_width / 10).saturating_sub(key_width).max(min_label_width); 
+fn print_function_keys<W: Write>(stdout: &mut W, cols: usize) {
+    let key_width: usize = 3; // Width for each function key label
+    let total_width: usize = cols; // Total width of the terminal
+    let min_label_width: usize = 5; // Minimum width for label text
+    let label_width = (total_width / 10).saturating_sub(key_width).max(min_label_width); // Ensure label_width is at least min_label_width
 
     let function_keys = vec!["F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10"];
 
@@ -194,11 +161,83 @@ fn print_function_keys<W: Write>(stdout: &mut W, cols: u16) {
         "Help", "", "", "", "", "", "", "", "", "Quit",
     ];
 
-    execute!(stdout, cursor::MoveTo(0, cols.saturating_sub(1) - 1)).unwrap();
+    execute!(stdout, cursor::MoveTo(0, (cols.saturating_sub(1) - 1) as u16)).unwrap();
 
     for (index, key) in function_keys.iter().enumerate() {
         print_colored_text(stdout, key, Color::White, Some(Color::Black), Some(key_width));
         print_colored_text(stdout, labels[index], Color::Black, Some(Color::Cyan), Some(label_width));
+    }
+}
+
+fn print_process_info<W: Write>(
+    stdout: &mut W,
+    processes: &[ProcessInfo],
+    selected_process_index: usize,
+    start_index: usize,
+    rows: u16,
+    cols: u16,
+) {
+    let id_width: u16 = 4;
+    let uuid_width: u16 = 30;
+    let pid_width: u16 = 8;
+    let mem_width: u16 = 12;
+    let process_width: u16 = cols - id_width - uuid_width - pid_width - mem_width - 2;
+
+    // Print the header
+    execute!(stdout, cursor::MoveTo(0, rows)).unwrap();
+    let header = format!(
+        "{:<id_width$}{:<uuid_width$}{:<pid_width$}{:<process_width$}{:<mem_width$}",
+        "ID", "UUID", "PID", "Process", "Memory",
+        id_width = id_width as usize,
+        uuid_width = uuid_width as usize,
+        pid_width = pid_width as usize,
+        process_width = process_width as usize,
+        mem_width = mem_width as usize,
+    );
+    print_colored_text(stdout, &header, Color::Black, Some(Color::Green), None);
+
+    // Print each process
+    for (i, process) in processes.iter().enumerate().skip(start_index).take((rows as usize) / 2) {
+        let uuid_display = if process.device_uuid.len() > uuid_width as usize {
+            &process.device_uuid[..uuid_width as usize]
+        } else {
+            &process.device_uuid
+        };
+
+        let process_display = if process.process_name.len() > process_width as usize {
+            &process.process_name[..process_width as usize]
+        } else {
+            &process.process_name
+        };
+
+        let row = format!(
+            "{:<id_width$}{:<uuid_width$}{:<pid_width$}{:<process_width$}{:<mem_width$}",
+            process.device_id.to_string(),
+            uuid_display,
+            process.pid.to_string(),
+            process_display,
+            format!("{:.2} MiB", process.used_memory as f64 / (1024.0 * 1024.0)),
+            id_width = id_width as usize,
+            uuid_width = uuid_width as usize,
+            pid_width = pid_width as usize,
+            process_width = process_width as usize,
+            mem_width = mem_width as usize,
+        );
+
+        let fg_color = if i == selected_process_index {
+            Color::Black
+        } else {
+            Color::White
+        };
+
+        let bg_color = if i == selected_process_index {
+            Some(Color::Cyan)
+        } else {
+            None
+        };
+
+        execute!(stdout, cursor::MoveTo(0, rows + 1 + i as u16)).unwrap();
+        print_colored_text(stdout, &row, fg_color, bg_color, None);
     }
 }
 
@@ -207,7 +246,6 @@ fn main() {
 
     let gpu_readers = get_gpu_readers();
     let mut stdout = stdout();
-    let mut selected_process_index: usize = 0; // Define the type as usize
 
     enable_raw_mode().unwrap(); // Enable raw mode to prevent key echo
     execute!(
@@ -216,6 +254,9 @@ fn main() {
         terminal::Clear(ClearType::All)
     )
     .unwrap();
+
+    let mut selected_process_index: usize = 0;
+    let mut start_index: usize = 0;
 
     loop {
         let start_time = Instant::now();
@@ -229,9 +270,14 @@ fn main() {
                         if selected_process_index > 0 {
                             selected_process_index -= 1;
                         }
+                        if selected_process_index < start_index {
+                            start_index -= 1;
+                        }
                     }
                     KeyCode::Down => {
-                        selected_process_index = selected_process_index.saturating_add(1);
+                        if selected_process_index < usize::MAX {
+                            selected_process_index = selected_process_index.saturating_add(1);
+                        }
                     }
                     _ => {}
                 }
@@ -245,7 +291,7 @@ fn main() {
 
         let (cols, rows) = size().unwrap();
         let half_width = (cols / 2 - 2) as usize;
-        let half_height = rows / 2;
+        let half_rows = rows / 2;
 
         let all_gpu_info: Vec<GpuInfo> = gpu_readers
             .iter()
@@ -260,15 +306,22 @@ fn main() {
             }
         }
 
+        // Assuming all GPU readers implement the process list query
         let all_processes: Vec<ProcessInfo> = gpu_readers
             .iter()
             .flat_map(|reader| reader.get_process_info())
             .collect();
 
-        execute!(stdout, cursor::MoveTo(0, half_height)).unwrap();
-        print_process_list(&mut stdout, &all_processes, selected_process_index, half_height);
+        print_process_info(
+            &mut stdout,
+            &all_processes,
+            selected_process_index,
+            start_index,
+            half_rows,
+            cols,
+        );
 
-        print_function_keys(&mut stdout, cols);
+        print_function_keys(&mut stdout, cols as usize);
 
         stdout.flush().unwrap(); // Ensure all output is flushed to the terminal
 
@@ -285,3 +338,4 @@ fn main() {
     execute!(stdout, LeaveAlternateScreen).unwrap();
     disable_raw_mode().unwrap(); // Disable raw mode
 }
+       
