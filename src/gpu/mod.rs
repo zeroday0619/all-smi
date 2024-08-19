@@ -4,10 +4,35 @@ pub mod nvidia;
 use std::collections::HashMap;
 use std::process::Command;
 
+// GpuReader 트레이트
 pub trait GpuReader {
     fn get_gpu_info(&self) -> Vec<GpuInfo>;
     fn get_process_info(&self) -> Vec<ProcessInfo>;
 }
+
+// GpuReader 트레이트를 구현하는 구조체
+pub struct GpuReaderWrapper {
+    reader: Box<dyn GpuReader>,
+}
+
+impl GpuReaderWrapper {
+    pub fn new(reader: Box<dyn GpuReader>) -> Self {
+        GpuReaderWrapper { reader }
+    }
+}
+
+impl GpuReader for GpuReaderWrapper {
+    fn get_gpu_info(&self) -> Vec<GpuInfo> {
+        self.reader.get_gpu_info()
+    }
+
+    fn get_process_info(&self) -> Vec<ProcessInfo> {
+        self.reader.get_process_info()
+    }
+}
+
+// Send 트레이트 구현
+unsafe impl Send for GpuReaderWrapper {}
 
 #[derive(Debug)]
 pub struct GpuInfo {
@@ -31,19 +56,19 @@ pub struct ProcessInfo {
     pub used_memory: u64,
 }
 
-pub fn get_gpu_readers() -> Vec<Box<dyn GpuReader>> {
-    let mut readers: Vec<Box<dyn GpuReader>> = Vec::new();
+pub fn get_gpu_readers() -> Vec<GpuReaderWrapper> {
+    let mut readers: Vec<GpuReaderWrapper> = Vec::new();
     let os_type = std::env::consts::OS;
 
     match os_type {
         "linux" => {
             if has_nvidia() {
-                readers.push(Box::new(nvidia::NvidiaGpuReader {}));
+                readers.push(GpuReaderWrapper::new(Box::new(nvidia::NvidiaGpuReader {})));
             }
         },
         "macos" => {
             if is_apple_silicon() {
-                readers.push(Box::new(apple_silicon::AppleSiliconGpuReader::new()));
+                readers.push(GpuReaderWrapper::new(Box::new(apple_silicon::AppleSiliconGpuReader::new())));
             }
         },
         _ => println!("Unsupported OS type: {}", os_type),

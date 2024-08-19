@@ -2,6 +2,8 @@ mod gpu;
 
 use std::time::{Duration, Instant};
 use std::cmp::Ordering;
+use std::sync::{Arc, Mutex};
+use std::thread;
 use crate::gpu::{get_gpu_readers, GpuInfo, ProcessInfo};
 use crossterm::{
     cursor,
@@ -13,6 +15,9 @@ use crossterm::{
 use chrono::Local;
 use std::io::{stdout, Write};
 use std::process::Command;
+
+// GpuReader 트레이트를 가져옵니다.
+use crate::gpu::GpuReader;
 
 fn ensure_sudo_permissions() {
     if cfg!(target_os = "macos") {
@@ -260,7 +265,6 @@ impl SortCriteria {
 fn main() {
     ensure_sudo_permissions(); // Check for sudo permissions on macOS
 
-    let gpu_readers = get_gpu_readers();
     let mut stdout = stdout();
 
     enable_raw_mode().unwrap(); // Enable raw mode to prevent key echo
@@ -276,11 +280,44 @@ fn main() {
     let mut sort_criteria = SortCriteria::Pid;
     let (_cols, rows) = size().unwrap();
 
+    // GPU 정보와 프로세스 정보를 저장할 공간
+    let gpu_info = Arc::new(Mutex::new(Vec::<GpuInfo>::new()));
+    let process_info = Arc::new(Mutex::new(Vec::<ProcessInfo>::new()));
+
+    // GPU 정보와 프로세스 정보를 업데이트하는 스레드 생성
+    let gpu_info_clone = gpu_info.clone();
+    let process_info_clone = process_info.clone();
+    let gpu_readers = Arc::new(Mutex::new(get_gpu_readers()));
+    let update_thread = thread::spawn(move || {
+        loop {
+            let mut gpu_info_lock = gpu_info_clone.lock().unwrap();
+            let mut process_info_lock = process_info_clone.lock().unwrap();
+            let gpu_readers_lock = gpu_readers.lock().unwrap();
+
+            // GPU 정보 업데이트
+            *gpu_info_lock = gpu_readers_lock
+                .iter()
+                .flat_map(|reader| reader.get_gpu_info())
+                .collect();
+
+            // 프로세스 정보 업데이트
+            *process_info_lock = gpu_readers_lock
+                .iter()
+                .flat_map(|reader| reader.get_process_info())
+                .collect();
+
+            // 500밀리초마다 업데이트
+            thread::sleep(Duration::from_millis(2000));
+        }
+    });
+
     loop {
         let start_time = Instant::now();
 
-        if event::poll(Duration::from_millis(100)).unwrap() {
-            if let Event::Key(key_event) = event::read().unwrap() {
+        // 키 입력을 비블로킹 방식으로 확인
+        if event::poll(Duration::from_millis(10)).unwrap() {
+            // 키 입력을 처리합니다.
+            if let Ok(Event::Key(key_event)) = event::read() {
                 match key_event.code {
                     KeyCode::Esc | KeyCode::F(10) => break,
                     KeyCode::Char(c) if c.to_ascii_lowercase() == 'q' => break,
@@ -316,25 +353,19 @@ fn main() {
         let half_width = (cols / 2 - 2) as usize;
         let half_rows = rows / 2;
 
-        let all_gpu_info: Vec<GpuInfo> = gpu_readers
-            .iter()
-            .flat_map(|reader| reader.get_gpu_info())
-            .collect();
-
-        for (index, info) in all_gpu_info.iter().enumerate() {
+        // GPU 정보 출력
+        let gpu_info_lock = gpu_info.lock().unwrap();
+        for (index, info) in gpu_info_lock.iter().enumerate() {
             print_gpu_info(&mut stdout, index, info, half_width);
 
-            if index < all_gpu_info.len() - 1 {
+            if index < gpu_info_lock.len() - 1 {
                 execute!(stdout, Print("\r\n")).unwrap();
             }
         }
 
-        let all_processes: Vec<ProcessInfo> = gpu_readers
-            .iter()
-            .flat_map(|reader| reader.get_process_info())
-            .collect();
-
-        let mut sorted_process_info = all_processes.clone();
+        // 프로세스 정보 출력
+        let process_info_lock = process_info.lock().unwrap();
+        let mut sorted_process_info = process_info_lock.clone();
         sorted_process_info.sort_by(|a, b| sort_criteria.sort(a, b));
 
         print_process_info(
@@ -351,12 +382,15 @@ fn main() {
         stdout.flush().unwrap(); // Ensure all output is flushed to the terminal
 
         let elapsed_time = start_time.elapsed();
-        let update_interval = Duration::from_secs(1);
+        let update_interval = Duration::from_millis(500); // 100밀리초마다 업데이트
 
         if elapsed_time < update_interval {
             std::thread::sleep(update_interval - elapsed_time);
         }
     }
+
+    // 스레드 종료
+    update_thread.join().unwrap();
 
     execute!(stdout, LeaveAlternateScreen).unwrap();
     disable_raw_mode().unwrap(); // Disable raw mode
