@@ -1,6 +1,8 @@
 mod gpu;
 
-use std::time::{Duration, Instant};
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::{Duration};
 use std::cmp::Ordering;
 use crate::gpu::{get_gpu_readers, GpuInfo, ProcessInfo};
 use crossterm::{
@@ -13,6 +15,26 @@ use crossterm::{
 use chrono::Local;
 use std::io::{stdout, Write};
 use std::process::Command;
+
+struct AppState {
+    gpu_info: Vec<GpuInfo>,
+    process_info: Vec<ProcessInfo>,
+    selected_process_index: usize,
+    start_index: usize,
+    sort_criteria: SortCriteria,
+}
+
+impl AppState {
+    fn new() -> Self {
+        AppState {
+            gpu_info: Vec::new(),
+            process_info: Vec::new(),
+            selected_process_index: 0,
+            start_index: 0,
+            sort_criteria: SortCriteria::Pid,
+        }
+    }
+}
 
 fn ensure_sudo_permissions() {
     if cfg!(target_os = "macos") {
@@ -197,8 +219,16 @@ fn print_process_info<W: Write>(
     );
     print_colored_text(stdout, &header, Color::Black, Some(Color::Green), None);
 
+    let available_rows = rows.saturating_sub(1);
+
     // Print each process
-    for (i, process) in processes.iter().enumerate().skip(start_index).take((rows as usize) / 2) {
+    for (i, process) in processes
+        .iter()
+        .skip(start_index)
+        .enumerate()
+        .take(available_rows as usize)
+    {
+        let global_index = start_index + i;
         let uuid_display = if process.device_uuid.len() > uuid_width as usize {
             &process.device_uuid[..uuid_width as usize]
         } else {
@@ -225,13 +255,13 @@ fn print_process_info<W: Write>(
             mem_width = mem_width as usize,
         );
 
-        let fg_color = if i == selected_process_index {
+        let fg_color = if global_index == selected_process_index {
             Color::Black
         } else {
             Color::White
         };
 
-        let bg_color = if i == selected_process_index {
+        let bg_color = if global_index == selected_process_index {
             Some(Color::Cyan)
         } else {
             None
@@ -258,12 +288,35 @@ impl SortCriteria {
 }
 
 fn main() {
-    ensure_sudo_permissions(); // Check for sudo permissions on macOS
+    ensure_sudo_permissions();
 
-    let gpu_readers = get_gpu_readers();
+    let app_state = Arc::new(Mutex::new(AppState::new()));
+    let app_state_clone = Arc::clone(&app_state);
+
+    thread::spawn(move || {
+        let gpu_readers = get_gpu_readers();
+        loop {
+            let all_gpu_info: Vec<GpuInfo> = gpu_readers
+                .iter()
+                .flat_map(|reader| reader.get_gpu_info())
+                .collect();
+
+            let all_processes: Vec<ProcessInfo> = gpu_readers
+                .iter()
+                .flat_map(|reader| reader.get_process_info())
+                .collect();
+
+            let mut state = app_state_clone.lock().unwrap();
+            state.gpu_info = all_gpu_info;
+            state.process_info = all_processes;
+            
+            drop(state);
+            thread::sleep(Duration::from_secs(2));
+        }
+    });
+
     let mut stdout = stdout();
-
-    enable_raw_mode().unwrap(); // Enable raw mode to prevent key echo
+    enable_raw_mode().unwrap();
     execute!(
         stdout,
         EnterAlternateScreen,
@@ -271,93 +324,70 @@ fn main() {
     )
     .unwrap();
 
-    let mut selected_process_index: usize = 0;
-    let mut start_index: usize = 0;
-    let mut sort_criteria = SortCriteria::Pid;
-    let (_cols, rows) = size().unwrap();
-
     loop {
-        let start_time = Instant::now();
-
-        if event::poll(Duration::from_millis(100)).unwrap() {
+        if event::poll(Duration::from_millis(50)).unwrap() {
             if let Event::Key(key_event) = event::read().unwrap() {
+                let mut state = app_state.lock().unwrap();
                 match key_event.code {
-                    KeyCode::Esc | KeyCode::F(10) => break,
-                    KeyCode::Char(c) if c.to_ascii_lowercase() == 'q' => break,
+                    KeyCode::Esc | KeyCode::F(10) | KeyCode::Char('q') => break,
                     KeyCode::Up => {
-                        if selected_process_index > 0 {
-                            selected_process_index -= 1;
+                        if state.selected_process_index > 0 {
+                            state.selected_process_index -= 1;
                         }
-                        if selected_process_index < start_index {
-                            start_index -= 1;
+                        if state.selected_process_index < state.start_index {
+                            state.start_index = state.selected_process_index;
                         }
                     }
                     KeyCode::Down => {
-                        if selected_process_index < usize::MAX {
-                            selected_process_index = selected_process_index.saturating_add(1);
+                        if state.selected_process_index < state.process_info.len() - 1 {
+                            state.selected_process_index += 1;
                         }
-                        if selected_process_index >= start_index + (rows / 2) as usize {
-                            start_index += 1;
+                        let (_cols, rows) = size().unwrap();
+                        let half_rows = rows / 2;
+                        let visible_process_rows = half_rows.saturating_sub(1) as usize;
+                        if state.selected_process_index >= state.start_index + visible_process_rows {
+                            state.start_index = state.selected_process_index - visible_process_rows + 1;
                         }
                     }
-                    KeyCode::Char('p') => sort_criteria = SortCriteria::Pid,
-                    KeyCode::Char('m') => sort_criteria = SortCriteria::Memory,
+                    KeyCode::Char('p') => state.sort_criteria = SortCriteria::Pid,
+                    KeyCode::Char('m') => state.sort_criteria = SortCriteria::Memory,
                     _ => {}
                 }
             }
         }
 
-        execute!(stdout, cursor::MoveTo(0, 0)).unwrap();
-
-        let current_time = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-        print_colored_text(&mut stdout, &format!("{}\r\n", current_time), Color::White, None, None);
-
+        let state = app_state.lock().unwrap();
         let (cols, rows) = size().unwrap();
         let half_width = (cols / 2 - 2) as usize;
         let half_rows = rows / 2;
 
-        let all_gpu_info: Vec<GpuInfo> = gpu_readers
-            .iter()
-            .flat_map(|reader| reader.get_gpu_info())
-            .collect();
+        execute!(stdout, cursor::MoveTo(0, 0)).unwrap();
+        let current_time = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        print_colored_text(&mut stdout, &format!("{}\r\n", current_time), Color::White, None, None);
 
-        for (index, info) in all_gpu_info.iter().enumerate() {
+        for (index, info) in state.gpu_info.iter().enumerate() {
             print_gpu_info(&mut stdout, index, info, half_width);
-
-            if index < all_gpu_info.len() - 1 {
+            if index < state.gpu_info.len() - 1 {
                 execute!(stdout, Print("\r\n")).unwrap();
             }
         }
 
-        let all_processes: Vec<ProcessInfo> = gpu_readers
-            .iter()
-            .flat_map(|reader| reader.get_process_info())
-            .collect();
-
-        let mut sorted_process_info = all_processes.clone();
-        sorted_process_info.sort_by(|a, b| sort_criteria.sort(a, b));
+        let mut sorted_process_info = state.process_info.clone();
+        sorted_process_info.sort_by(|a, b| state.sort_criteria.sort(a, b));
 
         print_process_info(
             &mut stdout,
             &sorted_process_info,
-            selected_process_index,
-            start_index,
+            state.selected_process_index,
+            state.start_index,
             half_rows,
             cols,
         );
 
         print_function_keys(&mut stdout, cols as usize);
-
-        stdout.flush().unwrap(); // Ensure all output is flushed to the terminal
-
-        let elapsed_time = start_time.elapsed();
-        let update_interval = Duration::from_secs(1);
-
-        if elapsed_time < update_interval {
-            std::thread::sleep(update_interval - elapsed_time);
-        }
+        stdout.flush().unwrap();
     }
 
     execute!(stdout, LeaveAlternateScreen).unwrap();
-    disable_raw_mode().unwrap(); // Disable raw mode
+    disable_raw_mode().unwrap();
 }
