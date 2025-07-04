@@ -130,7 +130,7 @@ fn draw_bar<W: Write>(
     queue!(stdout, Print("] ")).unwrap();
 }
 
-fn print_gpu_info<W: Write>(stdout: &mut W, index: usize, info: &GpuInfo, half_width: usize) {
+fn print_gpu_info<W: Write>(stdout: &mut W, index: usize, info: &GpuInfo, width: usize) {
     const GIB_DIVISOR: f64 = 1024.0 * 1024.0 * 1024.0;
 
     let used_memory_gib = info.used_memory as f64 / GIB_DIVISOR;
@@ -164,12 +164,20 @@ fn print_gpu_info<W: Write>(stdout: &mut W, index: usize, info: &GpuInfo, half_w
 
     labels.push((String::from("\r\n"), Color::White));
 
+    let ane_percentage_text = format!("{:.2}W", info.ane_utilization / 1000.0);
+
     for (text, color) in labels {
         print_colored_text(stdout, &text, color, None, None);
     }
 
-    draw_bar(stdout, "GPU", info.utilization, 100.0, half_width, Some(gpu_percentage_text));
-    draw_bar(stdout, "MEM", used_memory_gib, total_memory_gib, half_width, Some(memory_text));
+    // The overflow is 2 characters per bar.
+    let w1 = (width / 3).saturating_sub(2);
+    let w2 = (width / 3).saturating_sub(2);
+    let w3 = (width - (width / 3) * 2).saturating_sub(2);
+
+    draw_bar(stdout, "GPU", info.utilization, 100.0, w1, Some(gpu_percentage_text));
+    draw_bar(stdout, "ANE", info.ane_utilization, 1000.0, w2, Some(ane_percentage_text));
+    draw_bar(stdout, "MEM", used_memory_gib, total_memory_gib, w3, Some(memory_text));
 
     queue!(stdout, Print("\r\n")).unwrap(); // Move cursor to the start of the next line
 }
@@ -414,14 +422,14 @@ fn main() {
             print_function_keys(&mut stdout, cols, rows);
             print_loading_indicator(&mut stdout, cols, rows);
         } else {
-            let half_width = (cols / 2 - 2) as usize;
+            let width = cols as usize;
             let half_rows = rows / 2;
 
             let current_time = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
             print_colored_text(&mut stdout, &format!("{}\r\n", current_time), Color::White, None, None);
 
             for (index, info) in state.gpu_info.iter().enumerate() {
-                print_gpu_info(&mut stdout, index, info, half_width);
+                print_gpu_info(&mut stdout, index, info, width);
                 if index < state.gpu_info.len() - 1 {
                     queue!(stdout, Print("\r\n")).unwrap();
                 }

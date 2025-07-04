@@ -41,6 +41,7 @@ impl GpuReader for NvidiaGpuReader {
                             time,
                             name,
                             utilization,
+                            ane_utilization: 0.0,
                             temperature,
                             used_memory,
                             total_memory,

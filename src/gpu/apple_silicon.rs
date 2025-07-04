@@ -32,6 +32,7 @@ impl GpuReader for AppleSiliconGpuReader {
         let gpu_metrics = get_gpu_metrics();
 
         let utilization = gpu_metrics.utilization.unwrap_or(0.0);
+        let ane_utilization = gpu_metrics.ane_utilization.unwrap_or(0.0);
         let frequency = gpu_metrics.frequency.unwrap_or(0);
         let power_consumption = gpu_metrics.power_consumption.unwrap_or(0.0);
         let mut detail = HashMap::new();
@@ -45,6 +46,7 @@ impl GpuReader for AppleSiliconGpuReader {
             time: current_time,
             name: self.name.clone(),
             utilization,
+            ane_utilization,
             temperature: 0,
             used_memory,
             total_memory,
@@ -102,6 +104,7 @@ impl GpuReader for AppleSiliconGpuReader {
 
 struct GpuMetrics {
     utilization: Option<f64>,
+    ane_utilization: Option<f64>,
     frequency: Option<u32>,
     power_consumption: Option<f64>,
 }
@@ -114,7 +117,7 @@ fn get_gpu_metrics() -> GpuMetrics {
         .arg("-i")
         .arg("1000")
         .arg("--samplers")
-        .arg("gpu_power")
+        .arg("gpu_power,ane_power")
         .stdout(Stdio::piped())
         .output()
         .expect("Failed to execute powermetrics");
@@ -122,6 +125,7 @@ fn get_gpu_metrics() -> GpuMetrics {
     let reader = BufReader::new(output.stdout.as_slice());
 
     let mut utilization: Option<f64> = None;
+    let mut ane_utilization: Option<f64> = None;
     let mut frequency: Option<u32> = None;
     let mut power_consumption: Option<f64> = None;
 
@@ -137,6 +141,10 @@ fn get_gpu_metrics() -> GpuMetrics {
                         .trim_end_matches('%')
                         .parse::<f64>()
                         .ok();
+                }
+            } else if line.contains("ANE Power:") {
+                if let Some(power_str) = line.split(':').nth(1) {
+                    ane_utilization = power_str.trim().split_whitespace().next().unwrap_or("0").parse::<f64>().ok();
                 }
             } else if line.contains("GPU HW active frequency:") {
                 if let Some(freq_str) = line.split(':').nth(1) {
@@ -156,6 +164,7 @@ fn get_gpu_metrics() -> GpuMetrics {
 
     GpuMetrics {
         utilization,
+        ane_utilization,
         frequency,
         power_consumption,
     }
