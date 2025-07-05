@@ -1,5 +1,6 @@
 pub mod apple_silicon;
 pub mod nvidia;
+pub mod nvidia_jetson;
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -12,9 +13,11 @@ pub trait GpuReader: Send {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct GpuInfo {
+    pub uuid: String,
     pub time: String,
     pub name: String,
     pub hostname: String,
+    pub instance: String,
     pub utilization: f64,
     pub ane_utilization: f64,
     pub temperature: u32,
@@ -40,7 +43,9 @@ pub fn get_gpu_readers() -> Vec<Box<dyn GpuReader>> {
 
     match os_type {
         "linux" => {
-            if has_nvidia() {
+            if is_jetson() {
+                readers.push(Box::new(nvidia_jetson::NvidiaJetsonGpuReader {}));
+            } else if has_nvidia() {
                 readers.push(Box::new(nvidia::NvidiaGpuReader {}));
             }
         }
@@ -57,6 +62,12 @@ pub fn get_gpu_readers() -> Vec<Box<dyn GpuReader>> {
 
 fn has_nvidia() -> bool {
     Command::new("nvidia-smi").output().is_ok()
+}
+
+fn is_jetson() -> bool {
+    // A simple way to check for a Jetson device is to look for a specific file
+    // in the /sys/class directory. This is not foolproof, but it's a good start.
+    std::path::Path::new("/sys/devices/platform/tegra-soc/gpu.0/load").exists()
 }
 
 fn is_apple_silicon() -> bool {

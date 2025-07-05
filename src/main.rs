@@ -740,11 +740,13 @@ async fn run_view_mode(args: &ViewArgs) {
                                         labels.get("gpu").cloned().unwrap_or_default();
                                     let gpu_info =
                                         gpu_info_map.entry(gpu_name.clone()).or_insert(GpuInfo {
+                                            uuid: labels.get("uuid").cloned().unwrap_or_default(),
                                             time: Local::now()
                                                 .format("%Y-%m-%d %H:%M:%S")
                                                 .to_string(),
                                             name: gpu_name,
-                                            hostname: host.clone(),
+                                            hostname: host.split(':').next().unwrap_or_default().to_string(),
+                                            instance: host.clone(),
                                             utilization: 0.0,
                                             ane_utilization: 0.0,
                                             temperature: 0,
@@ -1095,8 +1097,8 @@ async fn metrics_handler(State(state): State<SharedState>) -> String {
         ));
         metrics.push_str(&format!("# TYPE all_smi_gpu_utilization gauge\n"));
         metrics.push_str(&format!(
-            "all_smi_gpu_utilization{{gpu=\"{}\", hostname=\"{}\", index=\"{}\"}} {}\n",
-            info.name, info.hostname, i, info.utilization
+            "all_smi_gpu_utilization{{gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"}} {}\n",
+            info.name, info.instance, info.uuid, i, info.utilization
         ));
 
         metrics.push_str(&format!(
@@ -1104,8 +1106,8 @@ async fn metrics_handler(State(state): State<SharedState>) -> String {
         ));
         metrics.push_str(&format!("# TYPE all_smi_gpu_memory_used_bytes gauge\n"));
         metrics.push_str(&format!(
-            "all_smi_gpu_memory_used_bytes{{gpu=\"{}\", hostname=\"{}\", index=\"{}\"}} {}\n",
-            info.name, info.hostname, i, info.used_memory
+            "all_smi_gpu_memory_used_bytes{{gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"}} {}\n",
+            info.name, info.instance, info.uuid, i, info.used_memory
         ));
 
         metrics.push_str(&format!(
@@ -1113,8 +1115,8 @@ async fn metrics_handler(State(state): State<SharedState>) -> String {
         ));
         metrics.push_str(&format!("# TYPE all_smi_gpu_memory_total_bytes gauge\n"));
         metrics.push_str(&format!(
-            "all_smi_gpu_memory_total_bytes{{gpu=\"{}\", hostname=\"{}\", index=\"{}\"}} {}\n",
-            info.name, info.hostname, i, info.total_memory
+            "all_smi_gpu_memory_total_bytes{{gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"}} {}\n",
+            info.name, info.instance, info.uuid, i, info.total_memory
         ));
 
         metrics.push_str(&format!(
@@ -1124,8 +1126,8 @@ async fn metrics_handler(State(state): State<SharedState>) -> String {
             "# TYPE all_smi_gpu_temperature_celsius gauge\n"
         ));
         metrics.push_str(&format!(
-            "all_smi_gpu_temperature_celsius{{gpu=\"{}\", hostname=\"{}\", index=\"{}\"}} {}\n",
-            info.name, info.hostname, i, info.temperature
+            "all_smi_gpu_temperature_celsius{{gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"}} {}\n",
+            info.name, info.instance, info.uuid, i, info.temperature
         ));
 
         metrics.push_str(&format!(
@@ -1135,8 +1137,8 @@ async fn metrics_handler(State(state): State<SharedState>) -> String {
             "# TYPE all_smi_gpu_power_consumption_watts gauge\n"
         ));
         metrics.push_str(&format!(
-            "all_smi_gpu_power_consumption_watts{{gpu=\"{}\", hostname=\"{}\", index=\"{}\"}} {}\n",
-            info.name, info.hostname, i, info.power_consumption
+            "all_smi_gpu_power_consumption_watts{{gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"}} {}\n",
+            info.name, info.instance, info.uuid, i, info.power_consumption
         ));
 
         metrics.push_str(&format!(
@@ -1144,8 +1146,8 @@ async fn metrics_handler(State(state): State<SharedState>) -> String {
         ));
         metrics.push_str(&format!("# TYPE all_smi_gpu_frequency_mhz gauge\n"));
         metrics.push_str(&format!(
-            "all_smi_gpu_frequency_mhz{{gpu=\"{}\", hostname=\"{}\", index=\"{}\"}} {}\n",
-            info.name, info.hostname, i, info.frequency
+            "all_smi_gpu_frequency_mhz{{gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"}} {}\n",
+            info.name, info.instance, info.uuid, i, info.frequency
         ));
 
         metrics.push_str(&format!(
@@ -1153,9 +1155,10 @@ async fn metrics_handler(State(state): State<SharedState>) -> String {
         ));
         metrics.push_str(&format!("# TYPE all_smi_ane_utilization gauge\n"));
         metrics.push_str(&format!(
-            "all_smi_ane_utilization{{gpu=\"{}\", hostname=\"{}\", index=\"{}\"}} {}\n",
+            "all_smi_ane_utilization{{gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"}} {}\n",
             info.name,
-            info.hostname,
+            info.instance,
+            info.uuid,
             i,
             info.ane_utilization / 1000.0
         ));

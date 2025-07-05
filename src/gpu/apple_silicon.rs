@@ -43,9 +43,11 @@ impl GpuReader for AppleSiliconGpuReader {
         }
 
         gpu_info.push(GpuInfo {
+            uuid: "AppleSiliconGPU".to_string(),
             time: current_time,
             name: self.name.clone(),
             hostname: get_hostname(),
+            instance: get_hostname(),
             utilization,
             ane_utilization,
             temperature: gpu_metrics.thermal_pressure.unwrap_or(0),

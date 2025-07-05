@@ -20,7 +20,7 @@ impl GpuReader for NvidiaGpuReader {
         // Execute the nvidia-smi command to get GPU information, including driver version
         let output = Command::new("nvidia-smi")
             .arg("--format=csv,noheader,nounits")
-            .arg("--query-gpu=driver_version,name,utilization.gpu,temperature.gpu,memory.used,memory.total,clocks.current.graphics,power.draw")
+            .arg("--query-gpu=uuid,driver_version,name,utilization.gpu,temperature.gpu,memory.used,memory.total,clocks.current.graphics,power.draw")
             .output();
 
         if let Ok(output) = output {
@@ -30,24 +30,27 @@ impl GpuReader for NvidiaGpuReader {
 
                 for line in lines {
                     let parts: Vec<&str> = line.trim().split(',').collect();
-                    if parts.len() == 8 {
+                    if parts.len() == 9 {
                         let time = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-                        let driver_version = parts[0].trim().to_string();
-                        let name = parts[1].trim().to_string();
-                        let utilization = f64::from_str(parts[2].trim()).unwrap_or(0.0);
-                        let temperature = u32::from_str(parts[3].trim()).unwrap_or(0);
-                        let used_memory = u64::from_str(parts[4].trim()).unwrap_or(0) * 1024 * 1024; // Convert MiB to bytes
-                        let total_memory = u64::from_str(parts[5].trim()).unwrap_or(0) * 1024 * 1024; // Convert MiB to bytes
-                        let frequency = u32::from_str(parts[6].trim()).unwrap_or(0); // Frequency in MHz
-                        let power_consumption = f64::from_str(parts[7].trim()).unwrap_or(0.0); // Power consumption in W
+                        let uuid = parts[0].trim().to_string();
+                        let driver_version = parts[1].trim().to_string();
+                        let name = parts[2].trim().to_string();
+                        let utilization = f64::from_str(parts[3].trim()).unwrap_or(0.0);
+                        let temperature = u32::from_str(parts[4].trim()).unwrap_or(0);
+                        let used_memory = u64::from_str(parts[5].trim()).unwrap_or(0) * 1024 * 1024; // Convert MiB to bytes
+                        let total_memory = u64::from_str(parts[6].trim()).unwrap_or(0) * 1024 * 1024; // Convert MiB to bytes
+                        let frequency = u32::from_str(parts[7].trim()).unwrap_or(0); // Frequency in MHz
+                        let power_consumption = f64::from_str(parts[8].trim()).unwrap_or(0.0); // Power consumption in W
 
                         let mut detail = HashMap::new();
                         detail.insert("driver_version".to_string(), driver_version);
 
                         gpu_info.push(GpuInfo {
+                            uuid,
                             time,
                             name,
                             hostname: get_hostname(),
+                            instance: get_hostname(),
                             utilization,
                             ane_utilization: 0.0,
                             temperature,
