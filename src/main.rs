@@ -31,12 +31,68 @@ use sysinfo::Disks;
 
 use crate::gpu::{get_gpu_readers, GpuInfo, ProcessInfo};
 
+fn get_hostname() -> String {
+    let output = Command::new("hostname")
+        .output()
+        .expect("Failed to execute hostname command");
+    String::from_utf8_lossy(&output.stdout).trim().to_string()
+}
+
+// Filter out unnecessary disk partitions
+fn should_include_disk(mount_point: &str) -> bool {
+    // Exclude common system partitions that don't need monitoring
+    let excluded_patterns = [
+        "/System/Volumes/Data",  // macOS system partition
+        "/System/Volumes/VM",    // macOS VM partition
+        "/System/Volumes/Preboot", // macOS preboot partition
+        "/System/Volumes/Update", // macOS update partition
+        "/System/Volumes/xarts", // macOS xarts partition
+        "/System/Volumes/iSCPreboot", // macOS iSC preboot partition
+        "/System/Volumes/Hardware", // macOS hardware partition
+        "/System/Volumes/Data/home", // macOS auto_home mount
+        "/boot/efi",             // Linux EFI boot partition
+        "/boot",                 // Linux boot partition
+        "/dev",                  // Device filesystem
+        "/proc",                 // Process filesystem
+        "/sys",                  // System filesystem
+        "/run",                  // Runtime filesystem
+        "/snap/",                // Snap package mounts
+        "/var/lib/docker/",      // Docker overlay mounts
+    ];
+    
+    for pattern in &excluded_patterns {
+        if mount_point.starts_with(pattern) {
+            return false;
+        }
+    }
+    
+    // Include root filesystem and /Volumes/ mounts (external drives, etc.)
+    // Exclude temporary filesystems and virtual filesystems
+    if mount_point == "/" {
+        return true;
+    }
+    if mount_point.starts_with("/Volumes/") {
+        return true;
+    }
+    if mount_point.starts_with("/home") || mount_point.starts_with("/var") || mount_point.starts_with("/usr") {
+        return true;
+    }
+    
+    // For other mount points, be more selective
+    mount_point.starts_with('/') && 
+        !mount_point.starts_with("/tmp") && 
+        !mount_point.starts_with("/var/tmp") &&
+        !mount_point.contains("/snap/") &&
+        !mount_point.contains("/docker/")
+}
+
 #[derive(Clone)]
 struct StorageInfo {
     mount_point: String,
     total_bytes: u64,
     available_bytes: u64,
     hostname: String,
+    index: u32,
 }
 
 /// A command-line tool to monitor GPU usage, similar to nvidia-smi, but for all GPUs.
@@ -420,7 +476,7 @@ fn print_gpu_info<W: Write>(
 
 fn print_storage_info<W: Write>(
     stdout: &mut W,
-    index: usize,
+    _index: usize,
     info: &StorageInfo,
     width: usize,
 ) {
@@ -471,7 +527,7 @@ fn print_storage_info<W: Write>(
 
     add_label(
         &mut labels,
-        &format!("DISK {}: ", index + 1),
+        &format!("DISK {}: ", info.index + 1),
         format!("{}  ", mount_display),
         Color::Yellow,
     );
@@ -518,7 +574,9 @@ fn draw_node_square<W: Write>(
     utilization: f64,
     is_selected: bool,
 ) {
-    let fill_height = height as f64 * utilization / 100.0;
+    // Add minimum baseline for visibility (ensure at least 20% is always shown for single-unit height)
+    let adjusted_utilization = if utilization == 0.0 { 20.0 } else { utilization };
+    let fill_height = height as f64 * adjusted_utilization / 100.0;
     let full_rows = fill_height.floor() as u16;
     let partial_fill = fill_height - full_rows as f64;
 
@@ -528,6 +586,9 @@ fn draw_node_square<W: Write>(
 
     let color = if is_selected {
         Color::Yellow
+    } else if utilization == 0.0 {
+        // Use a dimmer color for idle nodes to distinguish from active ones
+        Color::DarkGreen
     } else {
         Color::Green
     };
@@ -560,6 +621,15 @@ fn draw_node_square<W: Write>(
 fn draw_system_view<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
     let mut host_utilization: std::collections::HashMap<String, (f64, usize)> =
         std::collections::HashMap::new();
+    
+    // Initialize all known hosts from tabs (excluding "All" tab)
+    for tab in &state.tabs {
+        if tab != "All" {
+            host_utilization.insert(tab.clone(), (0.0, 0));
+        }
+    }
+    
+    // Update with actual GPU utilization data
     for gpu in &state.gpu_info {
         let entry = host_utilization
             .entry(gpu.hostname.clone())
@@ -570,7 +640,14 @@ fn draw_system_view<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
 
     let mut host_avg_utilization: Vec<(String, f64)> = host_utilization
         .into_iter()
-        .map(|(host, (total_util, count))| (host, total_util / count as f64))
+        .map(|(host, (total_util, count))| {
+            if count > 0 {
+                (host, total_util / count as f64)
+            } else {
+                // Node with no GPUs or all GPUs idle - show 0% utilization
+                (host, 0.0)
+            }
+        })
         .collect();
 
     host_avg_utilization.sort_by(|a, b| a.0.cmp(&b.0));
@@ -903,6 +980,24 @@ async fn run_view_mode(args: &ViewArgs) {
                     .flat_map(|reader| reader.get_process_info())
                     .collect();
 
+                // Collect local storage information
+                let mut all_storage_info = Vec::new();
+                let disks = Disks::new_with_refreshed_list();
+                let hostname = get_hostname();
+                
+                for (index, disk) in disks.iter().enumerate() {
+                    let mount_point_str = disk.mount_point().to_string_lossy();
+                    if should_include_disk(&mount_point_str) {
+                        all_storage_info.push(StorageInfo {
+                            mount_point: mount_point_str.to_string(),
+                            total_bytes: disk.total_space(),
+                            available_bytes: disk.available_space(),
+                            hostname: hostname.clone(),
+                            index: index as u32,
+                        });
+                    }
+                }
+
                 let mut state = app_state_clone.lock().await;
                 if state.gpu_info.is_empty() {
                     state.gpu_info = all_gpu_info;
@@ -914,6 +1009,7 @@ async fn run_view_mode(args: &ViewArgs) {
                     }
                 }
                 state.process_info = all_processes;
+                state.storage_info = all_storage_info;
                 let mut tabs = vec!["All".to_string()];
                 let mut hostnames: Vec<String> = state
                     .gpu_info
@@ -951,6 +1047,9 @@ async fn run_view_mode(args: &ViewArgs) {
             loop {
                 let mut all_gpu_info = Vec::new();
                 let mut all_storage_info = Vec::new();
+                // Create mapping between host addresses and actual instance names
+                let mut host_to_instance: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+                
                 for host in &all_hosts {
                     let url = if host.starts_with("http://") || host.starts_with("https://") {
                         format!("{}/metrics", host)
@@ -963,6 +1062,7 @@ async fn run_view_mode(args: &ViewArgs) {
                                 std::collections::HashMap::new();
                             let mut storage_info_map: std::collections::HashMap<String, StorageInfo> =
                                 std::collections::HashMap::new();
+                            let mut host_instance_name: Option<String> = None;
 
                             for line in text.lines() {
                                 if let Some(cap) = re.captures(line.trim()) {
@@ -979,6 +1079,14 @@ async fn run_view_mode(args: &ViewArgs) {
                                                 label_parts[0].to_string(),
                                                 label_parts[1].replace("\"", "").to_string(),
                                             );
+                                        }
+                                    }
+                                    
+                                    // Extract instance name from the first metric that has it
+                                    if host_instance_name.is_none() {
+                                        if let Some(instance) = labels.get("instance") {
+                                            host_instance_name = Some(instance.clone());
+                                            host_to_instance.insert(host.clone(), instance.clone());
                                         }
                                     }
 
@@ -1037,26 +1145,35 @@ async fn run_view_mode(args: &ViewArgs) {
                                     } else if metric_name.starts_with("disk_") {
                                         // Handle disk metrics separately
                                         let mount_point = labels.get("mount_point").cloned().unwrap_or_default();
+                                        // Initial hostname (will be updated to instance name later)
                                         let hostname = host.split(':').next().unwrap_or_default().to_string();
                                         
                                         match metric_name {
                                             "disk_total_bytes" => {
-                                                let storage_info = storage_info_map.entry(format!("{}:{}", hostname, mount_point))
+                                                // Include host in key to prevent collisions when same machine is accessed via multiple addresses
+                                                let storage_key = format!("{}:{}", host, mount_point);
+                                                let index = labels.get("index").and_then(|s| s.parse::<u32>().ok()).unwrap_or(0);
+                                                let storage_info = storage_info_map.entry(storage_key)
                                                     .or_insert(StorageInfo {
                                                         mount_point: mount_point.clone(),
                                                         total_bytes: 0,
                                                         available_bytes: 0,
                                                         hostname: hostname.clone(),
+                                                        index,
                                                     });
                                                 storage_info.total_bytes = value as u64;
                                             }
                                             "disk_available_bytes" => {
-                                                let storage_info = storage_info_map.entry(format!("{}:{}", hostname, mount_point))
+                                                // Include host in key to prevent collisions when same machine is accessed via multiple addresses
+                                                let storage_key = format!("{}:{}", host, mount_point);
+                                                let index = labels.get("index").and_then(|s| s.parse::<u32>().ok()).unwrap_or(0);
+                                                let storage_info = storage_info_map.entry(storage_key)
                                                     .or_insert(StorageInfo {
                                                         mount_point: mount_point.clone(),
                                                         total_bytes: 0,
                                                         available_bytes: 0,
                                                         hostname: hostname.clone(),
+                                                        index,
                                                     });
                                                 storage_info.available_bytes = value as u64;
                                             }
@@ -1065,25 +1182,52 @@ async fn run_view_mode(args: &ViewArgs) {
                                     }
                                 }
                             }
+                            
+                            // Update all GPU and storage entries with the correct instance hostname
+                            if let Some(instance_name) = host_instance_name {
+                                // Update GPU hostnames to use instance name
+                                for gpu_info in gpu_info_map.values_mut() {
+                                    gpu_info.hostname = instance_name.clone();
+                                }
+                                // Update storage hostnames to use instance name
+                                for storage_info in storage_info_map.values_mut() {
+                                    storage_info.hostname = instance_name.clone();
+                                }
+                            }
+                            
                             all_gpu_info.extend(gpu_info_map.into_values());
                             all_storage_info.extend(storage_info_map.into_values());
                         }
                     }
                 }
 
+                // Deduplicate storage info by instance and mount_point to handle same machine accessed via multiple addresses
+                let mut deduplicated_storage: std::collections::HashMap<String, StorageInfo> = std::collections::HashMap::new();
+                for storage in all_storage_info {
+                    let dedup_key = format!("{}:{}", storage.hostname, storage.mount_point);
+                    deduplicated_storage.insert(dedup_key, storage);
+                }
+                let final_storage_info: Vec<StorageInfo> = deduplicated_storage.into_values().collect();
+
                 let mut state = app_state_clone.lock().await;
                 state.gpu_info = all_gpu_info;
-                state.storage_info = all_storage_info;
+                state.storage_info = final_storage_info;
                 let mut tabs = vec!["All".to_string()];
-                let mut hostnames: Vec<String> = state
-                    .gpu_info
-                    .iter()
-                    .map(|info| info.hostname.clone())
-                    .collect::<std::collections::HashSet<_>>() // Collect into HashSet to get unique hostnames
-                    .into_iter()
-                    .collect(); // Convert back to Vec
-                hostnames.sort(); // Sort hostnames alphabetically
-                tabs.extend(hostnames);
+                let mut hostnames: std::collections::HashSet<String> = std::collections::HashSet::new();
+                
+                // Collect hostnames from GPU info
+                for info in &state.gpu_info {
+                    hostnames.insert(info.hostname.clone());
+                }
+                
+                // Collect hostnames from storage info
+                for info in &state.storage_info {
+                    hostnames.insert(info.hostname.clone());
+                }
+                
+                let mut sorted_hostnames: Vec<String> = hostnames.into_iter().collect();
+                sorted_hostnames.sort(); // Sort hostnames alphabetically
+                tabs.extend(sorted_hostnames);
                 state.tabs = tabs;
                 state.process_info = Vec::new(); // No process info in remote mode
                 if state.loading {
@@ -1307,9 +1451,8 @@ async fn run_view_mode(args: &ViewArgs) {
                 }
             }
 
-            // Display storage information for node-specific tabs in remote mode
-            let is_remote = args.hosts.is_some() || args.hostfile.is_some();
-            if is_remote && state.current_tab > 0 {
+            // Display storage information for node-specific tabs
+            if state.current_tab > 0 && !state.storage_info.is_empty() {
                 let current_hostname = &state.tabs[state.current_tab];
                 let storage_info_to_display: Vec<_> = state
                     .storage_info
@@ -1319,9 +1462,12 @@ async fn run_view_mode(args: &ViewArgs) {
 
                 if !storage_info_to_display.is_empty() {
                     queue!(stdout, Print("\r\n")).unwrap();
-                    // Sort storage info by mount point for consistent display
+                    // Sort storage info by index first, then by mount point for consistent display
                     let mut sorted_storage: Vec<_> = storage_info_to_display.clone();
-                    sorted_storage.sort_by(|a, b| a.mount_point.cmp(&b.mount_point));
+                    sorted_storage.sort_by(|a, b| {
+                        a.index.cmp(&b.index)
+                            .then_with(|| a.mount_point.cmp(&b.mount_point))
+                    });
                     
                     for (index, info) in sorted_storage.iter().enumerate() {
                         print_storage_info(&mut stdout, index, info, width);
@@ -1333,6 +1479,7 @@ async fn run_view_mode(args: &ViewArgs) {
                 }
             }
 
+            let is_remote = args.hosts.is_some() || args.hostfile.is_some();
             if !state.process_info.is_empty() && !is_remote {
                 let mut sorted_process_info = state.process_info.clone();
                 sorted_process_info.sort_by(|a, b| state.sort_criteria.sort(a, b));
@@ -1525,36 +1672,11 @@ async fn metrics_handler(State(state): State<SharedState>) -> String {
         }
     }
 
-    let instance = state.gpu_info.first().map(|info| info.instance.clone()).unwrap_or_else(|| "unknown".to_string());
+    // Use instance name for disk metrics to ensure consistency with GPU metrics
+    let instance = state.gpu_info.first().map(|info| info.instance.clone()).unwrap_or_else(|| get_hostname());
     let disks = Disks::new_with_refreshed_list();
     
-    // Filter out unnecessary disk partitions
-    fn should_include_disk(mount_point: &str) -> bool {
-        // Exclude common system partitions that don't need monitoring
-        let excluded_patterns = [
-            "/System/Volumes/Data",  // macOS system partition
-            "/boot/efi",             // Linux EFI boot partition
-            "/boot",                 // Linux boot partition
-            "/dev",                  // Device filesystem
-            "/proc",                 // Process filesystem
-            "/sys",                  // System filesystem
-            "/run",                  // Runtime filesystem
-            "/snap/",                // Snap package mounts
-            "/var/lib/docker/",      // Docker overlay mounts
-        ];
-        
-        for pattern in &excluded_patterns {
-            if mount_point.starts_with(pattern) {
-                return false;
-            }
-        }
-        
-        // Only include real filesystem mounts (not tmpfs, devtmpfs, etc.)
-        // This is a simple heuristic - we include anything that starts with / but exclude common temporary filesystems
-        mount_point.starts_with('/') && !mount_point.starts_with("/tmp") && !mount_point.starts_with("/var/tmp")
-    }
-    
-    for disk in &disks {
+    for (index, disk) in disks.iter().enumerate() {
         let mount_point_str = disk.mount_point().to_string_lossy();
         if !should_include_disk(&mount_point_str) {
             continue;
@@ -1564,9 +1686,10 @@ async fn metrics_handler(State(state): State<SharedState>) -> String {
         ));
         metrics.push_str(&format!("# TYPE all_smi_disk_total_bytes gauge\n"));
         metrics.push_str(&format!(
-            "all_smi_disk_total_bytes{{instance=\"{}\", mount_point=\"{}\"}} {}\n",
+            "all_smi_disk_total_bytes{{instance=\"{}\", mount_point=\"{}\", index=\"{}\"}} {}\n",
             instance,
             disk.mount_point().to_string_lossy(),
+            index,
             disk.total_space()
         ));
 
@@ -1575,9 +1698,10 @@ async fn metrics_handler(State(state): State<SharedState>) -> String {
         ));
         metrics.push_str(&format!("# TYPE all_smi_disk_available_bytes gauge\n"));
         metrics.push_str(&format!(
-            "all_smi_disk_available_bytes{{instance=\"{}\", mount_point=\"{}\"}} {}\n",
+            "all_smi_disk_available_bytes{{instance=\"{}\", mount_point=\"{}\", index=\"{}\"}} {}\n",
             instance,
             disk.mount_point().to_string_lossy(),
+            index,
             disk.available_space()
         ));
     }
