@@ -319,6 +319,11 @@ fn draw_tabs<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
     }
 
     queue!(stdout, Print("\r\n")).unwrap();
+    
+    // Draw horizontal separator line below tabs
+    let separator = "─".repeat(cols as usize);
+    print_colored_text(stdout, &separator, Color::DarkGrey, None, None);
+    queue!(stdout, Print("\r\n")).unwrap();
 }
 
 fn print_gpu_info<W: Write>(
@@ -1464,7 +1469,8 @@ async fn run_view_mode(args: &ViewArgs) {
             draw_tabs(&mut stdout, &state, cols);
 
             // Position cursor for GPU content area (screen already cleared above)
-            queue!(stdout, cursor::MoveTo(0, 11)).unwrap();
+            // Row 12 now because tabs + separator line occupy rows 10-11
+            queue!(stdout, cursor::MoveTo(0, 12)).unwrap();
             
             let is_remote = args.hosts.is_some() || args.hostfile.is_some();
 
@@ -1488,8 +1494,8 @@ async fn run_view_mode(args: &ViewArgs) {
             });
 
             // Calculate available display area for GPU list
-            // Content area starts at row 11, so available rows = total_rows - 11
-            let content_start_row = 11;
+            // Content area starts at row 12 (after tabs + separator), so available rows = total_rows - 12
+            let content_start_row = 12;
             let available_rows = rows.saturating_sub(content_start_row) as usize;
             
             // Calculate how many storage items will be displayed (only for node-specific tabs)
