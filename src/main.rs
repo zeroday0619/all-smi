@@ -963,6 +963,17 @@ async fn run_view_mode(args: &ViewArgs) {
             draw_system_view(&mut stdout, &state, cols);
             draw_tabs(&mut stdout, &state, cols);
 
+            // Clear the GPU info area before drawing
+            for i in 6..half_rows {
+                queue!(
+                    stdout,
+                    cursor::MoveTo(0, i),
+                    terminal::Clear(ClearType::CurrentLine)
+                )
+                .unwrap();
+            }
+            queue!(stdout, cursor::MoveTo(0, 6)).unwrap();
+
             let gpu_info_to_display: Vec<_> = if state.current_tab == 0 {
                 state.gpu_info.iter().collect()
             } else {
