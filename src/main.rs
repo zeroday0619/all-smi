@@ -70,6 +70,22 @@ fn get_hostname() -> String {
     String::from_utf8_lossy(&output.stdout).trim().to_string()
 }
 
+fn calculate_adaptive_interval(node_count: usize) -> u64 {
+    // Adaptive interval based on node count to prevent overwhelming the network
+    // For 1-10 nodes: 2 seconds
+    // For 11-50 nodes: 3 seconds  
+    // For 51-100 nodes: 4 seconds
+    // For 101-200 nodes: 5 seconds
+    // For 201+ nodes: 6 seconds
+    match node_count {
+        0..=10 => 2,
+        11..=50 => 3,
+        51..=100 => 4,
+        101..=200 => 5,
+        _ => 6,
+    }
+}
+
 // Filter out unnecessary disk partitions
 fn should_include_disk(mount_point: &str) -> bool {
     // Exclude common system partitions that don't need monitoring
@@ -166,6 +182,9 @@ struct ViewArgs {
     /// A file containing a list of host addresses to connect to for remote monitoring.
     #[arg(long)]
     hostfile: Option<String>,
+    /// The interval in seconds at which to update the GPU information. If not specified, uses adaptive interval based on node count.
+    #[arg(short, long)]
+    interval: Option<u64>,
 }
 
 #[derive(Clone)]
@@ -1027,6 +1046,7 @@ async fn main() {
             run_view_mode(&ViewArgs {
                 hosts: None,
                 hostfile: None,
+                interval: None,
             })
             .await;
         }
@@ -1109,7 +1129,10 @@ async fn run_view_mode(args: &ViewArgs) {
                 state.loading = false;
 
                 drop(state);
-                tokio::time::sleep(Duration::from_secs(2)).await;
+                
+                // Use adaptive interval for local mode
+                let interval = args_clone.interval.unwrap_or_else(|| calculate_adaptive_interval(1));
+                tokio::time::sleep(Duration::from_secs(interval)).await;
             }
         } else {
             // Remote mode
@@ -1123,6 +1146,8 @@ async fn run_view_mode(args: &ViewArgs) {
             let re = Regex::new(r"^all_smi_([^\{]+)\{([^}]+)\} ([\d\.]+)$").unwrap();
             let client = reqwest::Client::builder()
                 .timeout(Duration::from_secs(5))
+                .pool_idle_timeout(Duration::from_secs(30))
+                .pool_max_idle_per_host(10)
                 .build()
                 .unwrap();
 
@@ -1132,159 +1157,177 @@ async fn run_view_mode(args: &ViewArgs) {
                 // Create mapping between host addresses and actual instance names
                 let mut host_to_instance: std::collections::HashMap<String, String> = std::collections::HashMap::new();
                 
-                for host in &all_hosts {
-                    let url = if host.starts_with("http://") || host.starts_with("https://") {
-                        format!("{}/metrics", host)
-                    } else {
-                        format!("http://{}/metrics", host)
-                    };
-                    if let Ok(response) = client.get(&url).send().await {
-                        if let Ok(text) = response.text().await {
-                            let mut gpu_info_map: std::collections::HashMap<String, GpuInfo> =
-                                std::collections::HashMap::new();
-                            let mut storage_info_map: std::collections::HashMap<String, StorageInfo> =
-                                std::collections::HashMap::new();
-                            let mut host_instance_name: Option<String> = None;
-
-                            for line in text.lines() {
-                                if let Some(cap) = re.captures(line.trim()) {
-                                    let metric_name = &cap[1];
-                                    let labels_str = &cap[2];
-                                    let value = cap[3].parse::<f64>().unwrap_or(0.0);
-                                    
-
-                                    let mut labels: std::collections::HashMap<String, String> =
-                                        std::collections::HashMap::new();
-                                    for label in labels_str.split(',') {
-                                        let label_parts: Vec<&str> = label.split('=').collect();
-                                        if label_parts.len() == 2 {
-                                            let key = label_parts[0].trim().to_string(); // Trim whitespace from key
-                                            let value = label_parts[1].replace("\"", "").to_string();
-                                            labels.insert(key.clone(), value.clone());
-                                        }
-                                    }
-                                    
-                                    // Extract instance name from the first metric that has it
-                                    if host_instance_name.is_none() {
-                                        if let Some(instance) = labels.get("instance") {
-                                            host_instance_name = Some(instance.clone());
-                                            host_to_instance.insert(host.clone(), instance.clone());
-                                        }
-                                    }
-
-                                    // Only process GPU metrics if this line contains GPU-related data
-                                    if metric_name.starts_with("gpu_") || metric_name == "ane_utilization" {
-                                        let gpu_name =
-                                            labels.get("gpu").cloned().unwrap_or_default();
-                                        let gpu_uuid = labels.get("uuid").cloned().unwrap_or_default();
-                                        let gpu_index = labels.get("index").cloned().unwrap_or_default();
-                                        // Skip if gpu_name or uuid is empty (shouldn't happen for valid GPU metrics)
-                                        if gpu_name.is_empty() || gpu_uuid.is_empty() {
-                                            continue;
-                                        }
-                                        // Use UUID as the unique key for each GPU
-                                        let gpu_info =
-                                            gpu_info_map.entry(gpu_uuid.clone()).or_insert_with(|| {
-                                                let mut detail = std::collections::HashMap::new();
-                                                detail.insert("index".to_string(), gpu_index.clone());
-                                                GpuInfo {
-                                                uuid: gpu_uuid.clone(),
-                                                time: Local::now()
-                                                    .format("%Y-%m-%d %H:%M:%S")
-                                                    .to_string(),
-                                                name: gpu_name,
-                                                hostname: host.split(':').next().unwrap_or_default().to_string(),
-                                                instance: host.clone(),
-                                                utilization: 0.0,
-                                                ane_utilization: 0.0,
-                                                dla_utilization: None,
-                                                temperature: 0,
-                                                used_memory: 0,
-                                                total_memory: 0,
-                                                frequency: 0,
-                                                power_consumption: 0.0,
-                                                detail,
-                                            }});
-
-                                        match metric_name {
-                                            "gpu_utilization" => {
-                                                gpu_info.utilization = value;
-                                            }
-                                            "gpu_memory_used_bytes" => {
-                                                gpu_info.used_memory = value as u64;
-                                            }
-                                            "gpu_memory_total_bytes" => {
-                                                gpu_info.total_memory = value as u64;
-                                            }
-                                            "gpu_temperature_celsius" => {
-                                                gpu_info.temperature = value as u32;
-                                            }
-                                            "gpu_power_consumption_watts" => {
-                                                gpu_info.power_consumption = value;
-                                            }
-                                            "gpu_frequency_mhz" => {
-                                                gpu_info.frequency = value as u32;
-                                            }
-                                            "ane_utilization" => {
-                                                gpu_info.ane_utilization = value;
-                                            }
-                                            _ => {}
-                                        }
-                                    } else if metric_name.starts_with("disk_") {
-                                        // Handle disk metrics separately
-                                        let mount_point = labels.get("mount_point").cloned().unwrap_or_default();
-                                        // Initial hostname (will be updated to instance name later)
-                                        let hostname = host.split(':').next().unwrap_or_default().to_string();
-                                        let index = labels.get("index").and_then(|s| s.parse::<u32>().ok()).unwrap_or(0);
-                                        
-                                        
-                                        // Create storage key that includes both host and mount point to handle multiple disks
-                                        let storage_key = format!("{}:{}:{}", host, mount_point, index);
-                                        
-                                        match metric_name {
-                                            "disk_total_bytes" => {
-                                                let storage_info = storage_info_map.entry(storage_key)
-                                                    .or_insert(StorageInfo {
-                                                        mount_point: mount_point.clone(),
-                                                        total_bytes: 0,
-                                                        available_bytes: 0,
-                                                        hostname: hostname.clone(),
-                                                        index,
-                                                    });
-                                                storage_info.total_bytes = value as u64;
-                                            }
-                                            "disk_available_bytes" => {
-                                                let storage_info = storage_info_map.entry(storage_key)
-                                                    .or_insert(StorageInfo {
-                                                        mount_point: mount_point.clone(),
-                                                        total_bytes: 0,
-                                                        available_bytes: 0,
-                                                        hostname: hostname.clone(),
-                                                        index,
-                                                    });
-                                                storage_info.available_bytes = value as u64;
-                                            }
-                                            _ => {}
-                                        }
-                                    }
-                                }
+                // Parallel data collection from all hosts
+                let fetch_tasks: Vec<_> = all_hosts.iter().map(|host| {
+                    let client = client.clone();
+                    let host = host.clone();
+                    let _re = re.clone(); // Keep for potential future use in parallel processing
+                    tokio::spawn(async move {
+                        let url = if host.starts_with("http://") || host.starts_with("https://") {
+                            format!("{}/metrics", host)
+                        } else {
+                            format!("http://{}/metrics", host)
+                        };
+                        
+                        if let Ok(response) = client.get(&url).send().await {
+                            if let Ok(text) = response.text().await {
+                                return Some((host, text));
                             }
-                            
-                            // Update all GPU and storage entries with the correct instance hostname
-                            if let Some(instance_name) = host_instance_name {
-                                // Update GPU hostnames to use instance name
-                                for gpu_info in gpu_info_map.values_mut() {
-                                    gpu_info.hostname = instance_name.clone();
-                                }
-                                // Update storage hostnames to use instance name
-                                for storage_info in storage_info_map.values_mut() {
-                                    storage_info.hostname = instance_name.clone();
-                                }
-                            }
-                            
-                            all_gpu_info.extend(gpu_info_map.into_values());
-                            all_storage_info.extend(storage_info_map.into_values());
                         }
+                        None
+                    })
+                }).collect();
+
+                // Wait for all fetch tasks to complete  
+                let fetch_results = futures_util::future::join_all(fetch_tasks).await;
+                
+                // Process all successfully fetched data
+                for task_result in fetch_results {
+                    if let Ok(Some((host, text))) = task_result {
+                        let mut gpu_info_map: std::collections::HashMap<String, GpuInfo> =
+                            std::collections::HashMap::new();
+                        let mut storage_info_map: std::collections::HashMap<String, StorageInfo> =
+                            std::collections::HashMap::new();
+                        let mut host_instance_name: Option<String> = None;
+
+                        for line in text.lines() {
+                            if let Some(cap) = re.captures(line.trim()) {
+                                let metric_name = &cap[1];
+                                let labels_str = &cap[2];
+                                let value = cap[3].parse::<f64>().unwrap_or(0.0);
+                                
+
+                                let mut labels: std::collections::HashMap<String, String> =
+                                    std::collections::HashMap::new();
+                                for label in labels_str.split(',') {
+                                    let label_parts: Vec<&str> = label.split('=').collect();
+                                    if label_parts.len() == 2 {
+                                        let key = label_parts[0].trim().to_string(); // Trim whitespace from key
+                                        let value = label_parts[1].replace("\"", "").to_string();
+                                        labels.insert(key.clone(), value.clone());
+                                    }
+                                }
+                                
+                                // Extract instance name from the first metric that has it
+                                if host_instance_name.is_none() {
+                                    if let Some(instance) = labels.get("instance") {
+                                        host_instance_name = Some(instance.clone());
+                                        host_to_instance.insert(host.clone(), instance.clone());
+                                    }
+                                }
+
+                                // Only process GPU metrics if this line contains GPU-related data
+                                if metric_name.starts_with("gpu_") || metric_name == "ane_utilization" {
+                                    let gpu_name =
+                                        labels.get("gpu").cloned().unwrap_or_default();
+                                    let gpu_uuid = labels.get("uuid").cloned().unwrap_or_default();
+                                    let gpu_index = labels.get("index").cloned().unwrap_or_default();
+                                    // Skip if gpu_name or uuid is empty (shouldn't happen for valid GPU metrics)
+                                    if gpu_name.is_empty() || gpu_uuid.is_empty() {
+                                        continue;
+                                    }
+                                    // Use UUID as the unique key for each GPU
+                                    let gpu_info =
+                                        gpu_info_map.entry(gpu_uuid.clone()).or_insert_with(|| {
+                                            let mut detail = std::collections::HashMap::new();
+                                            detail.insert("index".to_string(), gpu_index.clone());
+                                            GpuInfo {
+                                            uuid: gpu_uuid.clone(),
+                                            time: Local::now()
+                                                .format("%Y-%m-%d %H:%M:%S")
+                                                .to_string(),
+                                            name: gpu_name,
+                                            hostname: host.split(':').next().unwrap_or_default().to_string(),
+                                            instance: host.clone(),
+                                            utilization: 0.0,
+                                            ane_utilization: 0.0,
+                                            dla_utilization: None,
+                                            temperature: 0,
+                                            used_memory: 0,
+                                            total_memory: 0,
+                                            frequency: 0,
+                                            power_consumption: 0.0,
+                                            detail,
+                                        }});
+
+                                    match metric_name {
+                                        "gpu_utilization" => {
+                                            gpu_info.utilization = value;
+                                        }
+                                        "gpu_memory_used_bytes" => {
+                                            gpu_info.used_memory = value as u64;
+                                        }
+                                        "gpu_memory_total_bytes" => {
+                                            gpu_info.total_memory = value as u64;
+                                        }
+                                        "gpu_temperature_celsius" => {
+                                            gpu_info.temperature = value as u32;
+                                        }
+                                        "gpu_power_consumption_watts" => {
+                                            gpu_info.power_consumption = value;
+                                        }
+                                        "gpu_frequency_mhz" => {
+                                            gpu_info.frequency = value as u32;
+                                        }
+                                        "ane_utilization" => {
+                                            gpu_info.ane_utilization = value;
+                                        }
+                                        _ => {}
+                                    }
+                                } else if metric_name.starts_with("disk_") {
+                                    // Handle disk metrics separately
+                                    let mount_point = labels.get("mount_point").cloned().unwrap_or_default();
+                                    // Initial hostname (will be updated to instance name later)
+                                    let hostname = host.split(':').next().unwrap_or_default().to_string();
+                                    let index = labels.get("index").and_then(|s| s.parse::<u32>().ok()).unwrap_or(0);
+                                    
+                                    
+                                    // Create storage key that includes both host and mount point to handle multiple disks
+                                    let storage_key = format!("{}:{}:{}", host, mount_point, index);
+                                    
+                                    match metric_name {
+                                        "disk_total_bytes" => {
+                                            let storage_info = storage_info_map.entry(storage_key)
+                                                .or_insert(StorageInfo {
+                                                    mount_point: mount_point.clone(),
+                                                    total_bytes: 0,
+                                                    available_bytes: 0,
+                                                    hostname: hostname.clone(),
+                                                    index,
+                                                });
+                                            storage_info.total_bytes = value as u64;
+                                        }
+                                        "disk_available_bytes" => {
+                                            let storage_info = storage_info_map.entry(storage_key)
+                                                .or_insert(StorageInfo {
+                                                    mount_point: mount_point.clone(),
+                                                    total_bytes: 0,
+                                                    available_bytes: 0,
+                                                    hostname: hostname.clone(),
+                                                    index,
+                                                });
+                                            storage_info.available_bytes = value as u64;
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                            }
+                        }
+                        
+                        // Update all GPU and storage entries with the correct instance hostname
+                        if let Some(instance_name) = host_instance_name {
+                            // Update GPU hostnames to use instance name
+                            for gpu_info in gpu_info_map.values_mut() {
+                                gpu_info.hostname = instance_name.clone();
+                            }
+                            // Update storage hostnames to use instance name
+                            for storage_info in storage_info_map.values_mut() {
+                                storage_info.hostname = instance_name.clone();
+                            }
+                        }
+                        
+                        all_gpu_info.extend(gpu_info_map.into_values());
+                        all_storage_info.extend(storage_info_map.into_values());
                     }
                 }
 
@@ -1322,7 +1365,10 @@ async fn run_view_mode(args: &ViewArgs) {
                 state.loading = false;
 
                 drop(state);
-                tokio::time::sleep(Duration::from_secs(2)).await;
+                
+                // Use adaptive interval for remote mode based on node count
+                let interval = args_clone.interval.unwrap_or_else(|| calculate_adaptive_interval(all_hosts.len()));
+                tokio::time::sleep(Duration::from_secs(interval)).await;
             }
         }
     });
