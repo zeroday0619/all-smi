@@ -51,7 +51,11 @@ The application presents a terminal-based user interface that displays GPU infor
     ```
 2.  **Build the project:**
     ```bash
+    # Build the main application
     cargo build --release
+    
+    # Build specific binary (e.g., mock-server)
+    cargo build --release --bin mock-server
     ```
 
 ## Usage
@@ -109,6 +113,44 @@ The `api` mode exposes the GPU metrics in Prometheus format.
 ```
 
 The metrics will be available at `http://localhost:9090/metrics`.
+
+## Testing with Mock Server
+
+For testing and development purposes, a mock server is provided that simulates multiple GPU nodes with realistic metrics.
+
+### Building the Mock Server
+
+```bash
+cargo build --release --bin mock-server
+```
+
+### Running the Mock Server
+
+```bash
+# Start a single mock server on port 9090
+./target/release/mock-server --port-range 9090
+
+# Start multiple mock servers on a port range
+./target/release/mock-server --port-range 10001-10010
+
+# Specify custom GPU name and output file
+./target/release/mock-server --port-range 10001-10005 --gpu-name "NVIDIA RTX 4090" -o test-hosts.csv
+```
+
+The mock server will:
+- Generate realistic GPU metrics with random variations
+- Create a CSV file with the host addresses for easy testing
+- Simulate multiple GPUs per node
+- Provide disk usage information
+
+### Testing with Mock Data
+
+After starting the mock servers, you can test the view mode with the generated hosts file:
+
+```bash
+# View mock data from multiple hosts
+./target/release/all-smi view --hostfile hosts.csv
+```
 
 ## Contributing
 

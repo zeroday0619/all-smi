@@ -147,6 +147,7 @@ struct AppState {
     tabs: Vec<String>,
     current_tab: usize,
     gpu_scroll_offset: usize,
+    storage_scroll_offset: usize,
     tab_scroll_offset: usize,
     device_name_scroll_offsets: std::collections::HashMap<String, usize>,
     hostname_scroll_offsets: std::collections::HashMap<String, usize>,
@@ -166,6 +167,7 @@ impl AppState {
             tabs: vec!["All".to_string()],
             current_tab: 0,
             gpu_scroll_offset: 0,
+            storage_scroll_offset: 0,
             tab_scroll_offset: 0,
             device_name_scroll_offsets: std::collections::HashMap::new(),
             hostname_scroll_offsets: std::collections::HashMap::new(),
@@ -247,7 +249,7 @@ fn draw_bar<W: Write>(
         r if r > 0.125 => "▌",
         _ => "▏",
     };
-    let empty_width = available_bar_width - full_blocks - text_width;
+    let empty_width = available_bar_width.saturating_sub(full_blocks + text_width);
 
     let filled_bar = format!(
         "{}{}",
@@ -280,6 +282,7 @@ fn draw_bar<W: Write>(
 
 fn draw_tabs<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
     queue!(stdout, cursor::MoveTo(0, 10)).unwrap();
+    queue!(stdout, terminal::Clear(ClearType::CurrentLine)).unwrap();
 
     // Always draw the 'All' tab
     let (fg_color, bg_color) = if state.current_tab == 0 {
@@ -1101,13 +1104,19 @@ async fn run_view_mode(args: &ViewArgs) {
                                     if metric_name.starts_with("gpu_") || metric_name == "ane_utilization" {
                                         let gpu_name =
                                             labels.get("gpu").cloned().unwrap_or_default();
-                                        // Skip if gpu_name is empty (shouldn't happen for valid GPU metrics)
-                                        if gpu_name.is_empty() {
+                                        let gpu_uuid = labels.get("uuid").cloned().unwrap_or_default();
+                                        let gpu_index = labels.get("index").cloned().unwrap_or_default();
+                                        // Skip if gpu_name or uuid is empty (shouldn't happen for valid GPU metrics)
+                                        if gpu_name.is_empty() || gpu_uuid.is_empty() {
                                             continue;
                                         }
+                                        // Use UUID as the unique key for each GPU
                                         let gpu_info =
-                                            gpu_info_map.entry(gpu_name.clone()).or_insert(GpuInfo {
-                                                uuid: labels.get("uuid").cloned().unwrap_or_default(),
+                                            gpu_info_map.entry(gpu_uuid.clone()).or_insert_with(|| {
+                                                let mut detail = std::collections::HashMap::new();
+                                                detail.insert("index".to_string(), gpu_index.clone());
+                                                GpuInfo {
+                                                uuid: gpu_uuid.clone(),
                                                 time: Local::now()
                                                     .format("%Y-%m-%d %H:%M:%S")
                                                     .to_string(),
@@ -1122,8 +1131,8 @@ async fn run_view_mode(args: &ViewArgs) {
                                                 total_memory: 0,
                                                 frequency: 0,
                                                 power_consumption: 0.0,
-                                                detail: Default::default(),
-                                            });
+                                                detail,
+                                            }});
 
                                         match metric_name {
                                             "gpu_utilization" => {
@@ -1269,6 +1278,7 @@ async fn run_view_mode(args: &ViewArgs) {
                             }
                         }
                         state.gpu_scroll_offset = 0;
+                        state.storage_scroll_offset = 0;
                     }
                     KeyCode::Right => {
                         if state.current_tab < state.tabs.len() - 1 {
@@ -1289,16 +1299,23 @@ async fn run_view_mode(args: &ViewArgs) {
                             }
                         }
                         state.gpu_scroll_offset = 0;
+                        state.storage_scroll_offset = 0;
                     }
                     _ if !state.loading => {
                         // Only handle other keys if not loading
                         match key_event.code {
                             KeyCode::Up => {
-                                if state.current_tab > 0 {
+                                let is_remote = args.hosts.is_some() || args.hostfile.is_some();
+                                if is_remote {
+                                    // Unified scrolling for remote mode
                                     if state.gpu_scroll_offset > 0 {
                                         state.gpu_scroll_offset -= 1;
+                                        state.storage_scroll_offset = 0; // Reset storage scroll when in GPU area
+                                    } else if state.storage_scroll_offset > 0 {
+                                        state.storage_scroll_offset -= 1;
                                     }
                                 } else {
+                                    // Local mode - process list scrolling
                                     if state.selected_process_index > 0 {
                                         state.selected_process_index -= 1;
                                     }
@@ -1308,16 +1325,34 @@ async fn run_view_mode(args: &ViewArgs) {
                                 }
                             }
                             KeyCode::Down => {
-                                if state.current_tab > 0 {
-                                    let gpu_info_for_tab = state
-                                        .gpu_info
-                                        .iter()
-                                        .filter(|info| info.hostname == state.tabs[state.current_tab])
-                                        .count();
-                                    if state.gpu_scroll_offset < gpu_info_for_tab - 1 {
+                                let is_remote = args.hosts.is_some() || args.hostfile.is_some();
+                                if is_remote {
+                                    // Unified scrolling for remote mode
+                                    let gpu_count = if state.current_tab == 0 {
+                                        state.gpu_info.len()
+                                    } else {
+                                        state.gpu_info.iter()
+                                            .filter(|info| info.hostname == state.tabs[state.current_tab])
+                                            .count()
+                                    };
+                                    
+                                    let storage_count = if state.current_tab == 0 {
+                                        // No storage on 'All' tab
+                                        0
+                                    } else {
+                                        state.storage_info.iter()
+                                            .filter(|info| info.hostname == state.tabs[state.current_tab])
+                                            .count()
+                                    };
+                                    
+                                    if state.gpu_scroll_offset < gpu_count.saturating_sub(1) {
                                         state.gpu_scroll_offset += 1;
+                                        state.storage_scroll_offset = 0; // Reset storage scroll when in GPU area
+                                    } else if state.storage_scroll_offset < storage_count.saturating_sub(1) {
+                                        state.storage_scroll_offset += 1;
                                     }
                                 } else {
+                                    // Local mode - process list scrolling
                                     if !state.process_info.is_empty()
                                         && state.selected_process_index
                                             < state.process_info.len() - 1
@@ -1418,23 +1453,22 @@ async fn run_view_mode(args: &ViewArgs) {
                 None,
             );
 
+            // Clear entire screen and start fresh to prevent any duplication issues
+            queue!(stdout, terminal::Clear(ClearType::All)).unwrap();
+            queue!(stdout, cursor::MoveTo(0, 0)).unwrap();
+            stdout.flush().unwrap();
+            
             print_colored_text(&mut stdout, "Clusters\r\n", Color::Cyan, None, None);
             draw_system_view(&mut stdout, &state, cols);
             draw_dashboard_items(&mut stdout, &state, cols);
             draw_tabs(&mut stdout, &state, cols);
 
-            // Clear the GPU info area before drawing
-            for i in 11..half_rows {
-                queue!(
-                    stdout,
-                    cursor::MoveTo(0, i),
-                    terminal::Clear(ClearType::CurrentLine)
-                )
-                .unwrap();
-            }
+            // Position cursor for GPU content area (screen already cleared above)
             queue!(stdout, cursor::MoveTo(0, 11)).unwrap();
+            
+            let is_remote = args.hosts.is_some() || args.hostfile.is_some();
 
-            let gpu_info_to_display: Vec<_> = if state.current_tab == 0 {
+            let mut gpu_info_to_display: Vec<_> = if state.current_tab == 0 {
                 state.gpu_info.iter().collect()
             } else {
                 state
@@ -1443,22 +1477,64 @@ async fn run_view_mode(args: &ViewArgs) {
                     .filter(|info| info.hostname == state.tabs[state.current_tab])
                     .collect()
             };
+            
+            // Sort GPUs by hostname first, then by index to ensure consistent ordering
+            gpu_info_to_display.sort_by(|a, b| {
+                a.hostname.cmp(&b.hostname).then_with(|| {
+                    let a_index = a.detail.get("index").and_then(|s| s.parse::<u32>().ok()).unwrap_or(0);
+                    let b_index = b.detail.get("index").and_then(|s| s.parse::<u32>().ok()).unwrap_or(0);
+                    a_index.cmp(&b_index)
+                })
+            });
 
+            // Calculate available display area for GPU list
+            // Content area starts at row 11, so available rows = total_rows - 11
+            let content_start_row = 11;
+            let available_rows = rows.saturating_sub(content_start_row) as usize;
+            
+            // Calculate how many storage items will be displayed (only for node-specific tabs)
+            let storage_items_count = if is_remote && state.current_tab > 0 && !state.storage_info.is_empty() {
+                let current_hostname = &state.tabs[state.current_tab];
+                state.storage_info.iter()
+                    .filter(|info| info.hostname == *current_hostname)
+                    .count()
+            } else {
+                0
+            };
+            
+            // Reserve space for storage display (each storage item + separator + header)
+            let storage_display_rows = if storage_items_count > 0 {
+                storage_items_count + 2 // +1 for header newline, +1 for spacing
+            } else {
+                0
+            };
+            
+            // Calculate GPU display area
+            let gpu_display_rows = if is_remote {
+                // In remote mode, use available area minus storage area
+                available_rows.saturating_sub(storage_display_rows)
+            } else {
+                // In local mode, use only half for GPU list (other half for process list)
+                available_rows / 2
+            };
+            
+            // Each GPU takes 2 rows (info line + progress bars), so divide available rows by 2
+            let max_gpu_items = gpu_display_rows / 2;
+            
             for (index, info) in gpu_info_to_display
                 .iter()
                 .skip(state.gpu_scroll_offset)
+                .take(max_gpu_items)
                 .enumerate()
             {
                 let device_name_scroll_offset = state.device_name_scroll_offsets.get(&info.uuid).cloned().unwrap_or(0);
                 let hostname_scroll_offset = state.hostname_scroll_offsets.get(&info.hostname).cloned().unwrap_or(0);
                 print_gpu_info(&mut stdout, index, info, width, device_name_scroll_offset, hostname_scroll_offset);
-                if index < gpu_info_to_display.len() - 1 {
-                    queue!(stdout, Print("\r\n")).unwrap();
-                }
             }
 
-            // Display storage information for node-specific tabs
-            if state.current_tab > 0 && !state.storage_info.is_empty() {
+            // Display storage information only for node-specific tabs in remote mode (not 'All' tab)
+            let is_remote = args.hosts.is_some() || args.hostfile.is_some();
+            if is_remote && state.current_tab > 0 && !state.storage_info.is_empty() {
                 let current_hostname = &state.tabs[state.current_tab];
                 let storage_info_to_display: Vec<_> = state
                     .storage_info
@@ -1468,14 +1544,17 @@ async fn run_view_mode(args: &ViewArgs) {
 
                 if !storage_info_to_display.is_empty() {
                     queue!(stdout, Print("\r\n")).unwrap();
-                    // Sort storage info by index first, then by mount point for consistent display
+                    // Sort storage info by hostname first, then by index, then by mount point for consistent display
                     let mut sorted_storage: Vec<_> = storage_info_to_display.clone();
                     sorted_storage.sort_by(|a, b| {
-                        a.index.cmp(&b.index)
+                        a.hostname.cmp(&b.hostname)
+                            .then_with(|| a.index.cmp(&b.index))
                             .then_with(|| a.mount_point.cmp(&b.mount_point))
                     });
                     
-                    for (index, info) in sorted_storage.iter().enumerate() {
+                    // Calculate remaining display area for storage (ensure it doesn't overflow)
+                    let remaining_rows = available_rows.saturating_sub(gpu_display_rows);
+                    for (index, info) in sorted_storage.iter().skip(state.storage_scroll_offset).take(remaining_rows.saturating_sub(2)).enumerate() {
                         print_storage_info(&mut stdout, index, info, width);
                         // Add spacing between disks for better visual separation
                         if index < sorted_storage.len() - 1 {
