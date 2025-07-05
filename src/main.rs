@@ -210,7 +210,6 @@ fn draw_tabs<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
     print_colored_text(stdout, " All ", fg_color, bg_color, None);
 
     let mut available_width = cols.saturating_sub(5);
-    let mut displayed_tabs = 1;
 
     for (i, tab) in state
         .tabs
@@ -264,6 +263,16 @@ fn print_gpu_info<W: Write>(stdout: &mut W, index: usize, info: &GpuInfo, width:
     }
 
     // Adding device, memory, temperature, frequency, and power information
+    let mut hostname = info.hostname.clone();
+    if hostname.len() > 8 {
+        hostname.truncate(8);
+    }
+    add_label(
+        &mut labels,
+        "HOST: ",
+        format!("{}  ", hostname),
+        Color::Blue,
+    );
     add_label(
         &mut labels,
         &format!("DEVICE {}: ", index + 1),
@@ -424,20 +433,16 @@ fn draw_system_view<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
     const MAX_Y: u16 = 4;
 
     let mut x: u16 = 1;
-    let mut y: u16 = 1;
+    let mut y: u16 = 2;
     let max_x = cols / 2;
 
-    for (hostname, avg_util) in &host_avg_utilization {
+    for (_hostname, avg_util) in &host_avg_utilization {
         if x + SQUARE_WIDTH > max_x {
             break; // No more space horizontally
         }
 
         let is_selected = if state.current_tab > 0 {
-            let selected_tab_hostname = state.tabs[state.current_tab]
-                .split(':')
-                .next()
-                .unwrap_or_default();
-            hostname == selected_tab_hostname
+            _hostname == &state.tabs[state.current_tab]
         } else {
             false
         };
@@ -454,7 +459,7 @@ fn draw_system_view<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
 
         y += SQUARE_HEIGHT;
         if y > MAX_Y {
-            y = 1;
+            y = 2;
             x += SQUARE_WIDTH + NODE_COL_SPACING;
         }
     }
@@ -678,8 +683,8 @@ async fn run_view_mode(args: &ViewArgs) {
                     state
                         .gpu_info
                         .iter()
-                        .map(|info| format!("{}:{}", info.hostname, info.name))
-                        .collect::<std::collections::HashSet<_>>()
+                        .map(|info| info.hostname.clone())
+                        .collect::<std::collections::HashSet<_>>(),
                 );
                 state.tabs = tabs;
                 if state.loading {
@@ -733,15 +738,13 @@ async fn run_view_mode(args: &ViewArgs) {
 
                                     let gpu_name =
                                         labels.get("gpu").cloned().unwrap_or_default();
-                                    let hostname =
-                                        labels.get("hostname").cloned().unwrap_or_default();
                                     let gpu_info =
                                         gpu_info_map.entry(gpu_name.clone()).or_insert(GpuInfo {
                                             time: Local::now()
                                                 .format("%Y-%m-%d %H:%M:%S")
                                                 .to_string(),
                                             name: gpu_name,
-                                            hostname,
+                                            hostname: host.clone(),
                                             utilization: 0.0,
                                             ane_utilization: 0.0,
                                             temperature: 0,
@@ -790,8 +793,8 @@ async fn run_view_mode(args: &ViewArgs) {
                     state
                         .gpu_info
                         .iter()
-                        .map(|info| format!("{}:{}", info.hostname, info.name))
-                        .collect::<std::collections::HashSet<_>>()
+                        .map(|info| info.hostname.clone())
+                        .collect::<std::collections::HashSet<_>>(),
                 );
                 state.tabs = tabs;
                 state.process_info = Vec::new(); // No process info in remote mode
@@ -871,10 +874,7 @@ async fn run_view_mode(args: &ViewArgs) {
                                     let gpu_info_for_tab = state
                                         .gpu_info
                                         .iter()
-                                        .filter(|info| {
-                                            format!("{}:{}", info.hostname, info.name)
-                                                == state.tabs[state.current_tab]
-                                        })
+                                        .filter(|info| info.hostname == state.tabs[state.current_tab])
                                         .count();
                                     if state.gpu_scroll_offset < gpu_info_for_tab - 1 {
                                         state.gpu_scroll_offset += 1;
@@ -953,12 +953,13 @@ async fn run_view_mode(args: &ViewArgs) {
             let current_time = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
             print_colored_text(
                 &mut stdout,
-                &format!("{}\r\n", current_time),
+                &format!("all-smi - {}\r\n", current_time),
                 Color::White,
                 None,
                 None,
             );
 
+            print_colored_text(&mut stdout, "Clusters\r\n", Color::Cyan, None, None);
             draw_system_view(&mut stdout, &state, cols);
             draw_tabs(&mut stdout, &state, cols);
 
@@ -968,7 +969,7 @@ async fn run_view_mode(args: &ViewArgs) {
                 state
                     .gpu_info
                     .iter()
-                    .filter(|info| format!("{}:{}", info.hostname, info.name) == state.tabs[state.current_tab])
+                    .filter(|info| info.hostname == state.tabs[state.current_tab])
                     .collect()
             };
 
@@ -983,7 +984,8 @@ async fn run_view_mode(args: &ViewArgs) {
                 }
             }
 
-            if !state.process_info.is_empty() {
+            let is_remote = args.hosts.is_some() || args.hostfile.is_some();
+            if !state.process_info.is_empty() && !is_remote {
                 let mut sorted_process_info = state.process_info.clone();
                 sorted_process_info.sort_by(|a, b| state.sort_criteria.sort(a, b));
 
