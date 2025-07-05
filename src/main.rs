@@ -30,8 +30,9 @@ use tower_http::cors::{Any, CorsLayer};
 
 use crate::gpu::{get_gpu_readers, GpuInfo, ProcessInfo};
 
+/// A command-line tool to monitor GPU usage, similar to nvidia-smi, but for all GPUs.
 #[derive(Parser)]
-#[command(author, version, about, long_about = None)]
+#[command(author, version, about, long_about = None, arg_required_else_help(true))]
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
@@ -39,33 +40,35 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// API mode
+    /// Run in API mode, exposing metrics in Prometheus format.
     Api(ApiArgs),
-    /// View mode
+    /// Run in view mode, displaying a TUI. (default)
     View(ViewArgs),
 }
 
+/// Arguments for the API mode.
 #[derive(clap::Args)]
 struct ApiArgs {
-    /// Port to listen on
+    /// The port to listen on for the API server.
     #[arg(short, long, default_value_t = 9090)]
     port: u16,
-    /// Update interval in seconds
+    /// The interval in seconds at which to update the GPU information.
     #[arg(short, long, default_value_t = 3)]
     interval: u64,
-    /// Include process list in output
+    /// Include the process list in the API output.
     #[arg(long)]
     processes: bool,
 }
 
+/// Arguments for the view mode.
 #[derive(clap::Args, Clone)]
 struct ViewArgs {
-    /// Host addresses to connect to
+    /// A list of host addresses to connect to for remote monitoring.
     #[arg(long, num_args = 1..)]
     hosts: Option<Vec<String>>,
-    /// File containing host addresses
-    #[arg(short, long)]
-    file: Option<String>,
+    /// A file containing a list of host addresses to connect to for remote monitoring.
+    #[arg(long)]
+    hostfile: Option<String>,
 }
 
 #[derive(Clone)]
@@ -478,7 +481,7 @@ async fn main() {
         None => {
             run_view_mode(&ViewArgs {
                 hosts: None,
-                file: None,
+                hostfile: None,
             })
             .await;
         }
@@ -492,9 +495,9 @@ async fn run_view_mode(args: &ViewArgs) {
 
     tokio::spawn(async move {
         let hosts = args_clone.hosts.unwrap_or_default();
-        let file = args_clone.file;
+        let hostfile = args_clone.hostfile;
 
-        if hosts.is_empty() && file.is_none() {
+        if hosts.is_empty() && hostfile.is_none() {
             // Local mode
             let gpu_readers = get_gpu_readers();
             loop {
@@ -521,7 +524,7 @@ async fn run_view_mode(args: &ViewArgs) {
         } else {
             // Remote mode
             let mut all_hosts = hosts;
-            if let Some(file_path) = file {
+            if let Some(file_path) = hostfile {
                 if let Ok(content) = fs::read_to_string(file_path) {
                     all_hosts.extend(content.lines().map(|s| s.to_string()));
                 }

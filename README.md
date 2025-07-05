@@ -34,7 +34,7 @@ The application presents a terminal-based user interface that displays GPU infor
   - `chrono`: For timestamping.
   - `metal` & `objc`: For Apple Silicon GPU interaction on macOS.
 
-## Installation and Usage
+## Installation
 
 ### Prerequisites
 
@@ -53,10 +53,62 @@ The application presents a terminal-based user interface that displays GPU infor
     ```bash
     cargo build --release
     ```
-3.  **Run the application:**
-    ```bash
-    sudo ./target/release/all-smi
-    ```
+
+## Usage
+
+`all-smi` can be run in two modes: `view` and `api`. You can see the help message for each mode by running:
+
+```bash
+./target/release/all-smi --help
+./target/release/all-smi view --help
+./target/release/all-smi api --help
+```
+
+### View Mode
+
+The `view` mode displays a terminal-based user interface. This is the default mode if no command is provided.
+
+```bash
+sudo ./target/release/all-smi view
+```
+
+You can also monitor remote machines running `all-smi` in API mode.
+
+#### Remote Monitoring
+
+To monitor remote machines, you can use the `--hosts` or `--hostfile` argument.
+
+- **Using `--hosts`:**
+
+  Pass a list of host addresses to the `--hosts` argument.
+
+  ```bash
+  ./target/release/all-smi view --hosts http://remote1:9090 http://remote2:9090
+  ```
+
+- **Using `--hostfile`:**
+
+  Create a file with a list of host addresses (one per line) and pass the file path to the `--hostfile` argument.
+
+  ```bash
+  # hosts.txt
+  http://remote1:9090
+  http://remote2:9090
+  ```
+
+  ```bash
+  ./target/release/all-smi view --hostfile hosts.txt
+  ```
+
+### API Mode
+
+The `api` mode exposes the GPU metrics in Prometheus format.
+
+```bash
+./target/release/all-smi api --port 9090
+```
+
+The metrics will be available at `http://localhost:9090/metrics`.
 
 ## Contributing
 
