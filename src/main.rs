@@ -350,7 +350,11 @@ fn print_gpu_info<W: Write>(
 
     labels.push((String::from("\r\n"), Color::White));
 
-    let ane_percentage_text = format!("{:.2}W", info.ane_utilization / 1000.0);
+    let (ane_dla_label, ane_dla_text) = if let Some(dla_util) = info.dla_utilization {
+        ("DLA", format!("{:.2}%", dla_util))
+    } else {
+        ("ANE", format!("{:.2}W", info.ane_utilization / 1000.0))
+    };
 
     for (text, color) in labels {
         print_colored_text(stdout, &text, color, None, None);
@@ -371,11 +375,15 @@ fn print_gpu_info<W: Write>(
     );
     draw_bar(
         stdout,
-        "ANE",
-        info.ane_utilization,
-        1000.0,
+        ane_dla_label,
+        if let Some(dla_util) = info.dla_utilization {
+            dla_util
+        } else {
+            info.ane_utilization
+        },
+        100.0,
         w2,
-        Some(ane_percentage_text),
+        Some(ane_dla_text),
     );
     draw_bar(
         stdout,
@@ -788,6 +796,7 @@ async fn run_view_mode(args: &ViewArgs) {
                                             instance: host.clone(),
                                             utilization: 0.0,
                                             ane_utilization: 0.0,
+                                            dla_utilization: None,
                                             temperature: 0,
                                             used_memory: 0,
                                             total_memory: 0,
@@ -1226,6 +1235,17 @@ async fn metrics_handler(State(state): State<SharedState>) -> String {
             i,
             info.ane_utilization / 1000.0
         ));
+
+        if let Some(dla_util) = info.dla_utilization {
+            metrics.push_str(&format!(
+                "# HELP all_smi_dla_utilization DLA utilization percentage\n"
+            ));
+            metrics.push_str(&format!("# TYPE all_smi_dla_utilization gauge\n"));
+            metrics.push_str(&format!(
+                "all_smi_dla_utilization{{gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"}} {}\n",
+                info.name, info.instance, info.uuid, i, dla_util
+            ));
+        }
     }
 
     if !state.process_info.is_empty() {

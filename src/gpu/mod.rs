@@ -20,6 +20,7 @@ pub struct GpuInfo {
     pub instance: String,
     pub utilization: f64,
     pub ane_utilization: f64,
+    pub dla_utilization: Option<f64>,
     pub temperature: u32,
     pub used_memory: u64,
     pub total_memory: u64,

@@ -50,6 +50,7 @@ impl GpuReader for AppleSiliconGpuReader {
             instance: get_hostname(),
             utilization,
             ane_utilization,
+            dla_utilization: None,
             temperature: gpu_metrics.thermal_pressure.unwrap_or(0),
             used_memory,
             total_memory,

@@ -53,6 +53,7 @@ impl GpuReader for NvidiaGpuReader {
                             instance: get_hostname(),
                             utilization,
                             ane_utilization: 0.0,
+                            dla_utilization: None,
                             temperature,
                             used_memory,
                             total_memory,

@@ -27,6 +27,16 @@ impl GpuReader for NvidiaJetsonGpuReader {
         let power_consumption = fs::read_to_string("/sys/bus/i2c/drivers/ina3221x/0-0040/iio:device0/in_power0_input")
             .map_or(0.0, |s| s.trim().parse::<f64>().unwrap_or(0.0) / 1000.0);
 
+        let dla0_util = fs::read_to_string("/sys/kernel/debug/dla_0/load")
+            .map_or(0.0, |s| s.trim().parse::<f64>().unwrap_or(0.0));
+        let dla1_util = fs::read_to_string("/sys/kernel/debug/dla_1/load")
+            .map_or(0.0, |s| s.trim().parse::<f64>().unwrap_or(0.0));
+        let dla_utilization = if dla0_util > 0.0 || dla1_util > 0.0 {
+            Some(dla0_util + dla1_util)
+        } else {
+            None
+        };
+
         let (total_memory, used_memory) = get_memory_info();
 
         gpu_info.push(GpuInfo {
@@ -37,6 +47,7 @@ impl GpuReader for NvidiaJetsonGpuReader {
             instance: get_hostname(),
             utilization,
             ane_utilization: 0.0,
+            dla_utilization,
             temperature,
             used_memory,
             total_memory,
