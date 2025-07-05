@@ -1194,34 +1194,34 @@ async fn run_view_mode(args: &ViewArgs) {
                             format!("http://{}/metrics", host)
                         };
                         
-                        // Retry logic - try up to 2 times with shorter delays
-                        for attempt in 1..=2 {
+                        // Retry logic - 3 attempts with exponential backoff (better for real remote nodes)
+                        for attempt in 1..=3 {
                             match client.get(&url).send().await {
                                 Ok(response) => {
                                     if response.status().is_success() {
                                         match response.text().await {
                                             Ok(text) => return Some((host, text, None)), // Success
                                             Err(e) => {
-                                                if attempt == 2 {
+                                                if attempt == 3 {
                                                     return Some((host, String::new(), Some(format!("Text parse error: {}", e))));
                                                 }
                                             }
                                         }
                                     } else {
-                                        if attempt == 2 {
+                                        if attempt == 3 {
                                             return Some((host, String::new(), Some(format!("HTTP {}", response.status()))));
                                         }
                                     }
                                 },
                                 Err(e) => {
-                                    if attempt == 2 {
+                                    if attempt == 3 {
                                         return Some((host, String::new(), Some(format!("Connection error after {} attempts: {}", attempt, e))));
                                     }
                                 }
                             }
                             
-                            // Wait before retry (shorter delay)
-                            tokio::time::sleep(Duration::from_millis(50)).await;
+                            // Exponential backoff: 50ms, 100ms, 150ms (slightly more aggressive than original)
+                            tokio::time::sleep(Duration::from_millis(50 * attempt as u64)).await;
                         }
                         
                         Some((host, String::new(), Some("All retry attempts failed".to_string())))
