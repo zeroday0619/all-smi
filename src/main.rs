@@ -83,6 +83,9 @@ struct AppState {
     current_tab: usize,
     gpu_scroll_offset: usize,
     tab_scroll_offset: usize,
+    device_name_scroll_offsets: std::collections::HashMap<String, usize>,
+    hostname_scroll_offsets: std::collections::HashMap<String, usize>,
+    frame_counter: u64,
 }
 
 impl AppState {
@@ -98,6 +101,9 @@ impl AppState {
             current_tab: 0,
             gpu_scroll_offset: 0,
             tab_scroll_offset: 0,
+            device_name_scroll_offsets: std::collections::HashMap::new(),
+            hostname_scroll_offsets: std::collections::HashMap::new(),
+            frame_counter: 0,
         }
     }
 }
@@ -238,7 +244,14 @@ fn draw_tabs<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
     queue!(stdout, Print("\r\n")).unwrap();
 }
 
-fn print_gpu_info<W: Write>(stdout: &mut W, index: usize, info: &GpuInfo, width: usize) {
+fn print_gpu_info<W: Write>(
+    stdout: &mut W,
+    index: usize,
+    info: &GpuInfo,
+    width: usize,
+    device_name_scroll_offset: usize,
+    hostname_scroll_offset: usize,
+) {
     const GIB_DIVISOR: f64 = 1024.0 * 1024.0 * 1024.0;
 
     let used_memory_gib = info.used_memory as f64 / GIB_DIVISOR;
@@ -263,20 +276,41 @@ fn print_gpu_info<W: Write>(stdout: &mut W, index: usize, info: &GpuInfo, width:
     }
 
     // Adding device, memory, temperature, frequency, and power information
-    let mut hostname = info.hostname.clone();
-    if hostname.len() > 8 {
-        hostname.truncate(8);
-    }
+    let hostname = if info.hostname.len() > 9 {
+        let start = hostname_scroll_offset;
+        let end = (start + 9).min(info.hostname.len());
+        let mut scrolled_name = info.hostname[start..end].to_string();
+        if end < info.hostname.len() {
+            scrolled_name.push('…');
+        }
+        scrolled_name
+    } else {
+        info.hostname.clone()
+    };
+
     add_label(
         &mut labels,
         "HOST: ",
         format!("{}  ", hostname),
         Color::Blue,
     );
+
+    let device_name = if info.name.len() > 15 {
+        let start = device_name_scroll_offset;
+        let end = (start + 15).min(info.name.len());
+        let mut scrolled_name = info.name[start..end].to_string();
+        if end < info.name.len() {
+            scrolled_name.push('…');
+        }
+        scrolled_name
+    } else {
+        info.name.clone()
+    };
+
     add_label(
         &mut labels,
         &format!("DEVICE {}: ", index + 1),
-        format!("{}  ", info.name),
+        format!("{}  ", device_name),
         Color::Blue,
     );
     add_label(
@@ -679,14 +713,17 @@ async fn run_view_mode(args: &ViewArgs) {
                 state.gpu_info = all_gpu_info;
                 state.process_info = all_processes;
                 let mut tabs = vec!["All".to_string()];
-                tabs.extend(
-                    state
-                        .gpu_info
-                        .iter()
-                        .map(|info| info.hostname.clone())
-                        .collect::<std::collections::HashSet<_>>(),
-                );
+                let mut hostnames: Vec<String> = state
+                    .gpu_info
+                    .iter()
+                    .map(|info| info.hostname.clone())
+                    .collect::<std::collections::HashSet<_>>() // Collect into HashSet to get unique hostnames
+                    .into_iter()
+                    .collect(); // Convert back to Vec
+                hostnames.sort(); // Sort hostnames alphabetically
+                tabs.extend(hostnames);
                 state.tabs = tabs;
+
                 if state.loading {
                     state.loading = false;
                 }
@@ -791,13 +828,15 @@ async fn run_view_mode(args: &ViewArgs) {
                 let mut state = app_state_clone.lock().await;
                 state.gpu_info = all_gpu_info;
                 let mut tabs = vec!["All".to_string()];
-                tabs.extend(
-                    state
-                        .gpu_info
-                        .iter()
-                        .map(|info| info.hostname.clone())
-                        .collect::<std::collections::HashSet<_>>(),
-                );
+                let mut hostnames: Vec<String> = state
+                    .gpu_info
+                    .iter()
+                    .map(|info| info.hostname.clone())
+                    .collect::<std::collections::HashSet<_>>() // Collect into HashSet to get unique hostnames
+                    .into_iter()
+                    .collect(); // Convert back to Vec
+                hostnames.sort(); // Sort hostnames alphabetically
+                tabs.extend(hostnames);
                 state.tabs = tabs;
                 state.process_info = Vec::new(); // No process info in remote mode
                 if state.loading {
@@ -940,7 +979,26 @@ async fn run_view_mode(args: &ViewArgs) {
             }
         }
 
-        let state = app_state.lock().await.clone();
+        let mut state = app_state.lock().await;
+        state.frame_counter += 1;
+        if state.frame_counter % 2 == 0 {
+            // Update scroll offsets
+            let mut new_scroll_offsets = state.device_name_scroll_offsets.clone();
+            let mut new_hostname_scroll_offsets = state.hostname_scroll_offsets.clone();
+            for gpu in &state.gpu_info {
+                if gpu.name.len() > 15 {
+                    let offset = new_scroll_offsets.entry(gpu.uuid.clone()).or_insert(0);
+                    *offset = (*offset + 1) % (gpu.name.len() - 14);
+                }
+                if gpu.hostname.len() > 9 {
+                    let offset = new_hostname_scroll_offsets.entry(gpu.hostname.clone()).or_insert(0);
+                    *offset = (*offset + 1) % (gpu.hostname.len() - 8);
+                }
+            }
+            state.device_name_scroll_offsets = new_scroll_offsets;
+            state.hostname_scroll_offsets = new_hostname_scroll_offsets;
+        }
+
         let (cols, rows) = size().unwrap();
 
         queue!(stdout, cursor::Hide, cursor::MoveTo(0, 0)).unwrap();
@@ -991,7 +1049,9 @@ async fn run_view_mode(args: &ViewArgs) {
                 .skip(state.gpu_scroll_offset)
                 .enumerate()
             {
-                print_gpu_info(&mut stdout, index, info, width);
+                let device_name_scroll_offset = state.device_name_scroll_offsets.get(&info.uuid).cloned().unwrap_or(0);
+                let hostname_scroll_offset = state.hostname_scroll_offsets.get(&info.hostname).cloned().unwrap_or(0);
+                print_gpu_info(&mut stdout, index, info, width, device_name_scroll_offset, hostname_scroll_offset);
                 if index < gpu_info_to_display.len() - 1 {
                     queue!(stdout, Print("\r\n")).unwrap();
                 }
