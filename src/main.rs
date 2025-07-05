@@ -237,30 +237,59 @@ fn draw_bar<W: Write>(
     show_text: Option<String>,
 ) {
     let label_width = label.len();
-    let text_width = show_text.as_ref().map_or(0, |text| text.len());
-    let available_bar_width = width.saturating_sub(label_width + 4);
-
-    let full_blocks = (value / max_value * available_bar_width as f64).floor() as usize;
-    let remainder = (value / max_value * available_bar_width as f64) - full_blocks as f64;
-    let filled_char = match remainder {
+    let available_bar_width = width.saturating_sub(label_width + 4); // 4 for ": [" and "] "
+    
+    // Calculate the filled portion
+    let fill_ratio = (value / max_value).min(1.0);
+    let filled_width = (fill_ratio * available_bar_width as f64).floor() as usize;
+    let remainder = (fill_ratio * available_bar_width as f64) - filled_width as f64;
+    
+    // Choose partial block character based on remainder
+    let partial_char = match remainder {
         r if r > 0.875 => "▉",
-        r if r > 0.625 => "▊",
+        r if r > 0.625 => "▊", 
         r if r > 0.375 => "▋",
         r if r > 0.125 => "▌",
         _ => "▏",
     };
-    let empty_width = available_bar_width.saturating_sub(full_blocks + text_width);
-
-    let filled_bar = format!(
-        "{}{}",
-        "▉".repeat(full_blocks),
-        if full_blocks < available_bar_width {
-            filled_char
+    
+    // Create the bar content with text positioned at the right end
+    let text_to_show = show_text.unwrap_or_default();
+    let text_len = text_to_show.len();
+    let text_start_pos = available_bar_width.saturating_sub(text_len);
+    
+    // Build the bar character by character
+    let mut bar_chars = Vec::new();
+    for i in 0..available_bar_width {
+        if i < filled_width {
+            // Filled area
+            if i >= text_start_pos && i < text_start_pos + text_len {
+                // Text position in filled area
+                let text_char = text_to_show.chars().nth(i - text_start_pos).unwrap_or(' ');
+                bar_chars.push((text_char, true, true)); // (char, is_filled, is_text)
+            } else {
+                bar_chars.push(('▉', true, false));
+            }
+        } else if i == filled_width && remainder > 0.125 {
+            // Partial fill position
+            if i >= text_start_pos && i < text_start_pos + text_len {
+                // Text position in partial area
+                let text_char = text_to_show.chars().nth(i - text_start_pos).unwrap_or(' ');
+                bar_chars.push((text_char, false, true));
+            } else {
+                bar_chars.push((partial_char.chars().next().unwrap(), false, false));
+            }
         } else {
-            ""
+            // Empty area
+            if i >= text_start_pos && i < text_start_pos + text_len {
+                // Text position in empty area
+                let text_char = text_to_show.chars().nth(i - text_start_pos).unwrap_or(' ');
+                bar_chars.push((text_char, false, true));
+            } else {
+                bar_chars.push(('▏', false, false));
+            }
         }
-    );
-    let empty_bar = "▏".repeat(empty_width);
+    }
 
     // Use different colors for storage bars
     let (label_color, bar_color) = if label == "DSK" {
@@ -269,14 +298,22 @@ fn draw_bar<W: Write>(
         (Color::Blue, Color::Green)
     };
 
+    // Print label and opening bracket
     print_colored_text(stdout, &format!("{}: [", label), label_color, None, None);
-    print_colored_text(stdout, &filled_bar, bar_color, None, None);
-    print_colored_text(stdout, &empty_bar, bar_color, None, None);
-
-    if let Some(text) = show_text {
-        print_colored_text(stdout, &text, Color::White, None, Some(text_width));
+    
+    // Print each character with appropriate coloring
+    for (ch, is_filled, is_text) in bar_chars {
+        if is_text {
+            // Text should be white on appropriate background
+            let bg_color = if is_filled { Some(bar_color) } else { None };
+            print_colored_text(stdout, &ch.to_string(), Color::White, bg_color, None);
+        } else {
+            // Bar characters
+            print_colored_text(stdout, &ch.to_string(), bar_color, None, None);
+        }
     }
-
+    
+    // Print closing bracket and space
     queue!(stdout, Print("] ")).unwrap();
 }
 
@@ -338,10 +375,8 @@ fn print_gpu_info<W: Write>(
 
     let used_memory_gib = info.used_memory as f64 / GIB_DIVISOR;
     let total_memory_gib = info.total_memory as f64 / GIB_DIVISOR;
-    let memory_text = format!("{:.2}/{:.2}Gi", used_memory_gib, total_memory_gib);
+    let memory_text = format!("{:.1}/{:.1}Gi", used_memory_gib, total_memory_gib);
     let gpu_percentage_text = format!("{:.2}%", info.utilization);
-    let freq_text = format!("{} MHz", info.frequency);
-    let power_text = format!("{:.2} W", info.power_consumption);
     let _time = &info.time; // Keep for other device support
 
     let mut labels = Vec::new();
@@ -392,31 +427,31 @@ fn print_gpu_info<W: Write>(
     add_label(
         &mut labels,
         "Total: ",
-        format!("{:.2} GiB  ", total_memory_gib),
+        format!("{:>6.1} GiB  ", total_memory_gib),
         Color::Blue,
     );
     add_label(
         &mut labels,
         "Used: ",
-        format!("{:.2} GiB  ", used_memory_gib),
+        format!("{:>6.1} GiB  ", used_memory_gib),
         Color::Blue,
     );
     add_label(
         &mut labels,
         "Temp.: ",
-        format!("{}°C  ", info.temperature),
+        format!("{:>3}°C  ", info.temperature),
         Color::Blue,
     );
     add_label(
         &mut labels,
         "FREQ: ",
-        format!("{}  ", freq_text),
+        format!("{:>4} MHz  ", info.frequency),
         Color::Blue,
     );
     add_label(
         &mut labels,
         "POW: ",
-        format!("{} ", power_text),
+        format!("{:>5.1}W  ", info.power_consumption),
         Color::Blue,
     );
 
@@ -466,7 +501,7 @@ fn print_gpu_info<W: Write>(
             info.ane_utilization,
             1000.0,
             w2,
-            Some(format!("{:.2}W", info.ane_utilization / 1000.0)),
+            Some(format!("{:.1}W", info.ane_utilization / 1000.0)),
         );
     }
 
