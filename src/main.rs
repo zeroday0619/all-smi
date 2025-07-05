@@ -1152,14 +1152,17 @@ async fn run_view_mode(args: &ViewArgs) {
 
             let re = Regex::new(r"^all_smi_([^\{]+)\{([^}]+)\} ([\d\.]+)$").unwrap();
             let client = reqwest::Client::builder()
-                .timeout(Duration::from_secs(10)) // Increased timeout for high concurrency
-                .pool_idle_timeout(Duration::from_secs(30))
-                .pool_max_idle_per_host(50) // Increased pool size
+                .timeout(Duration::from_secs(5)) // Reduced timeout for better performance
+                .pool_idle_timeout(Duration::from_secs(60))
+                .pool_max_idle_per_host(200) // Increased pool size significantly
+                .tcp_keepalive(Duration::from_secs(30))
+                .http2_keep_alive_interval(Duration::from_secs(30))
                 .build()
                 .unwrap();
                 
-            // Create semaphore to limit concurrent connections
-            let max_concurrent_connections = 20; // Limit to 20 simultaneous connections
+            // Create semaphore to limit concurrent connections - respect system limits
+            // macOS kern.ipc.somaxconn is 128, so limit to 64 concurrent connections to avoid queue drops
+            let max_concurrent_connections = std::cmp::min(all_hosts.len(), 64);
             let semaphore = Arc::new(tokio::sync::Semaphore::new(max_concurrent_connections));
 
             loop {
@@ -1170,12 +1173,18 @@ async fn run_view_mode(args: &ViewArgs) {
                 
                 
                 // Parallel data collection with concurrency limiting and retries
-                let fetch_tasks: Vec<_> = all_hosts.iter().enumerate().map(|(_i, host)| {
+                let total_hosts = all_hosts.len();
+                let fetch_tasks: Vec<_> = all_hosts.iter().enumerate().map(|(i, host)| {
                     let client = client.clone();
                     let host = host.clone();
                     let semaphore = semaphore.clone();
                     let _re = re.clone(); // Keep for potential future use in parallel processing
                     tokio::spawn(async move {
+                        // Stagger connection attempts to avoid overwhelming the listen queue
+                        // Spread connections over 500ms window
+                        let stagger_delay = (i as u64 * 500) / total_hosts as u64;
+                        tokio::time::sleep(Duration::from_millis(stagger_delay)).await;
+                        
                         // Acquire semaphore permit to limit concurrency
                         let _permit = semaphore.acquire().await.unwrap();
                         
@@ -1185,34 +1194,34 @@ async fn run_view_mode(args: &ViewArgs) {
                             format!("http://{}/metrics", host)
                         };
                         
-                        // Retry logic - try up to 3 times
-                        for attempt in 1..=3 {
+                        // Retry logic - try up to 2 times with shorter delays
+                        for attempt in 1..=2 {
                             match client.get(&url).send().await {
                                 Ok(response) => {
                                     if response.status().is_success() {
                                         match response.text().await {
                                             Ok(text) => return Some((host, text, None)), // Success
                                             Err(e) => {
-                                                if attempt == 3 {
+                                                if attempt == 2 {
                                                     return Some((host, String::new(), Some(format!("Text parse error: {}", e))));
                                                 }
                                             }
                                         }
                                     } else {
-                                        if attempt == 3 {
+                                        if attempt == 2 {
                                             return Some((host, String::new(), Some(format!("HTTP {}", response.status()))));
                                         }
                                     }
                                 },
                                 Err(e) => {
-                                    if attempt == 3 {
+                                    if attempt == 2 {
                                         return Some((host, String::new(), Some(format!("Connection error after {} attempts: {}", attempt, e))));
                                     }
                                 }
                             }
                             
-                            // Wait before retry (exponential backoff)
-                            tokio::time::sleep(Duration::from_millis(100 * attempt as u64)).await;
+                            // Wait before retry (shorter delay)
+                            tokio::time::sleep(Duration::from_millis(50)).await;
                         }
                         
                         Some((host, String::new(), Some("All retry attempts failed".to_string())))
@@ -1223,12 +1232,16 @@ async fn run_view_mode(args: &ViewArgs) {
                 let fetch_results = futures_util::future::join_all(fetch_tasks).await;
                 
                 // Process all fetch results with error tracking
+                let mut successful_connections = 0;
+                let mut failed_connections = 0;
                 for task_result in fetch_results {
                     match task_result {
                         Ok(Some((host, text, error))) => {
                             if let Some(_err_msg) = error {
+                                failed_connections += 1;
                                 continue;
                             }
+                            successful_connections += 1;
                             
                             if text.is_empty() {
                                 continue;
@@ -1381,11 +1394,19 @@ async fn run_view_mode(args: &ViewArgs) {
                         }
                         Ok(None) => {
                             // Task returned None - ignore
+                            failed_connections += 1;
                         }
                         Err(_e) => {
                             // Task error - ignore
+                            failed_connections += 1;
                         }
                     }
+                }
+                
+                // Debug logging for connection success rate
+                if failed_connections > 0 {
+                    eprintln!("Connection stats: {} successful, {} failed out of {} total", 
+                             successful_connections, failed_connections, total_hosts);
                 }
 
                 
