@@ -14,6 +14,7 @@ pub trait GpuReader: Send {
 pub struct GpuInfo {
     pub time: String,
     pub name: String,
+    pub hostname: String,
     pub utilization: f64,
     pub ane_utilization: f64,
     pub temperature: u32,

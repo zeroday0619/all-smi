@@ -79,6 +79,9 @@ struct AppState {
     start_index: usize,
     sort_criteria: SortCriteria,
     loading: bool,
+    tabs: Vec<String>,
+    current_tab: usize,
+    gpu_scroll_offset: usize,
 }
 
 impl AppState {
@@ -90,6 +93,9 @@ impl AppState {
             start_index: 0,
             sort_criteria: SortCriteria::Pid,
             loading: true,
+            tabs: vec!["All".to_string()],
+            current_tab: 0,
+            gpu_scroll_offset: 0,
         }
     }
 }
@@ -188,6 +194,19 @@ fn draw_bar<W: Write>(
     }
 
     queue!(stdout, Print("] ")).unwrap();
+}
+
+fn draw_tabs<W: Write>(stdout: &mut W, tabs: &[String], current_tab: usize) {
+    queue!(stdout, cursor::MoveTo(0, 5)).unwrap();
+    for (i, tab) in tabs.iter().enumerate() {
+        let (fg_color, bg_color) = if i == current_tab {
+            (Color::Black, Some(Color::Cyan))
+        } else {
+            (Color::White, None)
+        };
+        print_colored_text(stdout, &format!(" {} ", tab), fg_color, bg_color, None);
+    }
+    queue!(stdout, Print("\r\n")).unwrap();
 }
 
 fn print_gpu_info<W: Write>(stdout: &mut W, index: usize, info: &GpuInfo, width: usize) {
@@ -301,6 +320,12 @@ fn print_gpu_info<W: Write>(stdout: &mut W, index: usize, info: &GpuInfo, width:
     );
 
     queue!(stdout, Print("\r\n")).unwrap(); // Move cursor to the start of the next line
+}
+
+fn draw_system_view<W: Write>(stdout: &mut W) {
+    // This is a placeholder for the system view.
+    // Currently, it\'s empty as per the requirement.
+    queue!(stdout, cursor::MoveTo(0, 1), Print("\r\n"), Print("\r\n"), Print("\r\n"), Print("\r\n"), Print("\r\n")).unwrap();
 }
 
 fn print_function_keys<W: Write>(stdout: &mut W, cols: u16, rows: u16) {
@@ -514,6 +539,15 @@ async fn run_view_mode(args: &ViewArgs) {
                 let mut state = app_state_clone.lock().await;
                 state.gpu_info = all_gpu_info;
                 state.process_info = all_processes;
+                let mut tabs = vec!["All".to_string()];
+                tabs.extend(
+                    state
+                        .gpu_info
+                        .iter()
+                        .map(|info| format!("{}:{}", info.hostname, info.name))
+                        .collect::<std::collections::HashSet<_>>(),
+                );
+                state.tabs = tabs;
                 if state.loading {
                     state.loading = false;
                 }
@@ -565,12 +599,15 @@ async fn run_view_mode(args: &ViewArgs) {
 
                                     let gpu_name =
                                         labels.get("gpu").cloned().unwrap_or_default();
+                                    let hostname =
+                                        labels.get("hostname").cloned().unwrap_or_default();
                                     let gpu_info =
                                         gpu_info_map.entry(gpu_name.clone()).or_insert(GpuInfo {
                                             time: Local::now()
                                                 .format("%Y-%m-%d %H:%M:%S")
                                                 .to_string(),
                                             name: gpu_name,
+                                            hostname,
                                             utilization: 0.0,
                                             ane_utilization: 0.0,
                                             temperature: 0,
@@ -614,6 +651,15 @@ async fn run_view_mode(args: &ViewArgs) {
 
                 let mut state = app_state_clone.lock().await;
                 state.gpu_info = all_gpu_info;
+                let mut tabs = vec!["All".to_string()];
+                tabs.extend(
+                    state
+                        .gpu_info
+                        .iter()
+                        .map(|info| format!("{}:{}", info.hostname, info.name))
+                        .collect::<std::collections::HashSet<_>>(),
+                );
+                state.tabs = tabs;
                 state.process_info = Vec::new(); // No process info in remote mode
                 if state.loading {
                     state.loading = false;
@@ -640,31 +686,66 @@ async fn run_view_mode(args: &ViewArgs) {
                 let mut state = app_state.lock().await;
                 match key_event.code {
                     KeyCode::Esc | KeyCode::F(10) | KeyCode::Char('q') => break,
+                    KeyCode::Left => {
+                        if state.current_tab > 0 {
+                            state.current_tab -= 1;
+                            state.gpu_scroll_offset = 0;
+                        }
+                    }
+                    KeyCode::Right => {
+                        if state.current_tab < state.tabs.len() - 1 {
+                            state.current_tab += 1;
+                            state.gpu_scroll_offset = 0;
+                        }
+                    }
                     _ if !state.loading => {
                         // Only handle other keys if not loading
                         match key_event.code {
                             KeyCode::Up => {
-                                if state.selected_process_index > 0 {
-                                    state.selected_process_index -= 1;
-                                }
-                                if state.selected_process_index < state.start_index {
-                                    state.start_index = state.selected_process_index;
+                                if state.current_tab > 0 {
+                                    if state.gpu_scroll_offset > 0 {
+                                        state.gpu_scroll_offset -= 1;
+                                    }
+                                } else {
+                                    if state.selected_process_index > 0 {
+                                        state.selected_process_index -= 1;
+                                    }
+                                    if state.selected_process_index < state.start_index {
+                                        state.start_index = state.selected_process_index;
+                                    }
                                 }
                             }
                             KeyCode::Down => {
-                                if !state.process_info.is_empty()
-                                    && state.selected_process_index < state.process_info.len() - 1
-                                {
-                                    state.selected_process_index += 1;
-                                }
-                                let (_cols, rows) = size().unwrap();
-                                let half_rows = rows / 2;
-                                let visible_process_rows = half_rows.saturating_sub(1) as usize;
-                                if state.selected_process_index
-                                    >= state.start_index + visible_process_rows
-                                {
-                                    state.start_index =
-                                        state.selected_process_index - visible_process_rows + 1;
+                                if state.current_tab > 0 {
+                                    let gpu_info_for_tab = state
+                                        .gpu_info
+                                        .iter()
+                                        .filter(|info| {
+                                            format!("{}:{}", info.hostname, info.name)
+                                                == state.tabs[state.current_tab]
+                                        })
+                                        .count();
+                                    if state.gpu_scroll_offset < gpu_info_for_tab - 1 {
+                                        state.gpu_scroll_offset += 1;
+                                    }
+                                } else {
+                                    if !state.process_info.is_empty()
+                                        && state.selected_process_index
+                                            < state.process_info.len() - 1
+                                    {
+                                        state.selected_process_index += 1;
+                                    }
+                                    let (_cols, rows) = size().unwrap();
+                                    let half_rows = rows / 2;
+                                    let visible_process_rows =
+                                        half_rows.saturating_sub(1) as usize;
+                                    if state.selected_process_index
+                                        >= state.start_index + visible_process_rows
+                                    {
+                                        state.start_index =
+                                            state.selected_process_index - visible_process_rows
+                                                + 1;
+                                    }
                                 }
                             }
                             KeyCode::PageUp => {
@@ -727,9 +808,26 @@ async fn run_view_mode(args: &ViewArgs) {
                 None,
             );
 
-            for (index, info) in state.gpu_info.iter().enumerate() {
+            draw_system_view(&mut stdout);
+            draw_tabs(&mut stdout, &state.tabs, state.current_tab);
+
+            let gpu_info_to_display: Vec<_> = if state.current_tab == 0 {
+                state.gpu_info.iter().collect()
+            } else {
+                state
+                    .gpu_info
+                    .iter()
+                    .filter(|info| format!("{}:{}", info.hostname, info.name) == state.tabs[state.current_tab])
+                    .collect()
+            };
+
+            for (index, info) in gpu_info_to_display
+                .iter()
+                .skip(state.gpu_scroll_offset)
+                .enumerate()
+            {
                 print_gpu_info(&mut stdout, index, info, width);
-                if index < state.gpu_info.len() - 1 {
+                if index < gpu_info_to_display.len() - 1 {
                     queue!(stdout, Print("\r\n")).unwrap();
                 }
             }
@@ -833,8 +931,8 @@ async fn metrics_handler(State(state): State<SharedState>) -> String {
         ));
         metrics.push_str(&format!("# TYPE all_smi_gpu_utilization gauge\n"));
         metrics.push_str(&format!(
-            "all_smi_gpu_utilization{{gpu=\"{}\", index=\"{}\"}} {}\n",
-            info.name, i, info.utilization
+            "all_smi_gpu_utilization{{gpu=\"{}\", hostname=\"{}\", index=\"{}\"}} {}\n",
+            info.name, info.hostname, i, info.utilization
         ));
 
         metrics.push_str(&format!(
@@ -842,8 +940,8 @@ async fn metrics_handler(State(state): State<SharedState>) -> String {
         ));
         metrics.push_str(&format!("# TYPE all_smi_gpu_memory_used_bytes gauge\n"));
         metrics.push_str(&format!(
-            "all_smi_gpu_memory_used_bytes{{gpu=\"{}\", index=\"{}\"}} {}\n",
-            info.name, i, info.used_memory
+            "all_smi_gpu_memory_used_bytes{{gpu=\"{}\", hostname=\"{}\", index=\"{}\"}} {}\n",
+            info.name, info.hostname, i, info.used_memory
         ));
 
         metrics.push_str(&format!(
@@ -851,8 +949,8 @@ async fn metrics_handler(State(state): State<SharedState>) -> String {
         ));
         metrics.push_str(&format!("# TYPE all_smi_gpu_memory_total_bytes gauge\n"));
         metrics.push_str(&format!(
-            "all_smi_gpu_memory_total_bytes{{gpu=\"{}\", index=\"{}\"}} {}\n",
-            info.name, i, info.total_memory
+            "all_smi_gpu_memory_total_bytes{{gpu=\"{}\", hostname=\"{}\", index=\"{}\"}} {}\n",
+            info.name, info.hostname, i, info.total_memory
         ));
 
         metrics.push_str(&format!(
@@ -862,8 +960,8 @@ async fn metrics_handler(State(state): State<SharedState>) -> String {
             "# TYPE all_smi_gpu_temperature_celsius gauge\n"
         ));
         metrics.push_str(&format!(
-            "all_smi_gpu_temperature_celsius{{gpu=\"{}\", index=\"{}\"}} {}\n",
-            info.name, i, info.temperature
+            "all_smi_gpu_temperature_celsius{{gpu=\"{}\", hostname=\"{}\", index=\"{}\"}} {}\n",
+            info.name, info.hostname, i, info.temperature
         ));
 
         metrics.push_str(&format!(
@@ -873,8 +971,8 @@ async fn metrics_handler(State(state): State<SharedState>) -> String {
             "# TYPE all_smi_gpu_power_consumption_watts gauge\n"
         ));
         metrics.push_str(&format!(
-            "all_smi_gpu_power_consumption_watts{{gpu=\"{}\", index=\"{}\"}} {}\n",
-            info.name, i, info.power_consumption
+            "all_smi_gpu_power_consumption_watts{{gpu=\"{}\", hostname=\"{}\", index=\"{}\"}} {}\n",
+            info.name, info.hostname, i, info.power_consumption
         ));
 
         metrics.push_str(&format!(
@@ -882,8 +980,8 @@ async fn metrics_handler(State(state): State<SharedState>) -> String {
         ));
         metrics.push_str(&format!("# TYPE all_smi_gpu_frequency_mhz gauge\n"));
         metrics.push_str(&format!(
-            "all_smi_gpu_frequency_mhz{{gpu=\"{}\", index=\"{}\"}} {}\n",
-            info.name, i, info.frequency
+            "all_smi_gpu_frequency_mhz{{gpu=\"{}\", hostname=\"{}\", index=\"{}\"}} {}\n",
+            info.name, info.hostname, i, info.frequency
         ));
 
         metrics.push_str(&format!(
@@ -891,8 +989,9 @@ async fn metrics_handler(State(state): State<SharedState>) -> String {
         ));
         metrics.push_str(&format!("# TYPE all_smi_ane_utilization gauge\n"));
         metrics.push_str(&format!(
-            "all_smi_ane_utilization{{gpu=\"{}\", index=\"{}\"}} {}\n",
+            "all_smi_ane_utilization{{gpu=\"{}\", hostname=\"{}\", index=\"{}\"}} {}\n",
             info.name,
+            info.hostname,
             i,
             info.ane_utilization / 1000.0
         ));

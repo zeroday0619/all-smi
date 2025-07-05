@@ -45,9 +45,10 @@ impl GpuReader for AppleSiliconGpuReader {
         gpu_info.push(GpuInfo {
             time: current_time,
             name: self.name.clone(),
+            hostname: get_hostname(),
             utilization,
             ane_utilization,
-            temperature: 0,
+            temperature: gpu_metrics.thermal_pressure.unwrap_or(0),
             used_memory,
             total_memory,
             frequency,
@@ -61,39 +62,50 @@ impl GpuReader for AppleSiliconGpuReader {
     fn get_process_info(&self) -> Vec<ProcessInfo> {
         let mut process_list = Vec::new();
 
-        // Using `ps` command to get process information as an example
-        let output = Command::new("ps")
-            .arg("aux")
+        let output = Command::new("sudo")
+            .arg("powermetrics")
+            .arg("-n")
+            .arg("1")
+            .arg("-i")
+            .arg("1000")
+            .arg("--samplers")
+            .arg("tasks")
+            .arg("--show-process-gpu")
             .output()
-            .expect("Failed to execute ps command");
+            .expect("Failed to execute powermetrics command");
 
         if output.status.success() {
             let output_str = String::from_utf8_lossy(&output.stdout);
             let lines = output_str.lines();
 
-            for line in lines.skip(1) {  // Skip the header line
+            for line in lines {
+                if line.contains("pid") {
+                    continue;
+                }
+
                 let parts: Vec<&str> = line.split_whitespace().collect();
-                if parts.len() > 10 {
-                    let pid = parts[1].parse::<u32>().unwrap_or(0);
-                    let process_name = parts[10].to_string();
-                    let used_memory = parts[5].parse::<u64>().unwrap_or(0) * 1024;  // Convert to bytes
-
-                    // For macOS, we might not have actual GPU usage, so we use hypothetical values
-                    let device_id = 0;  // Assuming single GPU setup
-                    let device_uuid = "AppleSiliconGPU".to_string();  // Example UUID
-
-                    process_list.push(ProcessInfo {
-                        device_id,
-                        device_uuid,
-                        pid,
-                        process_name,
-                        used_memory,
-                    });
+                if parts.len() >= 2 {
+                    let process_name = parts[0].to_string();
+                    let pid_str = parts[1];
+                    if let Ok(pid) = pid_str.parse::<u32>() {
+                        let gpu_usage_str = parts.get(2).unwrap_or(&"0.0");
+                        if let Ok(gpu_usage) = gpu_usage_str.parse::<f64>() {
+                            if gpu_usage > 0.0 {
+                                process_list.push(ProcessInfo {
+                                    device_id: 0,
+                                    device_uuid: "AppleSiliconGPU".to_string(),
+                                    pid,
+                                    process_name,
+                                    used_memory: gpu_usage as u64, // Using GPU ms/s as a proxy for memory
+                                });
+                            }
+                        }
+                    }
                 }
             }
         } else {
             eprintln!(
-                "ps command failed with status: {}",
+                "powermetrics command failed with status: {}",
                 output.status
             );
         }
@@ -107,6 +119,7 @@ struct GpuMetrics {
     ane_utilization: Option<f64>,
     frequency: Option<u32>,
     power_consumption: Option<f64>,
+    thermal_pressure: Option<u32>,
 }
 
 fn get_gpu_metrics() -> GpuMetrics {
@@ -117,7 +130,7 @@ fn get_gpu_metrics() -> GpuMetrics {
         .arg("-i")
         .arg("1000")
         .arg("--samplers")
-        .arg("gpu_power,ane_power")
+        .arg("gpu_power,ane_power,thermal")
         .stdout(Stdio::piped())
         .output()
         .expect("Failed to execute powermetrics");
@@ -128,6 +141,7 @@ fn get_gpu_metrics() -> GpuMetrics {
     let mut ane_utilization: Option<f64> = None;
     let mut frequency: Option<u32> = None;
     let mut power_consumption: Option<f64> = None;
+    let mut thermal_pressure: Option<u32> = None;
 
     for line in reader.lines() {
         if let Ok(line) = line {
@@ -158,6 +172,10 @@ fn get_gpu_metrics() -> GpuMetrics {
                         power_consumption = Some(p / 1000.0);
                     }
                 }
+            } else if line.contains("CPU Thermal pressure") {
+                if let Some(pressure_str) = line.split(':').nth(1) {
+                    thermal_pressure = pressure_str.trim().parse::<u32>().ok();
+                }
             }
         }
     }
@@ -167,6 +185,7 @@ fn get_gpu_metrics() -> GpuMetrics {
         ane_utilization,
         frequency,
         power_consumption,
+        thermal_pressure,
     }
 }
 
@@ -193,6 +212,13 @@ fn get_gpu_name_and_version() -> (String, Option<String>) {
     }
 
     (name, driver_version)
+}
+
+fn get_hostname() -> String {
+    let output = Command::new("hostname")
+        .output()
+        .expect("Failed to execute hostname command");
+    String::from_utf8_lossy(&output.stdout).trim().to_string()
 }
 
 fn get_total_memory() -> u64 {

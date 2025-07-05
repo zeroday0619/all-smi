@@ -6,6 +6,13 @@ use std::collections::HashMap;
 
 pub struct NvidiaGpuReader;
 
+fn get_hostname() -> String {
+    let output = Command::new("hostname")
+        .output()
+        .expect("Failed to execute hostname command");
+    String::from_utf8_lossy(&output.stdout).trim().to_string()
+}
+
 impl GpuReader for NvidiaGpuReader {
     fn get_gpu_info(&self) -> Vec<GpuInfo> {
         let mut gpu_info = Vec::new();
@@ -40,6 +47,7 @@ impl GpuReader for NvidiaGpuReader {
                         gpu_info.push(GpuInfo {
                             time,
                             name,
+                            hostname: get_hostname(),
                             utilization,
                             ane_utilization: 0.0,
                             temperature,
