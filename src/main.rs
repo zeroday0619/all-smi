@@ -82,6 +82,7 @@ struct AppState {
     tabs: Vec<String>,
     current_tab: usize,
     gpu_scroll_offset: usize,
+    tab_scroll_offset: usize,
 }
 
 impl AppState {
@@ -96,6 +97,7 @@ impl AppState {
             tabs: vec!["All".to_string()],
             current_tab: 0,
             gpu_scroll_offset: 0,
+            tab_scroll_offset: 0,
         }
     }
 }
@@ -196,16 +198,44 @@ fn draw_bar<W: Write>(
     queue!(stdout, Print("] ")).unwrap();
 }
 
-fn draw_tabs<W: Write>(stdout: &mut W, tabs: &[String], current_tab: usize) {
+fn draw_tabs<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
     queue!(stdout, cursor::MoveTo(0, 5)).unwrap();
-    for (i, tab) in tabs.iter().enumerate() {
-        let (fg_color, bg_color) = if i == current_tab {
+
+    // Always draw the 'All' tab
+    let (fg_color, bg_color) = if state.current_tab == 0 {
+        (Color::Black, Some(Color::Cyan))
+    } else {
+        (Color::White, None)
+    };
+    print_colored_text(stdout, " All ", fg_color, bg_color, None);
+
+    let mut available_width = cols.saturating_sub(5);
+    let mut displayed_tabs = 1;
+
+    for (i, tab) in state
+        .tabs
+        .iter()
+        .enumerate()
+        .skip(1)
+        .skip(state.tab_scroll_offset)
+    {
+        let tab_text = format!(" {} ", tab);
+        let tab_width = tab_text.len() as u16;
+
+        if available_width < tab_width {
+            break;
+        }
+
+        let (fg_color, bg_color) = if i == state.current_tab {
             (Color::Black, Some(Color::Cyan))
         } else {
             (Color::White, None)
         };
-        print_colored_text(stdout, &format!(" {} ", tab), fg_color, bg_color, None);
+        print_colored_text(stdout, &tab_text, fg_color, bg_color, None);
+
+        available_width -= tab_width;
     }
+
     queue!(stdout, Print("\r\n")).unwrap();
 }
 
@@ -322,10 +352,112 @@ fn print_gpu_info<W: Write>(stdout: &mut W, index: usize, info: &GpuInfo, width:
     queue!(stdout, Print("\r\n")).unwrap(); // Move cursor to the start of the next line
 }
 
-fn draw_system_view<W: Write>(stdout: &mut W) {
-    // This is a placeholder for the system view.
-    // Currently, it\'s empty as per the requirement.
-    queue!(stdout, cursor::MoveTo(0, 1), Print("\r\n"), Print("\r\n"), Print("\r\n"), Print("\r\n"), Print("\r\n")).unwrap();
+fn draw_node_square<W: Write>(
+    stdout: &mut W,
+    x: u16,
+    y: u16,
+    width: u16,
+    height: u16,
+    utilization: f64,
+    is_selected: bool,
+) {
+    let fill_height = height as f64 * utilization / 100.0;
+    let full_rows = fill_height.floor() as u16;
+    let partial_fill = fill_height - full_rows as f64;
+
+    let partial_chars = [" ", " ", "▂", "▃", "▄", "▅", "▆", "▇", "█"];
+    let partial_char_index = (partial_fill * 8.0).round() as usize;
+    let partial_char = partial_chars[partial_char_index.min(partial_chars.len() - 1)];
+
+    let color = if is_selected {
+        Color::Yellow
+    } else {
+        Color::Green
+    };
+
+    for i in 0..height {
+        let current_row_y = y + height - 1 - i;
+        queue!(stdout, cursor::MoveTo(x, current_row_y)).unwrap();
+        if i < full_rows {
+            print_colored_text(stdout, &"█".repeat(width as usize), color, None, None);
+        } else if i == full_rows {
+            print_colored_text(
+                stdout,
+                &partial_char.repeat(width as usize),
+                color,
+                None,
+                None,
+            );
+        } else {
+            print_colored_text(
+                stdout,
+                &"░".repeat(width as usize),
+                Color::DarkGrey,
+                None,
+                None,
+            );
+        }
+    }
+}
+
+fn draw_system_view<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
+    let mut host_utilization: std::collections::HashMap<String, (f64, usize)> =
+        std::collections::HashMap::new();
+    for gpu in &state.gpu_info {
+        let entry = host_utilization
+            .entry(gpu.hostname.clone())
+            .or_insert((0.0, 0));
+        entry.0 += gpu.utilization;
+        entry.1 += 1;
+    }
+
+    let mut host_avg_utilization: Vec<(String, f64)> = host_utilization
+        .into_iter()
+        .map(|(host, (total_util, count))| (host, total_util / count as f64))
+        .collect();
+
+    host_avg_utilization.sort_by(|a, b| a.0.cmp(&b.0));
+
+    const SQUARE_WIDTH: u16 = 1;
+    const SQUARE_HEIGHT: u16 = 1;
+    const NODE_COL_SPACING: u16 = 1;
+    const MAX_Y: u16 = 4;
+
+    let mut x: u16 = 1;
+    let mut y: u16 = 1;
+    let max_x = cols / 2;
+
+    for (hostname, avg_util) in &host_avg_utilization {
+        if x + SQUARE_WIDTH > max_x {
+            break; // No more space horizontally
+        }
+
+        let is_selected = if state.current_tab > 0 {
+            let selected_tab_hostname = state.tabs[state.current_tab]
+                .split(':')
+                .next()
+                .unwrap_or_default();
+            hostname == selected_tab_hostname
+        } else {
+            false
+        };
+
+        draw_node_square(
+            stdout,
+            x,
+            y,
+            SQUARE_WIDTH,
+            SQUARE_HEIGHT,
+            *avg_util,
+            is_selected,
+        );
+
+        y += SQUARE_HEIGHT;
+        if y > MAX_Y {
+            y = 1;
+            x += SQUARE_WIDTH + NODE_COL_SPACING;
+        }
+    }
 }
 
 fn print_function_keys<W: Write>(stdout: &mut W, cols: u16, rows: u16) {
@@ -547,7 +679,7 @@ async fn run_view_mode(args: &ViewArgs) {
                         .gpu_info
                         .iter()
                         .map(|info| format!("{}:{}", info.hostname, info.name))
-                        .collect::<std::collections::HashSet<_>>(),
+                        .collect::<std::collections::HashSet<_>>()
                 );
                 state.tabs = tabs;
                 if state.loading {
@@ -659,7 +791,7 @@ async fn run_view_mode(args: &ViewArgs) {
                         .gpu_info
                         .iter()
                         .map(|info| format!("{}:{}", info.hostname, info.name))
-                        .collect::<std::collections::HashSet<_>>(),
+                        .collect::<std::collections::HashSet<_>>()
                 );
                 state.tabs = tabs;
                 state.process_info = Vec::new(); // No process info in remote mode
@@ -691,14 +823,31 @@ async fn run_view_mode(args: &ViewArgs) {
                     KeyCode::Left => {
                         if state.current_tab > 0 {
                             state.current_tab -= 1;
-                            state.gpu_scroll_offset = 0;
+                            if state.current_tab < state.tab_scroll_offset + 1 && state.tab_scroll_offset > 0 {
+                                state.tab_scroll_offset -= 1;
+                            }
                         }
+                        state.gpu_scroll_offset = 0;
                     }
                     KeyCode::Right => {
                         if state.current_tab < state.tabs.len() - 1 {
                             state.current_tab += 1;
-                            state.gpu_scroll_offset = 0;
+                            let (cols, _) = size().unwrap();
+                            let mut available_width = cols.saturating_sub(5);
+                            let mut last_visible_tab = state.tab_scroll_offset;
+                            for (i, tab) in state.tabs.iter().enumerate().skip(1).skip(state.tab_scroll_offset) {
+                                let tab_width = tab.len() as u16 + 2;
+                                if available_width < tab_width {
+                                    break;
+                                }
+                                available_width -= tab_width;
+                                last_visible_tab = i;
+                            }
+                            if state.current_tab > last_visible_tab {
+                                state.tab_scroll_offset += 1;
+                            }
                         }
+                        state.gpu_scroll_offset = 0;
                     }
                     _ if !state.loading => {
                         // Only handle other keys if not loading
@@ -810,8 +959,8 @@ async fn run_view_mode(args: &ViewArgs) {
                 None,
             );
 
-            draw_system_view(&mut stdout);
-            draw_tabs(&mut stdout, &state.tabs, state.current_tab);
+            draw_system_view(&mut stdout, &state, cols);
+            draw_tabs(&mut stdout, &state, cols);
 
             let gpu_info_to_display: Vec<_> = if state.current_tab == 0 {
                 state.gpu_info.iter().collect()
