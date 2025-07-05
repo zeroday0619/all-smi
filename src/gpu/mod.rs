@@ -65,9 +65,10 @@ fn has_nvidia() -> bool {
 }
 
 fn is_jetson() -> bool {
-    // A simple way to check for a Jetson device is to look for a specific file
-    // in the /sys/class directory. This is not foolproof, but it's a good start.
-    std::path::Path::new("/sys/devices/platform/tegra-soc/gpu.0/load").exists()
+    if let Ok(compatible) = std::fs::read_to_string("/proc/device-tree/compatible") {
+        return compatible.contains("tegra");
+    }
+    false
 }
 
 fn is_apple_silicon() -> bool {
