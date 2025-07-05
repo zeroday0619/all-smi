@@ -363,8 +363,8 @@ fn print_function_keys<W: Write>(stdout: &mut W, cols: u16, rows: u16) {
 fn print_loading_indicator<W: Write>(stdout: &mut W, cols: u16, rows: u16) {
     let loading_text = "Loading...";
     let text_len = loading_text.len() as u16;
-    let x = cols.saturating_sub(text_len).saturating_sub(1);
-    let y = rows.saturating_sub(1);
+    let x = (cols - text_len) / 2;
+    let y = rows / 2;
     queue!(stdout, cursor::MoveTo(x, y)).unwrap();
     print_colored_text(stdout, loading_text, Color::White, None, None);
 }
@@ -493,17 +493,19 @@ impl SortCriteria {
 
 #[tokio::main]
 async fn main() {
-    ensure_sudo_permissions();
     let cli = Cli::parse();
 
     match &cli.command {
         Some(Commands::Api(args)) => {
+            ensure_sudo_permissions();
             run_api_mode(args).await;
         }
         Some(Commands::View(args)) => {
+            ensure_sudo_permissions();
             run_view_mode(args).await;
         }
         None => {
+            ensure_sudo_permissions();
             run_view_mode(&ViewArgs {
                 hosts: None,
                 hostfile: None,
