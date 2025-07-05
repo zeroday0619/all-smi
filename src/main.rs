@@ -31,6 +31,14 @@ use sysinfo::Disks;
 
 use crate::gpu::{get_gpu_readers, GpuInfo, ProcessInfo};
 
+#[derive(Clone)]
+struct StorageInfo {
+    mount_point: String,
+    total_bytes: u64,
+    available_bytes: u64,
+    hostname: String,
+}
+
 /// A command-line tool to monitor GPU usage, similar to nvidia-smi, but for all GPUs.
 #[derive(Parser)]
 #[command(author, version, about, long_about = None, arg_required_else_help(true))]
@@ -87,6 +95,7 @@ struct AppState {
     device_name_scroll_offsets: std::collections::HashMap<String, usize>,
     hostname_scroll_offsets: std::collections::HashMap<String, usize>,
     frame_counter: u64,
+    storage_info: Vec<StorageInfo>,
 }
 
 impl AppState {
@@ -105,6 +114,7 @@ impl AppState {
             device_name_scroll_offsets: std::collections::HashMap::new(),
             hostname_scroll_offsets: std::collections::HashMap::new(),
             frame_counter: 0,
+            storage_info: Vec::new(),
         }
     }
 }
@@ -194,9 +204,16 @@ fn draw_bar<W: Write>(
     );
     let empty_bar = "▏".repeat(empty_width);
 
-    print_colored_text(stdout, &format!("{}: [", label), Color::Blue, None, None);
-    print_colored_text(stdout, &filled_bar, Color::Green, None, None);
-    print_colored_text(stdout, &empty_bar, Color::Green, None, None);
+    // Use different colors for storage bars
+    let (label_color, bar_color) = if label == "DSK" {
+        (Color::Yellow, Color::Yellow)
+    } else {
+        (Color::Blue, Color::Green)
+    };
+
+    print_colored_text(stdout, &format!("{}: [", label), label_color, None, None);
+    print_colored_text(stdout, &filled_bar, bar_color, None, None);
+    print_colored_text(stdout, &empty_bar, bar_color, None, None);
 
     if let Some(text) = show_text {
         print_colored_text(stdout, &text, Color::White, None, Some(text_width));
@@ -396,6 +413,97 @@ fn print_gpu_info<W: Write>(
         total_memory_gib,
         w3,
         Some(memory_text),
+    );
+
+    queue!(stdout, Print("\r\n")).unwrap(); // Move cursor to the start of the next line
+}
+
+fn print_storage_info<W: Write>(
+    stdout: &mut W,
+    index: usize,
+    info: &StorageInfo,
+    width: usize,
+) {
+    const GIB_DIVISOR: f64 = 1024.0 * 1024.0 * 1024.0;
+    const TIB_DIVISOR: f64 = 1024.0 * 1024.0 * 1024.0 * 1024.0;
+
+    let used_bytes = info.total_bytes - info.available_bytes;
+    let used_gib = used_bytes as f64 / GIB_DIVISOR;
+    let total_gib = info.total_bytes as f64 / GIB_DIVISOR;
+    let used_tib = used_bytes as f64 / TIB_DIVISOR;
+    let total_tib = info.total_bytes as f64 / TIB_DIVISOR;
+
+    let (used_text, total_text, storage_text) = if total_tib >= 1.0 {
+        (
+            format!("{:.1}T", used_tib),
+            format!("{:.1}T", total_tib),
+            format!("{:.1}/{:.1}T", used_tib, total_tib),
+        )
+    } else {
+        (
+            format!("{:.0}G", used_gib),
+            format!("{:.0}G", total_gib),
+            format!("{:.0}/{:.0}G", used_gib, total_gib),
+        )
+    };
+
+    let mut labels = Vec::new();
+
+    // Helper function to add a label and value pair to the labels vector
+    fn add_label(
+        labels: &mut Vec<(String, Color)>,
+        label: &str,
+        value: String,
+        label_color: Color,
+    ) {
+        labels.push((label.to_string(), label_color));
+        labels.push((value, Color::White));
+    }
+
+    // Show mount point more prominently for multiple disks
+    let mount_display = if info.mount_point == "/" {
+        "Root".to_string()
+    } else if info.mount_point.len() > 20 {
+        format!("{}...", &info.mount_point[..17])
+    } else {
+        info.mount_point.clone()
+    };
+
+    add_label(
+        &mut labels,
+        &format!("DISK {}: ", index + 1),
+        format!("{}  ", mount_display),
+        Color::Yellow,
+    );
+    add_label(
+        &mut labels,
+        "Total: ",
+        format!("{}  ", total_text),
+        Color::Yellow,
+    );
+    add_label(
+        &mut labels,
+        "Used: ",
+        format!("{}  ", used_text),
+        Color::Yellow,
+    );
+
+    labels.push((String::from("\r\n"), Color::White));
+
+    for (text, color) in labels {
+        print_colored_text(stdout, &text, color, None, None);
+    }
+
+    // Use full width for storage bar
+    let w = width.saturating_sub(2);
+
+    draw_bar(
+        stdout,
+        "DSK",
+        used_bytes as f64,
+        info.total_bytes as f64,
+        w,
+        Some(storage_text),
     );
 
     queue!(stdout, Print("\r\n")).unwrap(); // Move cursor to the start of the next line
@@ -842,6 +950,7 @@ async fn run_view_mode(args: &ViewArgs) {
 
             loop {
                 let mut all_gpu_info = Vec::new();
+                let mut all_storage_info = Vec::new();
                 for host in &all_hosts {
                     let url = if host.starts_with("http://") || host.starts_with("https://") {
                         format!("{}/metrics", host)
@@ -851,6 +960,8 @@ async fn run_view_mode(args: &ViewArgs) {
                     if let Ok(response) = client.get(&url).send().await {
                         if let Ok(text) = response.text().await {
                             let mut gpu_info_map: std::collections::HashMap<String, GpuInfo> =
+                                std::collections::HashMap::new();
+                            let mut storage_info_map: std::collections::HashMap<String, StorageInfo> =
                                 std::collections::HashMap::new();
 
                             for line in text.lines() {
@@ -871,61 +982,98 @@ async fn run_view_mode(args: &ViewArgs) {
                                         }
                                     }
 
-                                    let gpu_name =
-                                        labels.get("gpu").cloned().unwrap_or_default();
-                                    let gpu_info =
-                                        gpu_info_map.entry(gpu_name.clone()).or_insert(GpuInfo {
-                                            uuid: labels.get("uuid").cloned().unwrap_or_default(),
-                                            time: Local::now()
-                                                .format("%Y-%m-%d %H:%M:%S")
-                                                .to_string(),
-                                            name: gpu_name,
-                                            hostname: host.split(':').next().unwrap_or_default().to_string(),
-                                            instance: host.clone(),
-                                            utilization: 0.0,
-                                            ane_utilization: 0.0,
-                                            dla_utilization: None,
-                                            temperature: 0,
-                                            used_memory: 0,
-                                            total_memory: 0,
-                                            frequency: 0,
-                                            power_consumption: 0.0,
-                                            detail: Default::default(),
-                                        });
+                                    // Only process GPU metrics if this line contains GPU-related data
+                                    if metric_name.starts_with("gpu_") || metric_name == "ane_utilization" {
+                                        let gpu_name =
+                                            labels.get("gpu").cloned().unwrap_or_default();
+                                        // Skip if gpu_name is empty (shouldn't happen for valid GPU metrics)
+                                        if gpu_name.is_empty() {
+                                            continue;
+                                        }
+                                        let gpu_info =
+                                            gpu_info_map.entry(gpu_name.clone()).or_insert(GpuInfo {
+                                                uuid: labels.get("uuid").cloned().unwrap_or_default(),
+                                                time: Local::now()
+                                                    .format("%Y-%m-%d %H:%M:%S")
+                                                    .to_string(),
+                                                name: gpu_name,
+                                                hostname: host.split(':').next().unwrap_or_default().to_string(),
+                                                instance: host.clone(),
+                                                utilization: 0.0,
+                                                ane_utilization: 0.0,
+                                                dla_utilization: None,
+                                                temperature: 0,
+                                                used_memory: 0,
+                                                total_memory: 0,
+                                                frequency: 0,
+                                                power_consumption: 0.0,
+                                                detail: Default::default(),
+                                            });
 
-                                    match metric_name {
-                                        "gpu_utilization" => {
-                                            gpu_info.utilization = value;
+                                        match metric_name {
+                                            "gpu_utilization" => {
+                                                gpu_info.utilization = value;
+                                            }
+                                            "gpu_memory_used_bytes" => {
+                                                gpu_info.used_memory = value as u64;
+                                            }
+                                            "gpu_memory_total_bytes" => {
+                                                gpu_info.total_memory = value as u64;
+                                            }
+                                            "gpu_temperature_celsius" => {
+                                                gpu_info.temperature = value as u32;
+                                            }
+                                            "gpu_power_consumption_watts" => {
+                                                gpu_info.power_consumption = value;
+                                            }
+                                            "gpu_frequency_mhz" => {
+                                                gpu_info.frequency = value as u32;
+                                            }
+                                            "ane_utilization" => {
+                                                gpu_info.ane_utilization = value;
+                                            }
+                                            _ => {}
                                         }
-                                        "gpu_memory_used_bytes" => {
-                                            gpu_info.used_memory = value as u64;
+                                    } else if metric_name.starts_with("disk_") {
+                                        // Handle disk metrics separately
+                                        let mount_point = labels.get("mount_point").cloned().unwrap_or_default();
+                                        let hostname = host.split(':').next().unwrap_or_default().to_string();
+                                        
+                                        match metric_name {
+                                            "disk_total_bytes" => {
+                                                let storage_info = storage_info_map.entry(format!("{}:{}", hostname, mount_point))
+                                                    .or_insert(StorageInfo {
+                                                        mount_point: mount_point.clone(),
+                                                        total_bytes: 0,
+                                                        available_bytes: 0,
+                                                        hostname: hostname.clone(),
+                                                    });
+                                                storage_info.total_bytes = value as u64;
+                                            }
+                                            "disk_available_bytes" => {
+                                                let storage_info = storage_info_map.entry(format!("{}:{}", hostname, mount_point))
+                                                    .or_insert(StorageInfo {
+                                                        mount_point: mount_point.clone(),
+                                                        total_bytes: 0,
+                                                        available_bytes: 0,
+                                                        hostname: hostname.clone(),
+                                                    });
+                                                storage_info.available_bytes = value as u64;
+                                            }
+                                            _ => {}
                                         }
-                                        "gpu_memory_total_bytes" => {
-                                            gpu_info.total_memory = value as u64;
-                                        }
-                                        "gpu_temperature_celsius" => {
-                                            gpu_info.temperature = value as u32;
-                                        }
-                                        "gpu_power_consumption_watts" => {
-                                            gpu_info.power_consumption = value;
-                                        }
-                                        "gpu_frequency_mhz" => {
-                                            gpu_info.frequency = value as u32;
-                                        }
-                                        "ane_utilization" => {
-                                            gpu_info.ane_utilization = value;
-                                        }
-                                        _ => {}
                                     }
                                 }
                             }
                             all_gpu_info.extend(gpu_info_map.into_values());
+                            all_storage_info.extend(storage_info_map.into_values());
                         }
                     }
                 }
 
                 let mut state = app_state_clone.lock().await;
                 state.gpu_info = all_gpu_info;
+                state.storage_info = all_storage_info;
                 let mut tabs = vec!["All".to_string()];
                 let mut hostnames: Vec<String> = state
                     .gpu_info
@@ -1159,7 +1307,32 @@ async fn run_view_mode(args: &ViewArgs) {
                 }
             }
 
+            // Display storage information for node-specific tabs in remote mode
             let is_remote = args.hosts.is_some() || args.hostfile.is_some();
+            if is_remote && state.current_tab > 0 {
+                let current_hostname = &state.tabs[state.current_tab];
+                let storage_info_to_display: Vec<_> = state
+                    .storage_info
+                    .iter()
+                    .filter(|info| info.hostname == *current_hostname)
+                    .collect();
+
+                if !storage_info_to_display.is_empty() {
+                    queue!(stdout, Print("\r\n")).unwrap();
+                    // Sort storage info by mount point for consistent display
+                    let mut sorted_storage: Vec<_> = storage_info_to_display.clone();
+                    sorted_storage.sort_by(|a, b| a.mount_point.cmp(&b.mount_point));
+                    
+                    for (index, info) in sorted_storage.iter().enumerate() {
+                        print_storage_info(&mut stdout, index, info, width);
+                        // Add spacing between disks for better visual separation
+                        if index < sorted_storage.len() - 1 {
+                            queue!(stdout, Print("\r\n")).unwrap();
+                        }
+                    }
+                }
+            }
+
             if !state.process_info.is_empty() && !is_remote {
                 let mut sorted_process_info = state.process_info.clone();
                 sorted_process_info.sort_by(|a, b| state.sort_criteria.sort(a, b));
@@ -1354,7 +1527,38 @@ async fn metrics_handler(State(state): State<SharedState>) -> String {
 
     let instance = state.gpu_info.first().map(|info| info.instance.clone()).unwrap_or_else(|| "unknown".to_string());
     let disks = Disks::new_with_refreshed_list();
+    
+    // Filter out unnecessary disk partitions
+    fn should_include_disk(mount_point: &str) -> bool {
+        // Exclude common system partitions that don't need monitoring
+        let excluded_patterns = [
+            "/System/Volumes/Data",  // macOS system partition
+            "/boot/efi",             // Linux EFI boot partition
+            "/boot",                 // Linux boot partition
+            "/dev",                  // Device filesystem
+            "/proc",                 // Process filesystem
+            "/sys",                  // System filesystem
+            "/run",                  // Runtime filesystem
+            "/snap/",                // Snap package mounts
+            "/var/lib/docker/",      // Docker overlay mounts
+        ];
+        
+        for pattern in &excluded_patterns {
+            if mount_point.starts_with(pattern) {
+                return false;
+            }
+        }
+        
+        // Only include real filesystem mounts (not tmpfs, devtmpfs, etc.)
+        // This is a simple heuristic - we include anything that starts with / but exclude common temporary filesystems
+        mount_point.starts_with('/') && !mount_point.starts_with("/tmp") && !mount_point.starts_with("/var/tmp")
+    }
+    
     for disk in &disks {
+        let mount_point_str = disk.mount_point().to_string_lossy();
+        if !should_include_disk(&mount_point_str) {
+            continue;
+        }
         metrics.push_str(&format!(
             "# HELP all_smi_disk_total_bytes Total disk space in bytes\n"
         ));
