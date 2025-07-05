@@ -27,6 +27,7 @@ use serde::Deserialize;
 use tokio::net::TcpListener;
 use tokio::sync::{Mutex, RwLock};
 use tower_http::cors::{Any, CorsLayer};
+use sysinfo::Disks;
 
 use crate::gpu::{get_gpu_readers, GpuInfo, ProcessInfo};
 
@@ -205,7 +206,7 @@ fn draw_bar<W: Write>(
 }
 
 fn draw_tabs<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
-    queue!(stdout, cursor::MoveTo(0, 5)).unwrap();
+    queue!(stdout, cursor::MoveTo(0, 10)).unwrap();
 
     // Always draw the 'All' tab
     let (fg_color, bg_color) = if state.current_tab == 0 {
@@ -518,13 +519,21 @@ fn draw_dashboard_items<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
     let dashboard_x = cols / 2 + 2;
     let mut y = 1;
 
-    let nodes_text = format!("Nodes: {}", num_nodes);
-    let gpus_text = format!("Total GPUs: {}", total_gpus);
-    let avg_gpu_text = format!("Avg GPU Util: {:.2}%", avg_gpu_util);
-    let avg_mem_text = format!("Avg Mem Util: {:.2}%", avg_mem_util);
     let power_text = format!("Total Power: {:.2}kW", total_power / 1000.0);
     let hottest_text = if let Some(gpu) = hottest_gpu {
-        format!("Hottest GPU: {}°C ({})", gpu.temperature, gpu.hostname)
+        let mut base_text = format!("Hottest GPU: {}°C", gpu.temperature);
+        let remaining_space = 24_usize.saturating_sub(base_text.len());
+
+        if remaining_space > 3 { // Need at least space for ' (…)'
+            let max_hostname_len = remaining_space.saturating_sub(3);
+            let mut hostname = gpu.hostname.clone();
+            if hostname.len() > max_hostname_len {
+                hostname.truncate(max_hostname_len.saturating_sub(1));
+                hostname.push('…');
+            }
+            base_text.push_str(&format!(" ({})", hostname));
+        }
+        base_text
     } else {
         "Hottest GPU: N/A".to_string()
     };
@@ -533,33 +542,44 @@ fn draw_dashboard_items<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
     print_colored_text(stdout, "┌──────────────────────────┐", Color::DarkGrey, None, None);
     queue!(stdout, cursor::MoveTo(dashboard_x, y + 1)).unwrap();
     print_colored_text(stdout, "│ ", Color::DarkGrey, None, None);
-    print_colored_text(stdout, &format!("{:<24}", nodes_text), Color::White, None, None);
+    print_colored_text(stdout, &format!("{:<24}", power_text), Color::White, None, None);
     print_colored_text(stdout, " │", Color::DarkGrey, None, None);
     queue!(stdout, cursor::MoveTo(dashboard_x, y + 2)).unwrap();
     print_colored_text(stdout, "│ ", Color::DarkGrey, None, None);
-    print_colored_text(stdout, &format!("{:<24}", gpus_text), Color::White, None, None);
+    print_colored_text(stdout, &format!("{:<24}", hottest_text), Color::White, None, None);
     print_colored_text(stdout, " │", Color::DarkGrey, None, None);
     queue!(stdout, cursor::MoveTo(dashboard_x, y + 3)).unwrap();
+    print_colored_text(stdout, "└──────────────────────────┘", Color::DarkGrey, None, None);
+
+    let dashboard_x2 = dashboard_x + 30;
+    y = 1;
+
+    let nodes_text = format!("Nodes: {}", num_nodes);
+    let gpus_text = format!("Total GPUs: {}", total_gpus);
+    let avg_gpu_text = format!("Avg GPU Util: {:.2}%", avg_gpu_util);
+    let avg_mem_text = format!("Avg Mem Util: {:.2}%", avg_mem_util);
+
+    queue!(stdout, cursor::MoveTo(dashboard_x2, y)).unwrap();
+    print_colored_text(stdout, "┌──────────────────────────┐", Color::DarkGrey, None, None);
+    queue!(stdout, cursor::MoveTo(dashboard_x2, y + 1)).unwrap();
+    print_colored_text(stdout, "│ ", Color::DarkGrey, None, None);
+    print_colored_text(stdout, &format!("{:<24}", nodes_text), Color::White, None, None);
+    print_colored_text(stdout, " │", Color::DarkGrey, None, None);
+    queue!(stdout, cursor::MoveTo(dashboard_x2, y + 2)).unwrap();
+    print_colored_text(stdout, "│ ", Color::DarkGrey, None, None);
+    print_colored_text(stdout, &format!("{:<24}", gpus_text), Color::White, None, None);
+    print_colored_text(stdout, " │", Color::DarkGrey, None, None);
+    queue!(stdout, cursor::MoveTo(dashboard_x2, y + 3)).unwrap();
     print_colored_text(stdout, "├──────────────────────────┤", Color::DarkGrey, None, None);
-    queue!(stdout, cursor::MoveTo(dashboard_x, y + 4)).unwrap();
+    queue!(stdout, cursor::MoveTo(dashboard_x2, y + 4)).unwrap();
     print_colored_text(stdout, "│ ", Color::DarkGrey, None, None);
     print_colored_text(stdout, &format!("{:<24}", avg_gpu_text), Color::White, None, None);
     print_colored_text(stdout, " │", Color::DarkGrey, None, None);
-    queue!(stdout, cursor::MoveTo(dashboard_x, y + 5)).unwrap();
+    queue!(stdout, cursor::MoveTo(dashboard_x2, y + 5)).unwrap();
     print_colored_text(stdout, "│ ", Color::DarkGrey, None, None);
     print_colored_text(stdout, &format!("{:<24}", avg_mem_text), Color::White, None, None);
     print_colored_text(stdout, " │", Color::DarkGrey, None, None);
-    queue!(stdout, cursor::MoveTo(dashboard_x, y + 6)).unwrap();
-    print_colored_text(stdout, "├──────────────────────────┤", Color::DarkGrey, None, None);
-    queue!(stdout, cursor::MoveTo(dashboard_x, y + 7)).unwrap();
-    print_colored_text(stdout, "│ ", Color::DarkGrey, None, None);
-    print_colored_text(stdout, &format!("{:<24}", power_text), Color::White, None, None);
-    print_colored_text(stdout, " │", Color::DarkGrey, None, None);
-    queue!(stdout, cursor::MoveTo(dashboard_x, y + 8)).unwrap();
-    print_colored_text(stdout, "│ ", Color::DarkGrey, None, None);
-    print_colored_text(stdout, &format!("{:<24}", hottest_text), Color::White, None, None);
-    print_colored_text(stdout, " │", Color::DarkGrey, None, None);
-    queue!(stdout, cursor::MoveTo(dashboard_x, y + 9)).unwrap();
+    queue!(stdout, cursor::MoveTo(dashboard_x2, y + 6)).unwrap();
     print_colored_text(stdout, "└──────────────────────────┘", Color::DarkGrey, None, None);
 }
 
@@ -736,7 +756,9 @@ async fn main() {
             run_api_mode(args).await;
         }
         Some(Commands::View(args)) => {
-            ensure_sudo_permissions();
+            if args.hosts.is_none() && args.hostfile.is_none() {
+                ensure_sudo_permissions();
+            }
             run_view_mode(args).await;
         }
         None => {
@@ -813,6 +835,10 @@ async fn run_view_mode(args: &ViewArgs) {
             }
 
             let re = Regex::new(r"^all_smi_([^\{]+)\{([^}]+)\} ([\d\.]+)$").unwrap();
+            let client = reqwest::Client::builder()
+                .timeout(Duration::from_secs(5))
+                .build()
+                .unwrap();
 
             loop {
                 let mut all_gpu_info = Vec::new();
@@ -822,7 +848,7 @@ async fn run_view_mode(args: &ViewArgs) {
                     } else {
                         format!("http://{}/metrics", host)
                     };
-                    if let Ok(response) = reqwest::get(&url).await {
+                    if let Ok(response) = client.get(&url).send().await {
                         if let Ok(text) = response.text().await {
                             let mut gpu_info_map: std::collections::HashMap<String, GpuInfo> =
                                 std::collections::HashMap::new();
@@ -1100,7 +1126,7 @@ async fn run_view_mode(args: &ViewArgs) {
             draw_tabs(&mut stdout, &state, cols);
 
             // Clear the GPU info area before drawing
-            for i in 6..half_rows {
+            for i in 11..half_rows {
                 queue!(
                     stdout,
                     cursor::MoveTo(0, i),
@@ -1108,7 +1134,7 @@ async fn run_view_mode(args: &ViewArgs) {
                 )
                 .unwrap();
             }
-            queue!(stdout, cursor::MoveTo(0, 6)).unwrap();
+            queue!(stdout, cursor::MoveTo(0, 11)).unwrap();
 
             let gpu_info_to_display: Vec<_> = if state.current_tab == 0 {
                 state.gpu_info.iter().collect()
@@ -1324,6 +1350,32 @@ async fn metrics_handler(State(state): State<SharedState>) -> String {
                 process.pid, process.process_name, process.device_id, process.device_uuid, process.used_memory
             ));
         }
+    }
+
+    let instance = state.gpu_info.first().map(|info| info.instance.clone()).unwrap_or_else(|| "unknown".to_string());
+    let disks = Disks::new_with_refreshed_list();
+    for disk in &disks {
+        metrics.push_str(&format!(
+            "# HELP all_smi_disk_total_bytes Total disk space in bytes\n"
+        ));
+        metrics.push_str(&format!("# TYPE all_smi_disk_total_bytes gauge\n"));
+        metrics.push_str(&format!(
+            "all_smi_disk_total_bytes{{instance=\"{}\", mount_point=\"{}\"}} {}\n",
+            instance,
+            disk.mount_point().to_string_lossy(),
+            disk.total_space()
+        ));
+
+        metrics.push_str(&format!(
+            "# HELP all_smi_disk_available_bytes Available disk space in bytes\n"
+        ));
+        metrics.push_str(&format!("# TYPE all_smi_disk_available_bytes gauge\n"));
+        metrics.push_str(&format!(
+            "all_smi_disk_available_bytes{{instance=\"{}\", mount_point=\"{}\"}} {}\n",
+            instance,
+            disk.mount_point().to_string_lossy(),
+            disk.available_space()
+        ));
     }
 
     metrics
