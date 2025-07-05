@@ -97,7 +97,7 @@ struct StorageInfo {
 
 /// A command-line tool to monitor GPU usage, similar to nvidia-smi, but for all GPUs.
 #[derive(Parser)]
-#[command(author, version, about, long_about = None, arg_required_else_help(true))]
+#[command(author, version, about, long_about = None)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
@@ -935,18 +935,19 @@ impl SortCriteria {
 async fn main() {
     let cli = Cli::parse();
 
-    match &cli.command {
+    match cli.command {
         Some(Commands::Api(args)) => {
             ensure_sudo_permissions();
-            run_api_mode(args).await;
+            run_api_mode(&args).await;
         }
         Some(Commands::View(args)) => {
             if args.hosts.is_none() && args.hostfile.is_none() {
                 ensure_sudo_permissions();
             }
-            run_view_mode(args).await;
+            run_view_mode(&args).await;
         }
         None => {
+            // This will be the default behavior
             ensure_sudo_permissions();
             run_view_mode(&ViewArgs {
                 hosts: None,
