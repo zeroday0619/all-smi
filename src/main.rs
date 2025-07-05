@@ -1641,25 +1641,24 @@ async fn run_view_mode(args: &ViewArgs) {
             let width = cols as usize;
             let half_rows = rows / 2;
 
+            // Use double buffering to reduce flickering - write everything to buffer
+            let mut buffer = BufferWriter::new();
+            
+            // Write time/date header to buffer first
             let current_time = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
             print_colored_text(
-                &mut stdout,
+                &mut buffer,
                 &format!("all-smi - {}\r\n", current_time),
                 Color::White,
                 None,
                 None,
             );
-
-            // Use double buffering to reduce flickering
-            let mut buffer = BufferWriter::new();
             
-            // Only clear the header area initially, content area will be cleared when we output the buffer
-            queue!(stdout, cursor::MoveTo(0, 0)).unwrap();
-            
-            print_colored_text(&mut stdout, "Clusters\r\n", Color::Cyan, None, None);
-            draw_system_view(&mut stdout, &state, cols);
-            draw_dashboard_items(&mut stdout, &state, cols);
-            draw_tabs(&mut stdout, &state, cols);
+            // Write remaining header content to buffer
+            print_colored_text(&mut buffer, "Clusters\r\n", Color::Cyan, None, None);
+            draw_system_view(&mut buffer, &state, cols);
+            draw_dashboard_items(&mut buffer, &state, cols);
+            draw_tabs(&mut buffer, &state, cols);
             
             let is_remote = args.hosts.is_some() || args.hostfile.is_some();
 
@@ -1683,9 +1682,9 @@ async fn run_view_mode(args: &ViewArgs) {
             });
 
             // Calculate available display area for GPU list
-            // Content area starts at row 12 (after tabs + separator), so available rows = total_rows - 12
+            // Content area starts at row 12 (after tabs + separator), reserve 1 row for function keys
             let content_start_row = 12;
-            let available_rows = rows.saturating_sub(content_start_row) as usize;
+            let available_rows = rows.saturating_sub(content_start_row).saturating_sub(1) as usize; // -1 for function keys
             
             // Calculate how many storage items will be displayed (only for node-specific tabs)
             let storage_items_count = if is_remote && state.current_tab > 0 && !state.storage_info.is_empty() {
@@ -1775,8 +1774,8 @@ async fn run_view_mode(args: &ViewArgs) {
                 );
             }
 
-            // Output the entire buffer to stdout in one operation
-            queue!(stdout, cursor::MoveTo(0, 12)).unwrap();
+            // Output the entire buffer to stdout in one operation (header + content)
+            queue!(stdout, cursor::MoveTo(0, 0)).unwrap();
             queue!(stdout, terminal::Clear(ClearType::FromCursorDown)).unwrap();
             print!("{}", buffer.get_buffer());
             
