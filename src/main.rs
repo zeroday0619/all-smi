@@ -958,7 +958,14 @@ async fn main() {
 }
 
 async fn run_view_mode(args: &ViewArgs) {
-    let app_state = Arc::new(Mutex::new(AppState::new()));
+    let mut initial_state = AppState::new();
+    // Disable loading indicator for remote mode
+    let is_remote_mode = args.hosts.is_some() || args.hostfile.is_some();
+    if is_remote_mode {
+        initial_state.loading = false;
+    }
+    
+    let app_state = Arc::new(Mutex::new(initial_state));
     let app_state_clone = Arc::clone(&app_state);
     let args_clone = args.clone();
 
@@ -1022,9 +1029,8 @@ async fn run_view_mode(args: &ViewArgs) {
                 tabs.extend(hostnames);
                 state.tabs = tabs;
 
-                if state.loading {
-                    state.loading = false;
-                }
+                // Always clear loading state in local mode after first iteration  
+                state.loading = false;
 
                 drop(state);
                 tokio::time::sleep(Duration::from_secs(2)).await;
@@ -1069,16 +1075,16 @@ async fn run_view_mode(args: &ViewArgs) {
                                     let metric_name = &cap[1];
                                     let labels_str = &cap[2];
                                     let value = cap[3].parse::<f64>().unwrap_or(0.0);
+                                    
 
                                     let mut labels: std::collections::HashMap<String, String> =
                                         std::collections::HashMap::new();
                                     for label in labels_str.split(',') {
                                         let label_parts: Vec<&str> = label.split('=').collect();
                                         if label_parts.len() == 2 {
-                                            labels.insert(
-                                                label_parts[0].to_string(),
-                                                label_parts[1].replace("\"", "").to_string(),
-                                            );
+                                            let key = label_parts[0].trim().to_string(); // Trim whitespace from key
+                                            let value = label_parts[1].replace("\"", "").to_string();
+                                            labels.insert(key.clone(), value.clone());
                                         }
                                     }
                                     
@@ -1147,12 +1153,14 @@ async fn run_view_mode(args: &ViewArgs) {
                                         let mount_point = labels.get("mount_point").cloned().unwrap_or_default();
                                         // Initial hostname (will be updated to instance name later)
                                         let hostname = host.split(':').next().unwrap_or_default().to_string();
+                                        let index = labels.get("index").and_then(|s| s.parse::<u32>().ok()).unwrap_or(0);
+                                        
+                                        
+                                        // Create storage key that includes both host and mount point to handle multiple disks
+                                        let storage_key = format!("{}:{}:{}", host, mount_point, index);
                                         
                                         match metric_name {
                                             "disk_total_bytes" => {
-                                                // Include host in key to prevent collisions when same machine is accessed via multiple addresses
-                                                let storage_key = format!("{}:{}", host, mount_point);
-                                                let index = labels.get("index").and_then(|s| s.parse::<u32>().ok()).unwrap_or(0);
                                                 let storage_info = storage_info_map.entry(storage_key)
                                                     .or_insert(StorageInfo {
                                                         mount_point: mount_point.clone(),
@@ -1164,9 +1172,6 @@ async fn run_view_mode(args: &ViewArgs) {
                                                 storage_info.total_bytes = value as u64;
                                             }
                                             "disk_available_bytes" => {
-                                                // Include host in key to prevent collisions when same machine is accessed via multiple addresses
-                                                let storage_key = format!("{}:{}", host, mount_point);
-                                                let index = labels.get("index").and_then(|s| s.parse::<u32>().ok()).unwrap_or(0);
                                                 let storage_info = storage_info_map.entry(storage_key)
                                                     .or_insert(StorageInfo {
                                                         mount_point: mount_point.clone(),
@@ -1230,9 +1235,9 @@ async fn run_view_mode(args: &ViewArgs) {
                 tabs.extend(sorted_hostnames);
                 state.tabs = tabs;
                 state.process_info = Vec::new(); // No process info in remote mode
-                if state.loading {
-                    state.loading = false;
-                }
+                
+                // Always clear loading state in remote mode after first iteration
+                state.loading = false;
 
                 drop(state);
                 tokio::time::sleep(Duration::from_secs(2)).await;
