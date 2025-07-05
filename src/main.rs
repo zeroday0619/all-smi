@@ -279,7 +279,7 @@ fn print_gpu_info<W: Write>(
     let hostname = if info.hostname.len() > 9 {
         let extended_hostname = format!("{}   ", info.hostname);
         let start = hostname_scroll_offset % extended_hostname.len();
-        let mut scrolled_name = extended_hostname.chars().cycle().skip(start).take(9).collect::<String>();
+        let scrolled_name = extended_hostname.chars().cycle().skip(start).take(9).collect::<String>();
         scrolled_name
     } else {
         format!("{:<9}", info.hostname)
@@ -295,7 +295,7 @@ fn print_gpu_info<W: Write>(
     let device_name = if info.name.len() > 15 {
         let extended_name = format!("{}   ", info.name);
         let start = device_name_scroll_offset % extended_name.len();
-        let mut scrolled_name = extended_name.chars().cycle().skip(start).take(15).collect::<String>();
+        let scrolled_name = extended_name.chars().cycle().skip(start).take(15).collect::<String>();
         scrolled_name
     } else {
         format!("{:<15}", info.name)
