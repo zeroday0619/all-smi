@@ -350,10 +350,10 @@ fn print_gpu_info<W: Write>(
 
     labels.push((String::from("\r\n"), Color::White));
 
-    let (ane_dla_label, ane_dla_text) = if let Some(dla_util) = info.dla_utilization {
-        ("DLA", format!("{:.2}%", dla_util))
+    let (ane_dla_label, ane_dla_text, ane_dla_value) = if let Some(dla_util) = info.dla_utilization {
+        ("DLA", format!("{:.2}%", dla_util), dla_util)
     } else {
-        ("ANE", format!("{:.2}W", info.ane_utilization / 1000.0))
+        ("ANE", format!("{:.2}W", info.ane_utilization / 1000.0), info.ane_utilization)
     };
 
     for (text, color) in labels {
@@ -373,18 +373,17 @@ fn print_gpu_info<W: Write>(
         w1,
         Some(gpu_percentage_text),
     );
-    draw_bar(
-        stdout,
-        ane_dla_label,
-        if let Some(dla_util) = info.dla_utilization {
-            dla_util
-        } else {
-            info.ane_utilization
-        },
-        100.0,
-        w2,
-        Some(ane_dla_text),
-    );
+
+    if info.dla_utilization.is_some() || info.ane_utilization > 0.0 {
+        draw_bar(
+            stdout,
+            ane_dla_label,
+            ane_dla_value,
+            100.0,
+            w2,
+            Some(ane_dla_text.to_string()),
+        );
+    }
     draw_bar(
         stdout,
         "MEM",
