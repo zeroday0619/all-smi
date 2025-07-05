@@ -31,6 +31,38 @@ use sysinfo::Disks;
 
 use crate::gpu::{get_gpu_readers, GpuInfo, ProcessInfo};
 
+// Buffer writer for double buffering to reduce flickering
+struct BufferWriter {
+    buffer: String,
+}
+
+impl BufferWriter {
+    fn new() -> Self {
+        Self {
+            buffer: String::with_capacity(1024 * 1024), // Pre-allocate 1MB
+        }
+    }
+    
+    
+    fn get_buffer(&self) -> &str {
+        &self.buffer
+    }
+}
+
+impl Write for BufferWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let s = std::str::from_utf8(buf).map_err(|_| {
+            std::io::Error::new(std::io::ErrorKind::InvalidData, "Invalid UTF-8")
+        })?;
+        self.buffer.push_str(s);
+        Ok(buf.len())
+    }
+    
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
 fn get_hostname() -> String {
     let output = Command::new("hostname")
         .output()
@@ -1493,19 +1525,16 @@ async fn run_view_mode(args: &ViewArgs) {
                 None,
             );
 
-            // Clear entire screen and start fresh to prevent any duplication issues
-            queue!(stdout, terminal::Clear(ClearType::All)).unwrap();
+            // Use double buffering to reduce flickering
+            let mut buffer = BufferWriter::new();
+            
+            // Only clear the header area initially, content area will be cleared when we output the buffer
             queue!(stdout, cursor::MoveTo(0, 0)).unwrap();
-            stdout.flush().unwrap();
             
             print_colored_text(&mut stdout, "Clusters\r\n", Color::Cyan, None, None);
             draw_system_view(&mut stdout, &state, cols);
             draw_dashboard_items(&mut stdout, &state, cols);
             draw_tabs(&mut stdout, &state, cols);
-
-            // Position cursor for GPU content area (screen already cleared above)
-            // Row 12 now because tabs + separator line occupy rows 10-11
-            queue!(stdout, cursor::MoveTo(0, 12)).unwrap();
             
             let is_remote = args.hosts.is_some() || args.hostfile.is_some();
 
@@ -1562,6 +1591,7 @@ async fn run_view_mode(args: &ViewArgs) {
             // Each GPU takes 2 rows (info line + progress bars), so divide available rows by 2
             let max_gpu_items = gpu_display_rows / 2;
             
+            // Render GPU info to buffer
             for (index, info) in gpu_info_to_display
                 .iter()
                 .skip(state.gpu_scroll_offset)
@@ -1570,7 +1600,7 @@ async fn run_view_mode(args: &ViewArgs) {
             {
                 let device_name_scroll_offset = state.device_name_scroll_offsets.get(&info.uuid).cloned().unwrap_or(0);
                 let hostname_scroll_offset = state.hostname_scroll_offsets.get(&info.hostname).cloned().unwrap_or(0);
-                print_gpu_info(&mut stdout, index, info, width, device_name_scroll_offset, hostname_scroll_offset);
+                print_gpu_info(&mut buffer, index, info, width, device_name_scroll_offset, hostname_scroll_offset);
             }
 
             // Display storage information only for node-specific tabs in remote mode (not 'All' tab)
@@ -1584,7 +1614,7 @@ async fn run_view_mode(args: &ViewArgs) {
                     .collect();
 
                 if !storage_info_to_display.is_empty() {
-                    queue!(stdout, Print("\r\n")).unwrap();
+                    queue!(buffer, Print("\r\n")).unwrap();
                     // Sort storage info by hostname first, then by index, then by mount point for consistent display
                     let mut sorted_storage: Vec<_> = storage_info_to_display.clone();
                     sorted_storage.sort_by(|a, b| {
@@ -1596,10 +1626,10 @@ async fn run_view_mode(args: &ViewArgs) {
                     // Calculate remaining display area for storage (ensure it doesn't overflow)
                     let remaining_rows = available_rows.saturating_sub(gpu_display_rows);
                     for (index, info) in sorted_storage.iter().skip(state.storage_scroll_offset).take(remaining_rows.saturating_sub(2)).enumerate() {
-                        print_storage_info(&mut stdout, index, info, width);
+                        print_storage_info(&mut buffer, index, info, width);
                         // Add spacing between disks for better visual separation
                         if index < sorted_storage.len() - 1 {
-                            queue!(stdout, Print("\r\n")).unwrap();
+                            queue!(buffer, Print("\r\n")).unwrap();
                         }
                     }
                 }
@@ -1611,7 +1641,7 @@ async fn run_view_mode(args: &ViewArgs) {
                 sorted_process_info.sort_by(|a, b| state.sort_criteria.sort(a, b));
 
                 print_process_info(
-                    &mut stdout,
+                    &mut buffer,
                     &sorted_process_info,
                     state.selected_process_index,
                     state.start_index,
@@ -1620,6 +1650,11 @@ async fn run_view_mode(args: &ViewArgs) {
                 );
             }
 
+            // Output the entire buffer to stdout in one operation
+            queue!(stdout, cursor::MoveTo(0, 12)).unwrap();
+            queue!(stdout, terminal::Clear(ClearType::FromCursorDown)).unwrap();
+            print!("{}", buffer.get_buffer());
+            
             print_function_keys(&mut stdout, cols, rows);
         }
 
