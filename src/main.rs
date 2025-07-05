@@ -277,15 +277,12 @@ fn print_gpu_info<W: Write>(
 
     // Adding device, memory, temperature, frequency, and power information
     let hostname = if info.hostname.len() > 9 {
-        let start = hostname_scroll_offset;
-        let end = (start + 9).min(info.hostname.len());
-        let mut scrolled_name = info.hostname[start..end].to_string();
-        if end < info.hostname.len() {
-            scrolled_name.push('…');
-        }
+        let extended_hostname = format!("{}   ", info.hostname);
+        let start = hostname_scroll_offset % extended_hostname.len();
+        let mut scrolled_name = extended_hostname.chars().cycle().skip(start).take(9).collect::<String>();
         scrolled_name
     } else {
-        info.hostname.clone()
+        format!("{:<9}", info.hostname)
     };
 
     add_label(
@@ -296,15 +293,12 @@ fn print_gpu_info<W: Write>(
     );
 
     let device_name = if info.name.len() > 15 {
-        let start = device_name_scroll_offset;
-        let end = (start + 15).min(info.name.len());
-        let mut scrolled_name = info.name[start..end].to_string();
-        if end < info.name.len() {
-            scrolled_name.push('…');
-        }
+        let extended_name = format!("{}   ", info.name);
+        let start = device_name_scroll_offset % extended_name.len();
+        let mut scrolled_name = extended_name.chars().cycle().skip(start).take(15).collect::<String>();
         scrolled_name
     } else {
-        info.name.clone()
+        format!("{:<15}", info.name)
     };
 
     add_label(
@@ -710,7 +704,15 @@ async fn run_view_mode(args: &ViewArgs) {
                     .collect();
 
                 let mut state = app_state_clone.lock().await;
-                state.gpu_info = all_gpu_info;
+                if state.gpu_info.is_empty() {
+                    state.gpu_info = all_gpu_info;
+                } else {
+                    for new_info in all_gpu_info {
+                        if let Some(old_info) = state.gpu_info.iter_mut().find(|info| info.uuid == new_info.uuid) {
+                            *old_info = new_info;
+                        }
+                    }
+                }
                 state.process_info = all_processes;
                 let mut tabs = vec!["All".to_string()];
                 let mut hostnames: Vec<String> = state
@@ -983,19 +985,21 @@ async fn run_view_mode(args: &ViewArgs) {
         state.frame_counter += 1;
         if state.frame_counter % 2 == 0 {
             // Update scroll offsets
-            let mut new_scroll_offsets = state.device_name_scroll_offsets.clone();
+            let mut new_device_name_scroll_offsets = state.device_name_scroll_offsets.clone();
             let mut new_hostname_scroll_offsets = state.hostname_scroll_offsets.clone();
+            let mut processed_hostnames = std::collections::HashSet::new();
+
             for gpu in &state.gpu_info {
                 if gpu.name.len() > 15 {
-                    let offset = new_scroll_offsets.entry(gpu.uuid.clone()).or_insert(0);
-                    *offset = (*offset + 1) % (gpu.name.len() - 14);
+                    let offset = new_device_name_scroll_offsets.entry(gpu.uuid.clone()).or_insert(0);
+                    *offset = (*offset + 1) % (gpu.name.len() + 3);
                 }
-                if gpu.hostname.len() > 9 {
+                if gpu.hostname.len() > 9 && processed_hostnames.insert(gpu.hostname.clone()) {
                     let offset = new_hostname_scroll_offsets.entry(gpu.hostname.clone()).or_insert(0);
-                    *offset = (*offset + 1) % (gpu.hostname.len() - 8);
+                    *offset = (*offset + 1) % (gpu.hostname.len() + 3);
                 }
             }
-            state.device_name_scroll_offsets = new_scroll_offsets;
+            state.device_name_scroll_offsets = new_device_name_scroll_offsets;
             state.hostname_scroll_offsets = new_hostname_scroll_offsets;
         }
 
