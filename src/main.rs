@@ -504,6 +504,65 @@ fn draw_system_view<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
     }
 }
 
+fn draw_dashboard_items<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
+    let num_nodes = state.gpu_info.iter().map(|g| &g.hostname).collect::<std::collections::HashSet<_>>().len();
+    let total_gpus = state.gpu_info.len();
+    let total_utilization: f64 = state.gpu_info.iter().map(|g| g.utilization).sum();
+    let avg_gpu_util = if total_gpus > 0 { total_utilization / total_gpus as f64 } else { 0.0 };
+    let total_used_memory: u64 = state.gpu_info.iter().map(|g| g.used_memory).sum();
+    let total_total_memory: u64 = state.gpu_info.iter().map(|g| g.total_memory).sum();
+    let avg_mem_util = if total_total_memory > 0 { (total_used_memory as f64 / total_total_memory as f64) * 100.0 } else { 0.0 };
+    let total_power: f64 = state.gpu_info.iter().map(|g| g.power_consumption).sum();
+    let hottest_gpu = state.gpu_info.iter().max_by(|a, b| a.temperature.cmp(&b.temperature));
+
+    let dashboard_x = cols / 2 + 2;
+    let mut y = 1;
+
+    let nodes_text = format!("Nodes: {}", num_nodes);
+    let gpus_text = format!("Total GPUs: {}", total_gpus);
+    let avg_gpu_text = format!("Avg GPU Util: {:.2}%", avg_gpu_util);
+    let avg_mem_text = format!("Avg Mem Util: {:.2}%", avg_mem_util);
+    let power_text = format!("Total Power: {:.2}kW", total_power / 1000.0);
+    let hottest_text = if let Some(gpu) = hottest_gpu {
+        format!("Hottest GPU: {}°C ({})", gpu.temperature, gpu.hostname)
+    } else {
+        "Hottest GPU: N/A".to_string()
+    };
+
+    queue!(stdout, cursor::MoveTo(dashboard_x, y)).unwrap();
+    print_colored_text(stdout, "┌──────────────────────────┐", Color::DarkGrey, None, None);
+    queue!(stdout, cursor::MoveTo(dashboard_x, y + 1)).unwrap();
+    print_colored_text(stdout, "│ ", Color::DarkGrey, None, None);
+    print_colored_text(stdout, &format!("{:<24}", nodes_text), Color::White, None, None);
+    print_colored_text(stdout, " │", Color::DarkGrey, None, None);
+    queue!(stdout, cursor::MoveTo(dashboard_x, y + 2)).unwrap();
+    print_colored_text(stdout, "│ ", Color::DarkGrey, None, None);
+    print_colored_text(stdout, &format!("{:<24}", gpus_text), Color::White, None, None);
+    print_colored_text(stdout, " │", Color::DarkGrey, None, None);
+    queue!(stdout, cursor::MoveTo(dashboard_x, y + 3)).unwrap();
+    print_colored_text(stdout, "├──────────────────────────┤", Color::DarkGrey, None, None);
+    queue!(stdout, cursor::MoveTo(dashboard_x, y + 4)).unwrap();
+    print_colored_text(stdout, "│ ", Color::DarkGrey, None, None);
+    print_colored_text(stdout, &format!("{:<24}", avg_gpu_text), Color::White, None, None);
+    print_colored_text(stdout, " │", Color::DarkGrey, None, None);
+    queue!(stdout, cursor::MoveTo(dashboard_x, y + 5)).unwrap();
+    print_colored_text(stdout, "│ ", Color::DarkGrey, None, None);
+    print_colored_text(stdout, &format!("{:<24}", avg_mem_text), Color::White, None, None);
+    print_colored_text(stdout, " │", Color::DarkGrey, None, None);
+    queue!(stdout, cursor::MoveTo(dashboard_x, y + 6)).unwrap();
+    print_colored_text(stdout, "├──────────────────────────┤", Color::DarkGrey, None, None);
+    queue!(stdout, cursor::MoveTo(dashboard_x, y + 7)).unwrap();
+    print_colored_text(stdout, "│ ", Color::DarkGrey, None, None);
+    print_colored_text(stdout, &format!("{:<24}", power_text), Color::White, None, None);
+    print_colored_text(stdout, " │", Color::DarkGrey, None, None);
+    queue!(stdout, cursor::MoveTo(dashboard_x, y + 8)).unwrap();
+    print_colored_text(stdout, "│ ", Color::DarkGrey, None, None);
+    print_colored_text(stdout, &format!("{:<24}", hottest_text), Color::White, None, None);
+    print_colored_text(stdout, " │", Color::DarkGrey, None, None);
+    queue!(stdout, cursor::MoveTo(dashboard_x, y + 9)).unwrap();
+    print_colored_text(stdout, "└──────────────────────────┘", Color::DarkGrey, None, None);
+}
+
 fn print_function_keys<W: Write>(stdout: &mut W, cols: u16, rows: u16) {
     let key_width: usize = 3; // Width for each function key label
     let total_width: usize = cols as usize; // Total width of the terminal
@@ -1037,6 +1096,7 @@ async fn run_view_mode(args: &ViewArgs) {
 
             print_colored_text(&mut stdout, "Clusters\r\n", Color::Cyan, None, None);
             draw_system_view(&mut stdout, &state, cols);
+            draw_dashboard_items(&mut stdout, &state, cols);
             draw_tabs(&mut stdout, &state, cols);
 
             // Clear the GPU info area before drawing
