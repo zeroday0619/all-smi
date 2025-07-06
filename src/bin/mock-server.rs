@@ -102,15 +102,41 @@ impl MockNode {
         let disk_total_bytes = disk_sizes[rng.gen_range(0..disk_sizes.len())];
 
         let gpus: Vec<GpuMetrics> = (0..NUM_GPUS)
-            .map(|_| GpuMetrics {
-                uuid: generate_uuid(),
-                utilization: rng.gen_range(10.0..90.0),
-                memory_used_bytes: rng
-                    .gen_range(memory_total_bytes / 10..memory_total_bytes * 9 / 10),
-                memory_total_bytes,
-                temperature_celsius: rng.gen_range(45..75),
-                power_consumption_watts: rng.gen_range(200.0..600.0),
-                frequency_mhz: rng.gen_range(1000..1980),
+            .map(|_| {
+                let utilization = rng.gen_range(10.0..90.0);
+                let memory_used_bytes = rng.gen_range(memory_total_bytes / 10..memory_total_bytes * 9 / 10);
+                let memory_usage_percent = (memory_used_bytes as f32 / memory_total_bytes as f32) * 100.0;
+                
+                // Calculate realistic initial power consumption
+                let base_power = rng.gen_range(80.0..120.0);
+                let util_power_contribution = utilization * rng.gen_range(4.0..6.0);
+                let memory_power_contribution = memory_usage_percent * rng.gen_range(1.0..2.0);
+                let gpu_bias = rng.gen_range(-30.0..30.0);
+                let power_consumption_watts = (base_power + util_power_contribution + memory_power_contribution + gpu_bias)
+                    .clamp(80.0, 700.0);
+                
+                // Calculate realistic initial temperature
+                let base_temp = 45.0;
+                let util_temp_contribution = utilization * 0.25;
+                let power_temp_contribution = (power_consumption_watts - 200.0) * 0.05;
+                let temperature_celsius = (base_temp + util_temp_contribution + power_temp_contribution)
+                    .clamp(35.0, 85.0) as u32;
+                
+                // Calculate realistic initial frequency
+                let base_freq = 1200.0;
+                let util_freq_contribution = utilization * 6.0;
+                let frequency_mhz = (base_freq + util_freq_contribution)
+                    .clamp(1000.0, 1980.0) as u32;
+                
+                GpuMetrics {
+                    uuid: generate_uuid(),
+                    utilization,
+                    memory_used_bytes,
+                    memory_total_bytes,
+                    temperature_celsius,
+                    power_consumption_watts,
+                    frequency_mhz,
+                }
             })
             .collect();
 
@@ -282,19 +308,44 @@ impl MockNode {
                 .saturating_add_signed(memory_delta)
                 .min(gpu.memory_total_bytes);
 
-            // GPU temperature: 40-80°C, change by less than 2°C
-            let temp_delta = rng.gen_range(-2..=2);
-            gpu.temperature_celsius =
-                (gpu.temperature_celsius as i32 + temp_delta).clamp(40, 80) as u32;
+            // Calculate realistic power consumption based on utilization and memory usage
+            let memory_usage_percent = (gpu.memory_used_bytes as f32 / gpu.memory_total_bytes as f32) * 100.0;
+            
+            // Base power consumption (idle state) - varies by GPU type
+            let base_power = rng.gen_range(80.0..120.0);
+            
+            // Power contribution from GPU utilization (strong correlation)
+            let util_power_contribution = gpu.utilization * rng.gen_range(4.0..6.0); // 4-6W per % utilization
+            
+            // Power contribution from memory usage (moderate correlation)  
+            let memory_power_contribution = memory_usage_percent * rng.gen_range(1.0..2.0); // 1-2W per % memory usage
+            
+            // Individual GPU bias (some GPUs naturally consume more/less power)
+            let gpu_bias = rng.gen_range(-30.0..30.0);
+            
+            // Random variation (±15W)
+            let random_variation = rng.gen_range(-15.0..15.0);
+            
+            // Calculate total power consumption
+            gpu.power_consumption_watts = (base_power + util_power_contribution + memory_power_contribution + gpu_bias + random_variation)
+                .clamp(80.0, 700.0);
 
-            // GPU power: change by less than 50W
-            let power_delta = rng.gen_range(-50.0..50.0);
-            gpu.power_consumption_watts =
-                (gpu.power_consumption_watts + power_delta).clamp(100.0, 700.0);
+            // GPU temperature: correlate with power consumption and utilization
+            let base_temp = 45.0;
+            let util_temp_contribution = gpu.utilization * 0.25; // 0.25°C per % utilization
+            let power_temp_contribution = (gpu.power_consumption_watts - 200.0) * 0.05; // Temperature increases with power
+            let temp_variation = rng.gen_range(-3.0..3.0);
+            
+            gpu.temperature_celsius = (base_temp + util_temp_contribution + power_temp_contribution + temp_variation)
+                .clamp(35.0, 85.0) as u32;
 
-            // GPU frequency: small changes
-            let freq_delta = rng.gen_range(-50..50);
-            gpu.frequency_mhz = (gpu.frequency_mhz as i32 + freq_delta).clamp(1000, 1980) as u32;
+            // GPU frequency: correlate with utilization (higher util = higher freq)
+            let base_freq = 1200.0;
+            let util_freq_contribution = gpu.utilization * 6.0; // Up to 600MHz boost at 100% util
+            let freq_variation = rng.gen_range(-100.0..100.0);
+            
+            gpu.frequency_mhz = (base_freq + util_freq_contribution + freq_variation)
+                .clamp(1000.0, 1980.0) as u32;
         }
 
         // Change disk available bytes by a small amount, up to 1 GiB
