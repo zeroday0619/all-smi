@@ -73,6 +73,26 @@ The application presents a terminal-based user interface with cluster overview, 
 
 ## Installation
 
+### Option 1: Install from Cargo (Recommended)
+
+The easiest way to install all-smi is through Cargo:
+
+```bash
+cargo install all-smi
+```
+
+After installation, the binary will be available in your `$PATH` as `all-smi`.
+
+### Option 2: Download Pre-built Binary
+
+Download the latest release from the [GitHub releases page](https://github.com/inureyes/all-smi/releases):
+
+1. Go to https://github.com/inureyes/all-smi/releases
+2. Download the appropriate binary for your platform
+3. Extract the archive and place the binary in your `$PATH`
+
+### Option 3: Build from Source
+
 ### Prerequisites
 
 - **Rust:** Version 1.75 or later with Cargo
@@ -110,17 +130,17 @@ The application presents a terminal-based user interface with cluster overview, 
 
 ```bash
 # Show help
-./target/release/all-smi --help
+all-smi --help
 
 # Local monitoring (requires sudo on macOS)
-sudo ./target/release/all-smi view
+sudo all-smi view
 
 # Remote monitoring
-./target/release/all-smi view --hosts http://node1:9090 http://node2:9090
-./target/release/all-smi view --hostfile hosts.csv
+all-smi view --hosts http://node1:9090 http://node2:9090
+all-smi view --hostfile hosts.csv
 
 # API mode
-./target/release/all-smi api --port 9090
+all-smi api --port 9090
 ```
 
 ### View Mode (Interactive Monitoring)
@@ -130,10 +150,10 @@ The `view` mode provides a terminal-based interface with real-time updates.
 #### Local Mode
 ```bash
 # Monitor local GPUs (requires sudo on macOS)
-sudo ./target/release/all-smi view
+sudo all-smi view
 
 # With custom refresh interval
-sudo ./target/release/all-smi view --interval 5
+sudo all-smi view --interval 5
 ```
 
 #### Remote Monitoring
@@ -142,10 +162,10 @@ Monitor multiple remote systems running in API mode:
 
 ```bash
 # Direct host specification
-./target/release/all-smi view --hosts http://gpu-node1:9090 http://gpu-node2:9090
+all-smi view --hosts http://gpu-node1:9090 http://gpu-node2:9090
 
 # Using host file
-./target/release/all-smi view --hostfile hosts.csv --interval 2
+all-smi view --hostfile hosts.csv --interval 2
 ```
 
 Host file format (CSV):
@@ -167,10 +187,10 @@ Expose GPU metrics in Prometheus format for integration with monitoring systems:
 
 ```bash
 # Start API server
-./target/release/all-smi api --port 9090
+all-smi api --port 9090
 
 # Custom bind address
-./target/release/all-smi api --port 8080 --bind 0.0.0.0
+all-smi api --port 8080 --bind 0.0.0.0
 ```
 
 Metrics available at `http://localhost:9090/metrics` include:
@@ -217,7 +237,7 @@ Mock server features:
 ./target/release/mock-server --port-range 10001-10128 -o large-cluster.csv &
 
 # Monitor large cluster
-./target/release/all-smi view --hostfile large-cluster.csv --interval 1
+all-smi view --hostfile large-cluster.csv --interval 1
 ```
 
 ## Architecture
