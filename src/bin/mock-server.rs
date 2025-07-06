@@ -33,6 +33,13 @@ struct Args {
     gpu_name: String,
 
     #[arg(
+        long,
+        default_value = "nvidia",
+        help = "Platform type: nvidia, apple, jetson, intel, amd"
+    )]
+    platform: String,
+
+    #[arg(
         short,
         long,
         default_value = "hosts.csv",
@@ -52,12 +59,43 @@ struct GpuMetrics {
     frequency_mhz: u32,
 }
 
+#[derive(Clone)]
+struct CpuMetrics {
+    model: String,
+    utilization: f32,
+    socket_count: u32,
+    core_count: u32,
+    thread_count: u32,
+    frequency_mhz: u32,
+    temperature_celsius: Option<u32>,
+    power_consumption_watts: Option<f32>,
+    // Per-socket utilization for multi-socket systems
+    socket_utilizations: Vec<f32>,
+    // Apple Silicon specific fields
+    p_core_count: Option<u32>,
+    e_core_count: Option<u32>,
+    gpu_core_count: Option<u32>,
+    p_core_utilization: Option<f32>,
+    e_core_utilization: Option<f32>,
+}
+
+#[derive(Clone, Debug)]
+enum PlatformType {
+    Nvidia,
+    Apple,
+    Jetson,
+    Intel,
+    AMD,
+}
+
 // High-performance template-based mock node
 #[allow(dead_code)]
 struct MockNode {
     instance_name: String,
     gpu_name: String,
     gpus: Vec<GpuMetrics>,
+    cpu: CpuMetrics,
+    platform_type: PlatformType,
     disk_available_bytes: u64,
     disk_total_bytes: u64,
     response_template: String,
@@ -80,6 +118,15 @@ const PLACEHOLDER_FREQUENCY: &str = "{{FREQ_";
 const PLACEHOLDER_DISK_AVAIL: &str = "{{DISK_AVAIL}}";
 const PLACEHOLDER_DISK_TOTAL: &str = "{{DISK_TOTAL}}";
 
+// CPU placeholders
+const PLACEHOLDER_CPU_UTIL: &str = "{{CPU_UTIL}}";
+const PLACEHOLDER_CPU_SOCKET0_UTIL: &str = "{{CPU_SOCKET0_UTIL}}";
+const PLACEHOLDER_CPU_SOCKET1_UTIL: &str = "{{CPU_SOCKET1_UTIL}}";
+const PLACEHOLDER_CPU_P_CORE_UTIL: &str = "{{CPU_P_CORE_UTIL}}";
+const PLACEHOLDER_CPU_E_CORE_UTIL: &str = "{{CPU_E_CORE_UTIL}}";
+const PLACEHOLDER_CPU_TEMP: &str = "{{CPU_TEMP}}";
+const PLACEHOLDER_CPU_POWER: &str = "{{CPU_POWER}}";
+
 fn generate_uuid() -> String {
     let mut rng = rand::thread_rng();
     let bytes: [u8; 16] = rng.gen();
@@ -91,7 +138,7 @@ fn generate_uuid() -> String {
 }
 
 impl MockNode {
-    fn new(instance_name: String, gpu_name: String) -> Self {
+    fn new(instance_name: String, gpu_name: String, platform: PlatformType) -> Self {
         let gpu_memory_gb = Self::extract_gpu_memory_gb(&gpu_name);
         let memory_total_bytes = gpu_memory_gb * 1024 * 1024 * 1024;
 
@@ -145,13 +192,18 @@ impl MockNode {
             })
             .collect();
 
+        // Initialize CPU metrics based on platform
+        let cpu = Self::create_cpu_metrics(&platform, &mut rng);
+
         // Build response template once during initialization
-        let response_template = Self::build_response_template(&instance_name, &gpu_name, &gpus);
+        let response_template = Self::build_response_template(&instance_name, &gpu_name, &gpus, &cpu, &platform);
 
         let mut node = Self {
             instance_name,
             gpu_name,
             gpus,
+            cpu,
+            platform_type: platform,
             disk_available_bytes: rng.gen_range(disk_total_bytes / 10..disk_total_bytes * 9 / 10),
             disk_total_bytes,
             response_template,
@@ -161,6 +213,190 @@ impl MockNode {
         // Render initial response
         node.render_response();
         node
+    }
+
+    fn create_cpu_metrics(platform: &PlatformType, rng: &mut rand::rngs::ThreadRng) -> CpuMetrics {
+        match platform {
+            PlatformType::Apple => {
+                // Apple Silicon M1/M2/M3
+                let models = ["Apple M1", "Apple M2", "Apple M2 Pro", "Apple M2 Max", "Apple M3"];
+                let model = models[rng.gen_range(0..models.len())].to_string();
+                
+                let (p_cores, e_cores, gpu_cores) = match model.as_str() {
+                    "Apple M1" => (4, 4, 8),
+                    "Apple M2" => (4, 4, 10),
+                    "Apple M2 Pro" => (8, 4, 19),
+                    "Apple M2 Max" => (8, 4, 38),
+                    "Apple M3" => (4, 4, 10),
+                    _ => (4, 4, 8),
+                };
+
+                CpuMetrics {
+                    model,
+                    utilization: rng.gen_range(15.0..75.0),
+                    socket_count: 1,
+                    core_count: p_cores + e_cores,
+                    thread_count: p_cores + e_cores, // Apple Silicon doesn't use hyperthreading
+                    frequency_mhz: rng.gen_range(3000..3500),
+                    temperature_celsius: Some(rng.gen_range(45..70)),
+                    power_consumption_watts: Some(rng.gen_range(15.0..35.0)),
+                    socket_utilizations: vec![rng.gen_range(15.0..75.0)],
+                    p_core_count: Some(p_cores),
+                    e_core_count: Some(e_cores),
+                    gpu_core_count: Some(gpu_cores),
+                    p_core_utilization: Some(rng.gen_range(10.0..80.0)),
+                    e_core_utilization: Some(rng.gen_range(5.0..40.0)),
+                }
+            },
+            PlatformType::Intel => {
+                let models = [
+                    "Intel Xeon Gold 6248R",
+                    "Intel Xeon Platinum 8280",
+                    "Intel Core i9-13900K",
+                    "Intel Xeon E5-2699 v4"
+                ];
+                let model = models[rng.gen_range(0..models.len())].to_string();
+                
+                let socket_count = if model.contains("Xeon") { 
+                    rng.gen_range(1..=2) 
+                } else { 
+                    1 
+                };
+                let cores_per_socket = rng.gen_range(8..32);
+                let total_cores = socket_count * cores_per_socket;
+                let total_threads = total_cores * 2; // Intel hyperthreading
+
+                let socket_utilizations: Vec<f32> = (0..socket_count)
+                    .map(|_| rng.gen_range(20.0..80.0))
+                    .collect();
+                let overall_util = socket_utilizations.iter().sum::<f32>() / socket_utilizations.len() as f32;
+
+                CpuMetrics {
+                    model,
+                    utilization: overall_util,
+                    socket_count,
+                    core_count: total_cores,
+                    thread_count: total_threads,
+                    frequency_mhz: rng.gen_range(2400..3800),
+                    temperature_celsius: Some(rng.gen_range(55..85)),
+                    power_consumption_watts: Some(rng.gen_range(150.0..400.0)),
+                    socket_utilizations,
+                    p_core_count: None,
+                    e_core_count: None,
+                    gpu_core_count: None,
+                    p_core_utilization: None,
+                    e_core_utilization: None,
+                }
+            },
+            PlatformType::AMD => {
+                let models = [
+                    "AMD EPYC 7742",
+                    "AMD Ryzen 9 7950X",
+                    "AMD EPYC 9554",
+                    "AMD Threadripper PRO 5995WX"
+                ];
+                let model = models[rng.gen_range(0..models.len())].to_string();
+                
+                let socket_count = if model.contains("EPYC") { 
+                    rng.gen_range(1..=2) 
+                } else { 
+                    1 
+                };
+                let cores_per_socket = rng.gen_range(16..64);
+                let total_cores = socket_count * cores_per_socket;
+                let total_threads = total_cores * 2; // AMD SMT
+
+                let socket_utilizations: Vec<f32> = (0..socket_count)
+                    .map(|_| rng.gen_range(25.0..85.0))
+                    .collect();
+                let overall_util = socket_utilizations.iter().sum::<f32>() / socket_utilizations.len() as f32;
+
+                CpuMetrics {
+                    model,
+                    utilization: overall_util,
+                    socket_count,
+                    core_count: total_cores,
+                    thread_count: total_threads,
+                    frequency_mhz: rng.gen_range(2200..4500),
+                    temperature_celsius: Some(rng.gen_range(50..80)),
+                    power_consumption_watts: Some(rng.gen_range(180.0..500.0)),
+                    socket_utilizations,
+                    p_core_count: None,
+                    e_core_count: None,
+                    gpu_core_count: None,
+                    p_core_utilization: None,
+                    e_core_utilization: None,
+                }
+            },
+            PlatformType::Jetson => {
+                // NVIDIA Jetson platforms
+                let models = [
+                    "NVIDIA Jetson AGX Orin",
+                    "NVIDIA Jetson Xavier NX",
+                    "NVIDIA Jetson Nano"
+                ];
+                let model = models[rng.gen_range(0..models.len())].to_string();
+                
+                let (cores, threads) = match model.as_str() {
+                    "NVIDIA Jetson AGX Orin" => (12, 12),
+                    "NVIDIA Jetson Xavier NX" => (6, 6),
+                    "NVIDIA Jetson Nano" => (4, 4),
+                    _ => (6, 6),
+                };
+
+                CpuMetrics {
+                    model,
+                    utilization: rng.gen_range(20.0..70.0),
+                    socket_count: 1,
+                    core_count: cores,
+                    thread_count: threads,
+                    frequency_mhz: rng.gen_range(1400..2200),
+                    temperature_celsius: Some(rng.gen_range(55..75)),
+                    power_consumption_watts: Some(rng.gen_range(10.0..60.0)),
+                    socket_utilizations: vec![rng.gen_range(20.0..70.0)],
+                    p_core_count: None,
+                    e_core_count: None,
+                    gpu_core_count: None,
+                    p_core_utilization: None,
+                    e_core_utilization: None,
+                }
+            },
+            PlatformType::Nvidia => {
+                // Default NVIDIA GPU server (Intel/AMD CPU)
+                let models = [
+                    "Intel Xeon Gold 6248R",
+                    "AMD EPYC 7742"
+                ];
+                let model = models[rng.gen_range(0..models.len())].to_string();
+                
+                let socket_count = 2;
+                let cores_per_socket = rng.gen_range(16..32);
+                let total_cores = socket_count * cores_per_socket;
+                let total_threads = total_cores * 2;
+
+                let socket_utilizations: Vec<f32> = (0..socket_count)
+                    .map(|_| rng.gen_range(30.0..85.0))
+                    .collect();
+                let overall_util = socket_utilizations.iter().sum::<f32>() / socket_utilizations.len() as f32;
+
+                CpuMetrics {
+                    model,
+                    utilization: overall_util,
+                    socket_count,
+                    core_count: total_cores,
+                    thread_count: total_threads,
+                    frequency_mhz: rng.gen_range(2400..3600),
+                    temperature_celsius: Some(rng.gen_range(60..80)),
+                    power_consumption_watts: Some(rng.gen_range(200.0..450.0)),
+                    socket_utilizations,
+                    p_core_count: None,
+                    e_core_count: None,
+                    gpu_core_count: None,
+                    p_core_utilization: None,
+                    e_core_utilization: None,
+                }
+            },
+        }
     }
 
     fn extract_gpu_memory_gb(gpu_name: &str) -> u64 {
@@ -186,7 +422,7 @@ impl MockNode {
     }
 
     // Build static response template with placeholders (called once during init)
-    fn build_response_template(instance_name: &str, gpu_name: &str, gpus: &[GpuMetrics]) -> String {
+    fn build_response_template(instance_name: &str, gpu_name: &str, gpus: &[GpuMetrics], cpu: &CpuMetrics, platform: &PlatformType) -> String {
         let mut template = String::with_capacity(16384); // Pre-allocate 16KB
 
         // GPU Metrics headers
@@ -229,6 +465,88 @@ impl MockNode {
                 };
 
                 template.push_str(&format!("{}{{{}}} {}\n", metric_name, labels, placeholder));
+            }
+        }
+
+        // CPU metrics
+        let cpu_labels = format!(
+            "cpu_model=\"{}\", instance=\"{}\", hostname=\"{}\", index=\"0\"",
+            cpu.model, instance_name, instance_name
+        );
+
+        // Basic CPU metrics
+        template.push_str("# HELP all_smi_cpu_utilization CPU utilization percentage\n");
+        template.push_str("# TYPE all_smi_cpu_utilization gauge\n");
+        template.push_str(&format!("all_smi_cpu_utilization{{{}}} {}\n", cpu_labels, PLACEHOLDER_CPU_UTIL));
+
+        template.push_str("# HELP all_smi_cpu_socket_count Number of CPU sockets\n");
+        template.push_str("# TYPE all_smi_cpu_socket_count gauge\n");
+        template.push_str(&format!("all_smi_cpu_socket_count{{{}}} {}\n", cpu_labels, cpu.socket_count));
+
+        template.push_str("# HELP all_smi_cpu_core_count Total number of CPU cores\n");
+        template.push_str("# TYPE all_smi_cpu_core_count gauge\n");
+        template.push_str(&format!("all_smi_cpu_core_count{{{}}} {}\n", cpu_labels, cpu.core_count));
+
+        template.push_str("# HELP all_smi_cpu_thread_count Total number of CPU threads\n");
+        template.push_str("# TYPE all_smi_cpu_thread_count gauge\n");
+        template.push_str(&format!("all_smi_cpu_thread_count{{{}}} {}\n", cpu_labels, cpu.thread_count));
+
+        template.push_str("# HELP all_smi_cpu_frequency_mhz CPU frequency in MHz\n");
+        template.push_str("# TYPE all_smi_cpu_frequency_mhz gauge\n");
+        template.push_str(&format!("all_smi_cpu_frequency_mhz{{{}}} {}\n", cpu_labels, cpu.frequency_mhz));
+
+        // Optional CPU metrics (temperature and power)
+        if cpu.temperature_celsius.is_some() {
+            template.push_str("# HELP all_smi_cpu_temperature_celsius CPU temperature in celsius\n");
+            template.push_str("# TYPE all_smi_cpu_temperature_celsius gauge\n");
+            template.push_str(&format!("all_smi_cpu_temperature_celsius{{{}}} {}\n", cpu_labels, PLACEHOLDER_CPU_TEMP));
+        }
+
+        if cpu.power_consumption_watts.is_some() {
+            template.push_str("# HELP all_smi_cpu_power_consumption_watts CPU power consumption in watts\n");
+            template.push_str("# TYPE all_smi_cpu_power_consumption_watts gauge\n");
+            template.push_str(&format!("all_smi_cpu_power_consumption_watts{{{}}} {}\n", cpu_labels, PLACEHOLDER_CPU_POWER));
+        }
+
+        // Per-socket metrics for multi-socket systems
+        if cpu.socket_count > 1 {
+            for (socket_id, _) in cpu.socket_utilizations.iter().enumerate() {
+                let socket_labels = format!(
+                    "cpu_model=\"{}\", instance=\"{}\", hostname=\"{}\", cpu_index=\"0\", socket_id=\"{}\"",
+                    cpu.model, instance_name, instance_name, socket_id
+                );
+
+                template.push_str("# HELP all_smi_cpu_socket_utilization Per-socket CPU utilization percentage\n");
+                template.push_str("# TYPE all_smi_cpu_socket_utilization gauge\n");
+                let placeholder = if socket_id == 0 { PLACEHOLDER_CPU_SOCKET0_UTIL } else { PLACEHOLDER_CPU_SOCKET1_UTIL };
+                template.push_str(&format!("all_smi_cpu_socket_utilization{{{}}} {}\n", socket_labels, placeholder));
+            }
+        }
+
+        // Apple Silicon specific metrics
+        if let PlatformType::Apple = platform {
+            if let (Some(p_count), Some(e_count), Some(gpu_count)) = 
+                (cpu.p_core_count, cpu.e_core_count, cpu.gpu_core_count) {
+                
+                template.push_str("# HELP all_smi_cpu_p_core_count Apple Silicon P-core count\n");
+                template.push_str("# TYPE all_smi_cpu_p_core_count gauge\n");
+                template.push_str(&format!("all_smi_cpu_p_core_count{{{}}} {}\n", cpu_labels, p_count));
+
+                template.push_str("# HELP all_smi_cpu_e_core_count Apple Silicon E-core count\n");
+                template.push_str("# TYPE all_smi_cpu_e_core_count gauge\n");
+                template.push_str(&format!("all_smi_cpu_e_core_count{{{}}} {}\n", cpu_labels, e_count));
+
+                template.push_str("# HELP all_smi_cpu_gpu_core_count Apple Silicon GPU core count\n");
+                template.push_str("# TYPE all_smi_cpu_gpu_core_count gauge\n");
+                template.push_str(&format!("all_smi_cpu_gpu_core_count{{{}}} {}\n", cpu_labels, gpu_count));
+
+                template.push_str("# HELP all_smi_cpu_p_core_utilization Apple Silicon P-core utilization percentage\n");
+                template.push_str("# TYPE all_smi_cpu_p_core_utilization gauge\n");
+                template.push_str(&format!("all_smi_cpu_p_core_utilization{{{}}} {}\n", cpu_labels, PLACEHOLDER_CPU_P_CORE_UTIL));
+
+                template.push_str("# HELP all_smi_cpu_e_core_utilization Apple Silicon E-core utilization percentage\n");
+                template.push_str("# TYPE all_smi_cpu_e_core_utilization gauge\n");
+                template.push_str(&format!("all_smi_cpu_e_core_utilization{{{}}} {}\n", cpu_labels, PLACEHOLDER_CPU_E_CORE_UTIL));
             }
         }
 
@@ -285,6 +603,29 @@ impl MockNode {
                     &format!("{{{{FREQ_{}}}}}", i),
                     &gpu.frequency_mhz.to_string(),
                 );
+        }
+
+        // Replace CPU metrics
+        response = response
+            .replace(PLACEHOLDER_CPU_UTIL, &format!("{:.2}", self.cpu.utilization))
+            .replace(PLACEHOLDER_CPU_SOCKET0_UTIL, &format!("{:.2}", self.cpu.socket_utilizations.get(0).copied().unwrap_or(0.0)))
+            .replace(PLACEHOLDER_CPU_SOCKET1_UTIL, &format!("{:.2}", self.cpu.socket_utilizations.get(1).copied().unwrap_or(0.0)));
+
+        if let Some(temp) = self.cpu.temperature_celsius {
+            response = response.replace(PLACEHOLDER_CPU_TEMP, &temp.to_string());
+        }
+
+        if let Some(power) = self.cpu.power_consumption_watts {
+            response = response.replace(PLACEHOLDER_CPU_POWER, &format!("{:.3}", power));
+        }
+
+        // Apple Silicon specific replacements
+        if let PlatformType::Apple = self.platform_type {
+            if let (Some(p_util), Some(e_util)) = (self.cpu.p_core_utilization, self.cpu.e_core_utilization) {
+                response = response
+                    .replace(PLACEHOLDER_CPU_P_CORE_UTIL, &format!("{:.2}", p_util))
+                    .replace(PLACEHOLDER_CPU_E_CORE_UTIL, &format!("{:.2}", e_util));
+            }
         }
 
         // Replace disk metrics
@@ -359,6 +700,37 @@ impl MockNode {
                 (base_freq + util_freq_contribution + freq_variation).clamp(1000.0, 1980.0) as u32;
         }
 
+        // Update CPU metrics
+        let cpu_utilization_delta = rng.gen_range(-3.0..3.0);
+        self.cpu.utilization = (self.cpu.utilization + cpu_utilization_delta).clamp(0.0, 100.0);
+
+        // Update per-socket utilizations
+        for socket_util in &mut self.cpu.socket_utilizations {
+            let socket_delta = rng.gen_range(-3.0..3.0);
+            *socket_util = (*socket_util + socket_delta).clamp(0.0, 100.0);
+        }
+
+        // Update CPU temperature if available
+        if let Some(ref mut temp) = self.cpu.temperature_celsius {
+            let temp_delta = rng.gen_range(-2..3);
+            *temp = (*temp as i32 + temp_delta).clamp(35, 85) as u32;
+        }
+
+        // Update CPU power consumption if available
+        if let Some(ref mut power) = self.cpu.power_consumption_watts {
+            let power_delta = rng.gen_range(-10.0..10.0);
+            *power = (*power + power_delta).clamp(10.0, 500.0);
+        }
+
+        // Update Apple Silicon specific metrics
+        if let (Some(ref mut p_util), Some(ref mut e_util)) = 
+            (&mut self.cpu.p_core_utilization, &mut self.cpu.e_core_utilization) {
+            let p_delta = rng.gen_range(-4.0..4.0);
+            let e_delta = rng.gen_range(-2.0..2.0);
+            *p_util = (*p_util + p_delta).clamp(0.0, 100.0);
+            *e_util = (*e_util + e_delta).clamp(0.0, 100.0);
+        }
+
         // Change disk available bytes by a small amount, up to 1 GiB
         let delta = rng.gen_range(-(1024 * 1024 * 1024)..(1024 * 1024 * 1024));
         self.disk_available_bytes = self
@@ -411,6 +783,20 @@ async fn handle_request(
     Ok(response)
 }
 
+fn parse_platform_type(platform_str: &str) -> PlatformType {
+    match platform_str.to_lowercase().as_str() {
+        "nvidia" => PlatformType::Nvidia,
+        "apple" => PlatformType::Apple,
+        "jetson" => PlatformType::Jetson,
+        "intel" => PlatformType::Intel,
+        "amd" => PlatformType::AMD,
+        _ => {
+            eprintln!("Unknown platform '{}', defaulting to nvidia", platform_str);
+            PlatformType::Nvidia
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
@@ -420,13 +806,14 @@ async fn main() -> Result<()> {
         None => 10001..=10010,
     };
 
+    let platform_type = parse_platform_type(&args.platform);
     let nodes = Arc::new(Mutex::new(HashMap::new()));
     let mut file = File::create(&args.o)?;
     let mut instance_counter = 1;
 
     for port in port_range.clone() {
         let instance_name = format!("node-{:04}", instance_counter);
-        let node = MockNode::new(instance_name, args.gpu_name.clone());
+        let node = MockNode::new(instance_name, args.gpu_name.clone(), platform_type.clone());
         nodes.lock().unwrap().insert(port, node);
         writeln!(file, "localhost:{}", port).unwrap();
         instance_counter += 1;

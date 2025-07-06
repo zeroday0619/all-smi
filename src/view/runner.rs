@@ -21,12 +21,12 @@ use tokio::sync::Mutex;
 
 use crate::app_state::{AppState, SortCriteria};
 use crate::cli::ViewArgs;
-use crate::gpu::{get_gpu_readers, GpuInfo, ProcessInfo};
+use crate::gpu::{get_cpu_readers, get_gpu_readers, CpuInfo, GpuInfo, ProcessInfo};
 use crate::storage::info::StorageInfo;
 use crate::ui::buffer::BufferWriter;
 use crate::ui::help::print_help_popup;
 use crate::ui::renderer::{
-    draw_dashboard_items, draw_system_view, print_colored_text, print_function_keys,
+    draw_dashboard_items, draw_system_view, print_colored_text, print_cpu_info, print_function_keys,
     print_gpu_info, print_loading_indicator, print_process_info, print_storage_info,
 };
 use crate::ui::tabs::draw_tabs;
@@ -65,10 +65,16 @@ pub async fn run_view_mode(args: &ViewArgs) {
 
 async fn run_local_mode(app_state: Arc<Mutex<AppState>>, args: ViewArgs) {
     let gpu_readers = get_gpu_readers();
+    let cpu_readers = get_cpu_readers();
     loop {
         let all_gpu_info: Vec<GpuInfo> = gpu_readers
             .iter()
             .flat_map(|reader| reader.get_gpu_info())
+            .collect();
+
+        let all_cpu_info: Vec<CpuInfo> = cpu_readers
+            .iter()
+            .flat_map(|reader| reader.get_cpu_info())
             .collect();
 
         let all_processes: Vec<ProcessInfo> = gpu_readers
@@ -108,6 +114,7 @@ async fn run_local_mode(app_state: Arc<Mutex<AppState>>, args: ViewArgs) {
                 }
             }
         }
+        state.cpu_info = all_cpu_info;
         state.process_info = all_processes;
         state.storage_info = all_storage_info;
 
@@ -173,7 +180,7 @@ async fn run_remote_mode(
     let semaphore = Arc::new(tokio::sync::Semaphore::new(max_concurrent_connections));
 
     loop {
-        let (all_gpu_info, all_storage_info) =
+        let (all_gpu_info, all_cpu_info, all_storage_info) =
             fetch_remote_data(&hosts, &client, &semaphore, &re).await;
 
         // Deduplicate storage info by instance and mount_point
@@ -186,6 +193,7 @@ async fn run_remote_mode(
 
         let mut state = app_state.lock().await;
         state.gpu_info = all_gpu_info;
+        state.cpu_info = all_cpu_info;
         state.storage_info = final_storage_info;
 
         // Update utilization history
@@ -195,6 +203,11 @@ async fn run_remote_mode(
 
         // Collect hostnames from GPU info
         for info in &state.gpu_info {
+            hostnames.insert(info.hostname.clone());
+        }
+
+        // Collect hostnames from CPU info
+        for info in &state.cpu_info {
             hostnames.insert(info.hostname.clone());
         }
 
@@ -227,8 +240,9 @@ async fn fetch_remote_data(
     client: &reqwest::Client,
     semaphore: &Arc<tokio::sync::Semaphore>,
     re: &Regex,
-) -> (Vec<GpuInfo>, Vec<StorageInfo>) {
+) -> (Vec<GpuInfo>, Vec<CpuInfo>, Vec<StorageInfo>) {
     let mut all_gpu_info = Vec::new();
+    let mut all_cpu_info = Vec::new();
     let mut all_storage_info = Vec::new();
 
     // Parallel data collection with concurrency limiting and retries
@@ -325,8 +339,9 @@ async fn fetch_remote_data(
                     continue;
                 }
 
-                let (gpu_info, storage_info) = parse_metrics(&text, &host, re);
+                let (gpu_info, cpu_info, storage_info) = parse_metrics(&text, &host, re);
                 all_gpu_info.extend(gpu_info);
+                all_cpu_info.extend(cpu_info);
                 all_storage_info.extend(storage_info);
             }
             Ok(None) => {
@@ -346,11 +361,14 @@ async fn fetch_remote_data(
         );
     }
 
-    (all_gpu_info, all_storage_info)
+    (all_gpu_info, all_cpu_info, all_storage_info)
 }
 
-fn parse_metrics(text: &str, host: &str, re: &Regex) -> (Vec<GpuInfo>, Vec<StorageInfo>) {
+fn parse_metrics(text: &str, host: &str, re: &Regex) -> (Vec<GpuInfo>, Vec<CpuInfo>, Vec<StorageInfo>) {
+    use crate::gpu::{AppleSiliconCpuInfo, CpuPlatformType, CpuSocketInfo};
+    
     let mut gpu_info_map: HashMap<String, GpuInfo> = HashMap::new();
+    let mut cpu_info_map: HashMap<String, CpuInfo> = HashMap::new();
     let mut storage_info_map: HashMap<String, StorageInfo> = HashMap::new();
     let mut host_instance_name: Option<String> = None;
 
@@ -432,6 +450,169 @@ fn parse_metrics(text: &str, host: &str, re: &Regex) -> (Vec<GpuInfo>, Vec<Stora
                     }
                     _ => {}
                 }
+            } else if metric_name.starts_with("cpu_") {
+                // Handle CPU metrics
+                let cpu_model = labels.get("cpu_model").cloned().unwrap_or_default();
+                let hostname = host.split(':').next().unwrap_or_default().to_string();
+                let cpu_index = labels.get("index").cloned().unwrap_or("0".to_string());
+
+                let cpu_key = format!("{}:{}", host, cpu_index);
+
+                let cpu_info = cpu_info_map.entry(cpu_key).or_insert_with(|| {
+                    // Determine platform type from CPU model
+                    let platform_type = if cpu_model.contains("Apple") {
+                        CpuPlatformType::AppleSilicon
+                    } else if cpu_model.contains("Intel") {
+                        CpuPlatformType::Intel
+                    } else if cpu_model.contains("AMD") {
+                        CpuPlatformType::AMD
+                    } else {
+                        CpuPlatformType::Other("Unknown".to_string())
+                    };
+
+                    CpuInfo {
+                        hostname: hostname.clone(),
+                        instance: host.to_string(),
+                        cpu_model: cpu_model.clone(),
+                        architecture: "".to_string(), // Will be filled from metrics if available
+                        platform_type,
+                        socket_count: 1, // Will be updated from metrics
+                        total_cores: 0, // Will be updated from metrics
+                        total_threads: 0, // Will be updated from metrics
+                        base_frequency_mhz: 0, // Will be updated from metrics
+                        max_frequency_mhz: 0, // Same as base for now
+                        cache_size_mb: 0, // Not available from metrics
+                        utilization: 0.0, // Will be updated from metrics
+                        temperature: None, // Will be updated from metrics
+                        power_consumption: None, // Will be updated from metrics
+                        per_socket_info: Vec::new(), // Will be populated from socket metrics
+                        apple_silicon_info: None, // Will be populated for Apple Silicon
+                        time: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+                    }
+                });
+
+                match metric_name {
+                    "cpu_utilization" => {
+                        cpu_info.utilization = value;
+                    }
+                    "cpu_socket_count" => {
+                        cpu_info.socket_count = value as u32;
+                    }
+                    "cpu_core_count" => {
+                        cpu_info.total_cores = value as u32;
+                    }
+                    "cpu_thread_count" => {
+                        cpu_info.total_threads = value as u32;
+                    }
+                    "cpu_frequency_mhz" => {
+                        cpu_info.base_frequency_mhz = value as u32;
+                        cpu_info.max_frequency_mhz = value as u32;
+                    }
+                    "cpu_temperature_celsius" => {
+                        cpu_info.temperature = Some(value as u32);
+                    }
+                    "cpu_power_consumption_watts" => {
+                        cpu_info.power_consumption = Some(value);
+                    }
+                    "cpu_p_core_count" => {
+                        // Apple Silicon specific - ensure apple_silicon_info exists
+                        if cpu_info.apple_silicon_info.is_none() {
+                            cpu_info.apple_silicon_info = Some(AppleSiliconCpuInfo {
+                                p_core_count: 0,
+                                e_core_count: 0,
+                                gpu_core_count: 0,
+                                p_core_utilization: 0.0,
+                                e_core_utilization: 0.0,
+                                ane_ops_per_second: None,
+                            });
+                        }
+                        if let Some(ref mut apple_info) = cpu_info.apple_silicon_info {
+                            apple_info.p_core_count = value as u32;
+                        }
+                    }
+                    "cpu_e_core_count" => {
+                        if cpu_info.apple_silicon_info.is_none() {
+                            cpu_info.apple_silicon_info = Some(AppleSiliconCpuInfo {
+                                p_core_count: 0,
+                                e_core_count: 0,
+                                gpu_core_count: 0,
+                                p_core_utilization: 0.0,
+                                e_core_utilization: 0.0,
+                                ane_ops_per_second: None,
+                            });
+                        }
+                        if let Some(ref mut apple_info) = cpu_info.apple_silicon_info {
+                            apple_info.e_core_count = value as u32;
+                        }
+                    }
+                    "cpu_gpu_core_count" => {
+                        if cpu_info.apple_silicon_info.is_none() {
+                            cpu_info.apple_silicon_info = Some(AppleSiliconCpuInfo {
+                                p_core_count: 0,
+                                e_core_count: 0,
+                                gpu_core_count: 0,
+                                p_core_utilization: 0.0,
+                                e_core_utilization: 0.0,
+                                ane_ops_per_second: None,
+                            });
+                        }
+                        if let Some(ref mut apple_info) = cpu_info.apple_silicon_info {
+                            apple_info.gpu_core_count = value as u32;
+                        }
+                    }
+                    "cpu_p_core_utilization" => {
+                        if cpu_info.apple_silicon_info.is_none() {
+                            cpu_info.apple_silicon_info = Some(AppleSiliconCpuInfo {
+                                p_core_count: 0,
+                                e_core_count: 0,
+                                gpu_core_count: 0,
+                                p_core_utilization: 0.0,
+                                e_core_utilization: 0.0,
+                                ane_ops_per_second: None,
+                            });
+                        }
+                        if let Some(ref mut apple_info) = cpu_info.apple_silicon_info {
+                            apple_info.p_core_utilization = value;
+                        }
+                    }
+                    "cpu_e_core_utilization" => {
+                        if cpu_info.apple_silicon_info.is_none() {
+                            cpu_info.apple_silicon_info = Some(AppleSiliconCpuInfo {
+                                p_core_count: 0,
+                                e_core_count: 0,
+                                gpu_core_count: 0,
+                                p_core_utilization: 0.0,
+                                e_core_utilization: 0.0,
+                                ane_ops_per_second: None,
+                            });
+                        }
+                        if let Some(ref mut apple_info) = cpu_info.apple_silicon_info {
+                            apple_info.e_core_utilization = value;
+                        }
+                    }
+                    "cpu_socket_utilization" => {
+                        // Per-socket utilization metrics
+                        if let Some(socket_id_str) = labels.get("socket_id") {
+                            if let Ok(socket_id) = socket_id_str.parse::<u32>() {
+                                // Ensure per_socket_info has enough entries
+                                while cpu_info.per_socket_info.len() <= socket_id as usize {
+                                    cpu_info.per_socket_info.push(CpuSocketInfo {
+                                        socket_id: cpu_info.per_socket_info.len() as u32,
+                                        utilization: 0.0,
+                                        cores: 0,
+                                        threads: 0,
+                                        temperature: None,
+                                        frequency_mhz: 0,
+                                    });
+                                }
+                                if let Some(socket_info) = cpu_info.per_socket_info.get_mut(socket_id as usize) {
+                                    socket_info.utilization = value;
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
             } else if metric_name.starts_with("disk_") {
                 // Handle disk metrics
                 let mount_point = labels.get("mount_point").cloned().unwrap_or_default();
@@ -472,11 +653,15 @@ fn parse_metrics(text: &str, host: &str, re: &Regex) -> (Vec<GpuInfo>, Vec<Stora
         }
     }
 
-    // Update all GPU and storage entries with the correct instance hostname
+    // Update all GPU, CPU, and storage entries with the correct instance hostname
     if let Some(instance_name) = host_instance_name {
         // Update GPU hostnames to use instance name
         for gpu_info in gpu_info_map.values_mut() {
             gpu_info.hostname = instance_name.clone();
+        }
+        // Update CPU hostnames to use instance name
+        for cpu_info in cpu_info_map.values_mut() {
+            cpu_info.hostname = instance_name.clone();
         }
         // Update storage hostnames to use instance name
         for storage_info in storage_info_map.values_mut() {
@@ -486,6 +671,7 @@ fn parse_metrics(text: &str, host: &str, re: &Regex) -> (Vec<GpuInfo>, Vec<Stora
 
     (
         gpu_info_map.into_values().collect(),
+        cpu_info_map.into_values().collect(),
         storage_info_map.into_values().collect(),
     )
 }
@@ -763,6 +949,26 @@ fn render_main_view<W: Write>(
             {
                 print_storage_info(&mut buffer, index, info, width);
                 if index < sorted_storage.len() - 1 {
+                    queue!(buffer, Print("\r\n")).unwrap();
+                }
+            }
+        }
+    }
+
+    // Display CPU information for node-specific tabs
+    if state.current_tab > 0 && !state.cpu_info.is_empty() {
+        let current_hostname = &state.tabs[state.current_tab];
+        let cpu_info_to_display: Vec<_> = state
+            .cpu_info
+            .iter()
+            .filter(|info| info.hostname == *current_hostname)
+            .collect();
+
+        if !cpu_info_to_display.is_empty() {
+            queue!(buffer, Print("\r\n")).unwrap();
+            for (index, info) in cpu_info_to_display.iter().enumerate() {
+                print_cpu_info(&mut buffer, index, info, width);
+                if index < cpu_info_to_display.len() - 1 {
                     queue!(buffer, Print("\r\n")).unwrap();
                 }
             }

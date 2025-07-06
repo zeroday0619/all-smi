@@ -108,6 +108,176 @@ pub async fn metrics_handler(State(state): State<SharedState>) -> String {
         }
     }
 
+    // CPU metrics
+    if !state.cpu_info.is_empty() {
+        for (i, cpu_info) in state.cpu_info.iter().enumerate() {
+            // CPU utilization
+            metrics.push_str(&format!(
+                "# HELP all_smi_cpu_utilization CPU utilization percentage\n"
+            ));
+            metrics.push_str(&format!("# TYPE all_smi_cpu_utilization gauge\n"));
+            metrics.push_str(&format!(
+                "all_smi_cpu_utilization{{cpu_model=\"{}\", instance=\"{}\", hostname=\"{}\", index=\"{}\"}} {}\n",
+                cpu_info.cpu_model, cpu_info.instance, cpu_info.hostname, i, cpu_info.utilization
+            ));
+
+            // CPU socket count
+            metrics.push_str(&format!(
+                "# HELP all_smi_cpu_socket_count Number of CPU sockets\n"
+            ));
+            metrics.push_str(&format!("# TYPE all_smi_cpu_socket_count gauge\n"));
+            metrics.push_str(&format!(
+                "all_smi_cpu_socket_count{{cpu_model=\"{}\", instance=\"{}\", hostname=\"{}\", index=\"{}\"}} {}\n",
+                cpu_info.cpu_model, cpu_info.instance, cpu_info.hostname, i, cpu_info.socket_count
+            ));
+
+            // CPU core count
+            metrics.push_str(&format!(
+                "# HELP all_smi_cpu_core_count Total number of CPU cores\n"
+            ));
+            metrics.push_str(&format!("# TYPE all_smi_cpu_core_count gauge\n"));
+            metrics.push_str(&format!(
+                "all_smi_cpu_core_count{{cpu_model=\"{}\", instance=\"{}\", hostname=\"{}\", index=\"{}\"}} {}\n",
+                cpu_info.cpu_model, cpu_info.instance, cpu_info.hostname, i, cpu_info.total_cores
+            ));
+
+            // CPU thread count
+            metrics.push_str(&format!(
+                "# HELP all_smi_cpu_thread_count Total number of CPU threads\n"
+            ));
+            metrics.push_str(&format!("# TYPE all_smi_cpu_thread_count gauge\n"));
+            metrics.push_str(&format!(
+                "all_smi_cpu_thread_count{{cpu_model=\"{}\", instance=\"{}\", hostname=\"{}\", index=\"{}\"}} {}\n",
+                cpu_info.cpu_model, cpu_info.instance, cpu_info.hostname, i, cpu_info.total_threads
+            ));
+
+            // CPU frequency
+            metrics.push_str(&format!(
+                "# HELP all_smi_cpu_frequency_mhz CPU frequency in MHz\n"
+            ));
+            metrics.push_str(&format!("# TYPE all_smi_cpu_frequency_mhz gauge\n"));
+            metrics.push_str(&format!(
+                "all_smi_cpu_frequency_mhz{{cpu_model=\"{}\", instance=\"{}\", hostname=\"{}\", index=\"{}\"}} {}\n",
+                cpu_info.cpu_model, cpu_info.instance, cpu_info.hostname, i, cpu_info.base_frequency_mhz
+            ));
+
+            // CPU temperature (if available)
+            if let Some(temp) = cpu_info.temperature {
+                metrics.push_str(&format!(
+                    "# HELP all_smi_cpu_temperature_celsius CPU temperature in celsius\n"
+                ));
+                metrics.push_str(&format!("# TYPE all_smi_cpu_temperature_celsius gauge\n"));
+                metrics.push_str(&format!(
+                    "all_smi_cpu_temperature_celsius{{cpu_model=\"{}\", instance=\"{}\", hostname=\"{}\", index=\"{}\"}} {}\n",
+                    cpu_info.cpu_model, cpu_info.instance, cpu_info.hostname, i, temp
+                ));
+            }
+
+            // CPU power consumption (if available)
+            if let Some(power) = cpu_info.power_consumption {
+                metrics.push_str(&format!(
+                    "# HELP all_smi_cpu_power_consumption_watts CPU power consumption in watts\n"
+                ));
+                metrics.push_str(&format!("# TYPE all_smi_cpu_power_consumption_watts gauge\n"));
+                metrics.push_str(&format!(
+                    "all_smi_cpu_power_consumption_watts{{cpu_model=\"{}\", instance=\"{}\", hostname=\"{}\", index=\"{}\"}} {}\n",
+                    cpu_info.cpu_model, cpu_info.instance, cpu_info.hostname, i, power
+                ));
+            }
+
+            // Per-socket metrics
+            for socket_info in &cpu_info.per_socket_info {
+                metrics.push_str(&format!(
+                    "# HELP all_smi_cpu_socket_utilization Per-socket CPU utilization percentage\n"
+                ));
+                metrics.push_str(&format!("# TYPE all_smi_cpu_socket_utilization gauge\n"));
+                metrics.push_str(&format!(
+                    "all_smi_cpu_socket_utilization{{cpu_model=\"{}\", instance=\"{}\", hostname=\"{}\", cpu_index=\"{}\", socket_id=\"{}\"}} {}\n",
+                    cpu_info.cpu_model, cpu_info.instance, cpu_info.hostname, i, socket_info.socket_id, socket_info.utilization
+                ));
+
+                metrics.push_str(&format!(
+                    "# HELP all_smi_cpu_socket_frequency_mhz Per-socket CPU frequency in MHz\n"
+                ));
+                metrics.push_str(&format!("# TYPE all_smi_cpu_socket_frequency_mhz gauge\n"));
+                metrics.push_str(&format!(
+                    "all_smi_cpu_socket_frequency_mhz{{cpu_model=\"{}\", instance=\"{}\", hostname=\"{}\", cpu_index=\"{}\", socket_id=\"{}\"}} {}\n",
+                    cpu_info.cpu_model, cpu_info.instance, cpu_info.hostname, i, socket_info.socket_id, socket_info.frequency_mhz
+                ));
+
+                if let Some(socket_temp) = socket_info.temperature {
+                    metrics.push_str(&format!(
+                        "# HELP all_smi_cpu_socket_temperature_celsius Per-socket CPU temperature in celsius\n"
+                    ));
+                    metrics.push_str(&format!("# TYPE all_smi_cpu_socket_temperature_celsius gauge\n"));
+                    metrics.push_str(&format!(
+                        "all_smi_cpu_socket_temperature_celsius{{cpu_model=\"{}\", instance=\"{}\", hostname=\"{}\", cpu_index=\"{}\", socket_id=\"{}\"}} {}\n",
+                        cpu_info.cpu_model, cpu_info.instance, cpu_info.hostname, i, socket_info.socket_id, socket_temp
+                    ));
+                }
+            }
+
+            // Apple Silicon specific metrics
+            if let Some(apple_info) = &cpu_info.apple_silicon_info {
+                metrics.push_str(&format!(
+                    "# HELP all_smi_cpu_p_core_count Apple Silicon P-core count\n"
+                ));
+                metrics.push_str(&format!("# TYPE all_smi_cpu_p_core_count gauge\n"));
+                metrics.push_str(&format!(
+                    "all_smi_cpu_p_core_count{{cpu_model=\"{}\", instance=\"{}\", hostname=\"{}\", index=\"{}\"}} {}\n",
+                    cpu_info.cpu_model, cpu_info.instance, cpu_info.hostname, i, apple_info.p_core_count
+                ));
+
+                metrics.push_str(&format!(
+                    "# HELP all_smi_cpu_e_core_count Apple Silicon E-core count\n"
+                ));
+                metrics.push_str(&format!("# TYPE all_smi_cpu_e_core_count gauge\n"));
+                metrics.push_str(&format!(
+                    "all_smi_cpu_e_core_count{{cpu_model=\"{}\", instance=\"{}\", hostname=\"{}\", index=\"{}\"}} {}\n",
+                    cpu_info.cpu_model, cpu_info.instance, cpu_info.hostname, i, apple_info.e_core_count
+                ));
+
+                metrics.push_str(&format!(
+                    "# HELP all_smi_cpu_gpu_core_count Apple Silicon GPU core count\n"
+                ));
+                metrics.push_str(&format!("# TYPE all_smi_cpu_gpu_core_count gauge\n"));
+                metrics.push_str(&format!(
+                    "all_smi_cpu_gpu_core_count{{cpu_model=\"{}\", instance=\"{}\", hostname=\"{}\", index=\"{}\"}} {}\n",
+                    cpu_info.cpu_model, cpu_info.instance, cpu_info.hostname, i, apple_info.gpu_core_count
+                ));
+
+                metrics.push_str(&format!(
+                    "# HELP all_smi_cpu_p_core_utilization Apple Silicon P-core utilization percentage\n"
+                ));
+                metrics.push_str(&format!("# TYPE all_smi_cpu_p_core_utilization gauge\n"));
+                metrics.push_str(&format!(
+                    "all_smi_cpu_p_core_utilization{{cpu_model=\"{}\", instance=\"{}\", hostname=\"{}\", index=\"{}\"}} {}\n",
+                    cpu_info.cpu_model, cpu_info.instance, cpu_info.hostname, i, apple_info.p_core_utilization
+                ));
+
+                metrics.push_str(&format!(
+                    "# HELP all_smi_cpu_e_core_utilization Apple Silicon E-core utilization percentage\n"
+                ));
+                metrics.push_str(&format!("# TYPE all_smi_cpu_e_core_utilization gauge\n"));
+                metrics.push_str(&format!(
+                    "all_smi_cpu_e_core_utilization{{cpu_model=\"{}\", instance=\"{}\", hostname=\"{}\", index=\"{}\"}} {}\n",
+                    cpu_info.cpu_model, cpu_info.instance, cpu_info.hostname, i, apple_info.e_core_utilization
+                ));
+
+                if let Some(ane_ops) = apple_info.ane_ops_per_second {
+                    metrics.push_str(&format!(
+                        "# HELP all_smi_cpu_ane_ops_per_second Apple Neural Engine operations per second\n"
+                    ));
+                    metrics.push_str(&format!("# TYPE all_smi_cpu_ane_ops_per_second gauge\n"));
+                    metrics.push_str(&format!(
+                        "all_smi_cpu_ane_ops_per_second{{cpu_model=\"{}\", instance=\"{}\", hostname=\"{}\", index=\"{}\"}} {}\n",
+                        cpu_info.cpu_model, cpu_info.instance, cpu_info.hostname, i, ane_ops
+                    ));
+                }
+            }
+        }
+    }
+
     // Use instance name for disk metrics to ensure consistency with GPU metrics
     let instance = state
         .gpu_info

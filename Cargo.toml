@@ -33,6 +33,9 @@ futures-util = "0.3.30"
 metal = "0.29"
 objc = "0.2"
 
+[features]
+mock = []
+
 [[bin]]
 name = "all-smi-mock-server"
 path = "src/bin/mock-server.rs"

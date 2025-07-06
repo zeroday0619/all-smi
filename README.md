@@ -194,11 +194,33 @@ all-smi api --port 8080 --bind 0.0.0.0
 ```
 
 Metrics available at `http://localhost:9090/metrics` include:
+
+**GPU Metrics:**
 - `all_smi_gpu_utilization`
 - `all_smi_gpu_memory_used_bytes`
 - `all_smi_gpu_memory_total_bytes`
 - `all_smi_gpu_temperature_celsius`
 - `all_smi_gpu_power_consumption_watts`
+- `all_smi_gpu_frequency_mhz`
+
+**CPU Metrics:**
+- `all_smi_cpu_utilization`
+- `all_smi_cpu_socket_count`
+- `all_smi_cpu_core_count`
+- `all_smi_cpu_thread_count`
+- `all_smi_cpu_frequency_mhz`
+- `all_smi_cpu_temperature_celsius`
+- `all_smi_cpu_power_consumption_watts`
+- `all_smi_cpu_socket_utilization` (per-socket for multi-socket systems)
+
+**Apple Silicon Specific:**
+- `all_smi_cpu_p_core_count`
+- `all_smi_cpu_e_core_count`
+- `all_smi_cpu_gpu_core_count`
+- `all_smi_cpu_p_core_utilization`
+- `all_smi_cpu_e_core_utilization`
+
+**Storage Metrics:**
 - `all_smi_disk_total_bytes`
 - `all_smi_disk_available_bytes`
 
@@ -206,27 +228,62 @@ Metrics available at `http://localhost:9090/metrics` include:
 
 ### Mock Server for Testing
 
-The included mock server simulates realistic GPU clusters for development and testing:
+The included mock server simulates realistic GPU and CPU clusters for development and testing:
 
 ```bash
-# Build mock server
-cargo build --release --bin mock-server
+# Build mock server (requires mock feature)
+cargo build --release --bin all-smi-mock-server --features mock
 
 # Start single mock instance
-./target/release/mock-server --port-range 9090
+./target/release/all-smi-mock-server --port-range 9090
 
 # Start multiple instances
-./target/release/mock-server --port-range 10001-10010 -o hosts.csv
+./target/release/all-smi-mock-server --port-range 10001-10010 -o hosts.csv
 
-# Custom configuration
-./target/release/mock-server --port-range 10001-10005 \
+# Custom GPU configuration
+./target/release/all-smi-mock-server --port-range 10001-10005 \
   --gpu-name "NVIDIA H100 80GB HBM3" -o test-hosts.csv
 ```
 
+#### Platform-Specific Testing
+
+Test different hardware platforms with realistic CPU and GPU metrics:
+
+```bash
+# NVIDIA GPU servers (default - Intel/AMD CPUs with NVIDIA GPUs)
+./target/release/all-smi-mock-server --platform nvidia \
+  --port-range 10001-10005 -o nvidia-hosts.csv
+
+# Apple Silicon systems (M1/M2/M3 with P/E cores)
+./target/release/all-smi-mock-server --platform apple \
+  --gpu-name "Apple M2" --port-range 11001-11005 -o apple-hosts.csv
+
+# Intel CPU servers
+./target/release/all-smi-mock-server --platform intel \
+  --gpu-name "NVIDIA RTX 4090" --port-range 12001-12005 -o intel-hosts.csv
+
+# AMD CPU servers
+./target/release/all-smi-mock-server --platform amd \
+  --gpu-name "NVIDIA A100 80GB PCIe" --port-range 13001-13005 -o amd-hosts.csv
+
+# NVIDIA Jetson platforms
+./target/release/all-smi-mock-server --platform jetson \
+  --gpu-name "NVIDIA Jetson AGX Orin" --port-range 14001-14005 -o jetson-hosts.csv
+```
+
+#### Platform-Specific Features
+
+- **NVIDIA Platform**: Multi-socket Intel/AMD CPUs with NVIDIA GPUs
+- **Apple Silicon**: P-core/E-core CPU monitoring with integrated GPU metrics
+- **Intel Platform**: Intel Xeon processors with hyperthreading
+- **AMD Platform**: AMD EPYC/Ryzen processors with SMT
+- **Jetson Platform**: ARM-based Tegra processors with integrated GPUs
+
 Mock server features:
 - **8 GPUs per node** with realistic metrics
+- **Platform-specific CPU metrics** (socket count, core types, utilization)
 - **Randomized values** that change over time
-- **Storage simulation** with various disk sizes
+- **Storage simulation** with various disk sizes (1TB/4TB/12TB)
 - **Template-based responses** for performance
 - **Instance naming** with node-XXXX format
 
@@ -234,10 +291,19 @@ Mock server features:
 
 ```bash
 # Start 128 mock servers
-./target/release/mock-server --port-range 10001-10128 -o large-cluster.csv &
+./target/release/all-smi-mock-server --port-range 10001-10128 -o large-cluster.csv &
 
 # Monitor large cluster
 all-smi view --hostfile large-cluster.csv --interval 1
+
+# Test mixed platform environments
+./target/release/all-smi-mock-server --platform nvidia --port-range 10001-10064 -o nvidia.csv &
+./target/release/all-smi-mock-server --platform apple --port-range 11001-11032 -o apple.csv &
+./target/release/all-smi-mock-server --platform amd --port-range 12001-12032 -o amd.csv &
+
+# Combine host files and monitor mixed environment
+cat nvidia.csv apple.csv amd.csv > mixed-cluster.csv
+all-smi view --hostfile mixed-cluster.csv --interval 2
 ```
 
 ## Architecture

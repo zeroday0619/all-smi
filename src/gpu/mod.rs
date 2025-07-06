@@ -2,6 +2,10 @@ pub mod apple_silicon;
 pub mod nvidia;
 pub mod nvidia_jetson;
 
+// CPU reader modules
+pub mod cpu_linux;
+pub mod cpu_macos;
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -10,6 +14,10 @@ use std::process::Command;
 pub trait GpuReader: Send {
     fn get_gpu_info(&self) -> Vec<GpuInfo>;
     fn get_process_info(&self) -> Vec<ProcessInfo>;
+}
+
+pub trait CpuReader: Send {
+    fn get_cpu_info(&self) -> Vec<CpuInfo>;
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -50,6 +58,56 @@ pub struct ProcessInfo {
     pub threads: u32,         // Number of threads
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct CpuInfo {
+    pub hostname: String,
+    pub instance: String,
+    pub cpu_model: String,
+    pub architecture: String,        // "x86_64", "arm64", etc.
+    pub platform_type: CpuPlatformType,
+    pub socket_count: u32,          // Number of CPU sockets
+    pub total_cores: u32,           // Total logical cores
+    pub total_threads: u32,         // Total threads (with hyperthreading)
+    pub base_frequency_mhz: u32,    // Base CPU frequency
+    pub max_frequency_mhz: u32,     // Maximum CPU frequency
+    pub cache_size_mb: u32,         // Total cache size in MB
+    pub utilization: f64,           // Overall CPU utilization percentage
+    pub temperature: Option<u32>,   // CPU temperature in Celsius (if available)
+    pub power_consumption: Option<f64>, // Power consumption in watts (if available)
+    pub per_socket_info: Vec<CpuSocketInfo>, // Per-socket information
+    pub apple_silicon_info: Option<AppleSiliconCpuInfo>, // Apple Silicon specific info
+    pub time: String,               // Timestamp
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub enum CpuPlatformType {
+    Intel,
+    AMD,
+    AppleSilicon,
+    ARM,
+    Other(String),
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct CpuSocketInfo {
+    pub socket_id: u32,
+    pub utilization: f64,           // Per-socket utilization
+    pub cores: u32,                 // Number of cores in this socket
+    pub threads: u32,               // Number of threads in this socket
+    pub temperature: Option<u32>,   // Socket temperature (if available)
+    pub frequency_mhz: u32,         // Current frequency
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct AppleSiliconCpuInfo {
+    pub p_core_count: u32,          // Performance core count
+    pub e_core_count: u32,          // Efficiency core count
+    pub gpu_core_count: u32,        // GPU core count
+    pub p_core_utilization: f64,    // Performance core utilization
+    pub e_core_utilization: f64,    // Efficiency core utilization
+    pub ane_ops_per_second: Option<f64>, // ANE operations per second
+}
+
 pub fn get_gpu_readers() -> Vec<Box<dyn GpuReader>> {
     let mut readers: Vec<Box<dyn GpuReader>> = Vec::new();
     let os_type = std::env::consts::OS;
@@ -68,6 +126,23 @@ pub fn get_gpu_readers() -> Vec<Box<dyn GpuReader>> {
             }
         }
         _ => println!("Unsupported OS type: {}", os_type),
+    }
+
+    readers
+}
+
+pub fn get_cpu_readers() -> Vec<Box<dyn CpuReader>> {
+    let mut readers: Vec<Box<dyn CpuReader>> = Vec::new();
+    let os_type = std::env::consts::OS;
+
+    match os_type {
+        "linux" => {
+            readers.push(Box::new(cpu_linux::LinuxCpuReader::new()));
+        }
+        "macos" => {
+            readers.push(Box::new(cpu_macos::MacOsCpuReader::new()));
+        }
+        _ => println!("CPU monitoring not supported for OS type: {}", os_type),
     }
 
     readers

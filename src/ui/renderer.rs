@@ -7,7 +7,7 @@ use crossterm::{
 };
 
 use crate::app_state::AppState;
-use crate::gpu::{GpuInfo, ProcessInfo};
+use crate::gpu::{CpuInfo, GpuInfo, ProcessInfo};
 use crate::storage::info::StorageInfo;
 
 pub fn print_colored_text<W: Write>(
@@ -133,6 +133,19 @@ pub fn draw_system_view<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
         .map(|gpu| gpu.power_consumption)
         .sum::<f64>();
 
+    // Calculate total CPU cores
+    let total_cpu_cores = state
+        .cpu_info
+        .iter()
+        .map(|cpu| {
+            if let Some(apple_info) = &cpu.apple_silicon_info {
+                apple_info.p_core_count + apple_info.e_core_count
+            } else {
+                cpu.total_cores
+            }
+        })
+        .sum::<u32>();
+
     // Calculate averages
     let avg_utilization = if total_gpus > 0 {
         state
@@ -190,12 +203,12 @@ pub fn draw_system_view<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
         0.0
     };
 
-    // First row: | Nodes | - | Total GPU mem | Avg. Temp | Total Power |
+    // First row: | Nodes | CPU Cores | Total GPU mem | Avg. Temp | Total Power |
     print_dashboard_row(
         stdout,
         &[
             ("Nodes", format!("{}", total_nodes), Color::Yellow),
-            ("-", "-".to_string(), Color::DarkGrey),
+            ("CPU Cores", format!("{}", total_cpu_cores), Color::Cyan),
             (
                 "Total GPU mem",
                 format!("{:.1}GB", total_memory_gb),
@@ -772,6 +785,197 @@ pub fn print_gpu_info<W: Write>(
     queue!(stdout, Print("\r\n")).unwrap();
 }
 
+pub fn print_cpu_info<W: Write>(
+    stdout: &mut W,
+    _index: usize,
+    info: &CpuInfo,
+    width: usize,
+) {
+    let mut labels: Vec<(String, Color)> = Vec::new();
+
+    // Helper function to add labels with fixed width for alignment
+    fn add_label(
+        labels: &mut Vec<(String, Color)>,
+        label: &str,
+        value: String,
+        label_color: Color,
+        value_width: usize,
+    ) {
+        labels.push((label.to_string(), label_color));
+        // Pad or truncate value to ensure consistent width
+        let formatted_value = if value.len() > value_width {
+            value.chars().take(value_width).collect()
+        } else {
+            format!("{:<width$}", value, width = value_width)
+        };
+        labels.push((formatted_value, Color::White));
+    }
+
+    // Add CPU model (truncated if too long)
+    let cpu_model = if info.cpu_model.len() > 30 {
+        format!("{}...", &info.cpu_model[..27])
+    } else {
+        info.cpu_model.clone()
+    };
+    add_label(&mut labels, "CPU ", cpu_model, Color::Cyan, 30);
+
+    // Add hostname
+    add_label(&mut labels, " Host:", info.hostname.clone(), Color::Yellow, 12);
+
+    // For Apple Silicon, show core counts without utilization
+    if let Some(apple_info) = &info.apple_silicon_info {
+        // Add core counts
+        add_label(
+            &mut labels,
+            " Cores:",
+            format!("{}P+{}E", apple_info.p_core_count, apple_info.e_core_count),
+            Color::White,
+            8,
+        );
+
+        // Add GPU core count
+        add_label(
+            &mut labels,
+            " GPU:",
+            format!("{}c", apple_info.gpu_core_count),
+            Color::Magenta,
+            5,
+        );
+    } else {
+        // Add socket and core counts without utilization
+        add_label(
+            &mut labels,
+            " Sockets:",
+            format!("{}", info.socket_count),
+            Color::White,
+            3,
+        );
+
+        add_label(
+            &mut labels,
+            " Cores:",
+            format!("{}", info.total_cores),
+            Color::White,
+            4,
+        );
+    }
+
+    // Add frequency
+    add_label(
+        &mut labels,
+        " Freq:",
+        format!("{}MHz", info.base_frequency_mhz),
+        Color::Green,
+        8,
+    );
+
+    // Add temperature if available
+    if let Some(temp) = info.temperature {
+        let temp_color = if temp > 80 {
+            Color::Red
+        } else if temp > 70 {
+            Color::Yellow
+        } else {
+            Color::Green
+        };
+
+        add_label(
+            &mut labels,
+            " Temp:",
+            format!("{}°C", temp),
+            temp_color,
+            5,
+        );
+    }
+
+    // Add power consumption if available
+    if let Some(power) = info.power_consumption {
+        add_label(
+            &mut labels,
+            " Power:",
+            format!("{:.1}W", power),
+            Color::Blue,
+            7,
+        );
+    }
+
+    // Print all labels, wrapping as needed
+    let mut current_width = 0;
+    for (text, color) in labels {
+        if current_width + text.len() > width && current_width > 0 {
+            queue!(stdout, Print("\r\n")).unwrap();
+            current_width = 0;
+        }
+        print_colored_text(stdout, &text, color, None, None);
+        current_width += text.len();
+    }
+
+    queue!(stdout, Print("\r\n")).unwrap();
+
+    // Now add utilization gauges on the next line (matching GPU format)
+    let bar_width = width.saturating_sub(10);
+    queue!(stdout, Print("     ")).unwrap();
+
+    if let Some(apple_info) = &info.apple_silicon_info {
+        // Calculate bar widths for P-core and E-core gauges (2 bars)
+        let individual_bar_width = (bar_width - 2) / 2; // Account for spacing between bars
+        
+        // Show P-core utilization gauge
+        draw_bar(
+            stdout,
+            "P-CPU",
+            apple_info.p_core_utilization as f64,
+            100.0,
+            individual_bar_width,
+            None,
+        );
+        
+        queue!(stdout, Print("  ")).unwrap();
+        
+        // Show E-core utilization gauge
+        draw_bar(
+            stdout,
+            "E-CPU",
+            apple_info.e_core_utilization as f64,
+            100.0,
+            individual_bar_width,
+            None,
+        );
+    } else {
+        // For multi-socket CPUs, show per-socket utilization gauges
+        if info.socket_count > 1 {
+            let num_sockets = info.per_socket_info.len().min(2);
+            let individual_bar_width = (bar_width - (num_sockets * 2 - 2)) / num_sockets; // Account for spacing
+            
+            for (i, socket_info) in info.per_socket_info.iter().take(2).enumerate() {
+                if i > 0 {
+                    queue!(stdout, Print("  ")).unwrap();
+                }
+                draw_bar(
+                    stdout,
+                    &format!("CPU{}", i),
+                    socket_info.utilization as f64,
+                    100.0,
+                    individual_bar_width,
+                    None,
+                );
+            }
+        } else {
+            // Single socket - show overall utilization gauge
+            draw_bar(
+                stdout,
+                "CPU",
+                info.utilization as f64,
+                100.0,
+                bar_width,
+                None,
+            );
+        }
+    }
+
+    queue!(stdout, Print("\r\n")).unwrap();
+}
+
 pub fn print_storage_info<W: Write>(
     stdout: &mut W,
     _index: usize,
@@ -863,7 +1067,7 @@ pub fn print_storage_info<W: Write>(
 
     draw_bar(
         stdout,
-        "USAGE",
+        "USED",
         usage_percent,
         100.0,
         bar_width,
