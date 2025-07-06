@@ -548,7 +548,7 @@ async fn run_ui_loop(app_state: Arc<Mutex<AppState>>, args: &ViewArgs) {
         }
 
         if state.show_help {
-            print_help_popup(&mut stdout, cols, rows);
+            render_help_view(&mut stdout, &state, args, cols, rows);
         } else if state.loading {
             print_function_keys(&mut stdout, cols, rows);
             print_loading_indicator(&mut stdout, cols, rows);
@@ -589,6 +589,25 @@ fn update_scroll_offsets(state: &mut AppState) {
     }
     state.device_name_scroll_offsets = new_device_name_scroll_offsets;
     state.hostname_scroll_offsets = new_hostname_scroll_offsets;
+}
+
+fn render_help_view<W: Write>(
+    stdout: &mut W,
+    _state: &AppState,
+    _args: &ViewArgs,
+    cols: u16,
+    rows: u16,
+) {
+    // Use double buffering to reduce flickering - same approach as main view
+    let mut buffer = BufferWriter::new();
+    
+    // Write help popup to buffer
+    print_help_popup(&mut buffer, cols, rows);
+    
+    // Output the entire buffer to stdout in one operation with full screen clear
+    queue!(stdout, cursor::MoveTo(0, 0)).unwrap();
+    queue!(stdout, terminal::Clear(ClearType::All)).unwrap();
+    print!("{}", buffer.get_buffer());
 }
 
 fn render_main_view<W: Write>(

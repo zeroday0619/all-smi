@@ -856,64 +856,218 @@ pub fn print_loading_indicator<W: Write>(stdout: &mut W, cols: u16, rows: u16) {
 }
 
 pub fn print_help_popup<W: Write>(stdout: &mut W, cols: u16, rows: u16) {
-    let help_text = vec![
-        "ALL-SMI HELP",
-        "",
-        "Navigation:",
-        "  ← → : Switch between tabs",
-        "  ↑ ↓ : Scroll up/down",
-        "  PgUp/PgDn : Page up/down",
-        "",
-        "Commands:",
-        "  F1 / h : Toggle this help",
-        "  F10 / q : Exit",
-        "  p : Sort processes by PID",
-        "  m : Sort processes by Memory",
-        "",
-        "Tabs:",
-        "  All : Show all GPUs across hosts", 
-        "  [Host] : Show GPUs from specific host",
-        "",
-        "Colors:",
-        "  Green : Normal usage (< 60%)",
-        "  Yellow : Medium usage (60-80%)",
-        "  Red : High usage (> 80%)",
-        "",
-        "Press ESC or F1 to close this help",
-    ];
+    // Use nearly full screen with small margin
+    let popup_width = cols.saturating_sub(4) as usize;
+    let popup_height = rows.saturating_sub(2) as usize;
+    let start_x = 2;
+    let start_y = 1;
 
-    // Calculate popup dimensions
-    let popup_width = 50.min(cols - 4);
-    let popup_height = (help_text.len() + 2).min(rows as usize - 4);
-    let start_x = (cols.saturating_sub(popup_width)) / 2;
-    let start_y = (rows.saturating_sub(popup_height as u16)) / 2;
-
-    // Draw popup background
+    // Clear the screen area
     for y in 0..popup_height {
         queue!(stdout, crossterm::cursor::MoveTo(start_x, start_y + y as u16)).unwrap();
-        let line = if y == 0 || y == popup_height - 1 {
-            "═".repeat(popup_width as usize)
-        } else {
-            format!("║{}║", " ".repeat(popup_width as usize - 2))
-        };
-        print_colored_text(stdout, &line, Color::White, Some(Color::DarkBlue), None);
+        print_colored_text(stdout, &" ".repeat(popup_width), Color::White, Some(Color::Black), None);
     }
 
-    // Draw help text
-    for (i, line) in help_text.iter().enumerate() {
-        if i + 1 < popup_height - 1 {
-            queue!(
-                stdout,
-                crossterm::cursor::MoveTo(start_x + 2, start_y + 1 + i as u16)
-            ).unwrap();
-            
-            let truncated_line = if line.len() > popup_width as usize - 4 {
-                &line[..popup_width as usize - 4]
+    // Draw window frame
+    draw_window_frame(stdout, start_x, start_y, popup_width, popup_height);
+
+    // Content areas
+    let content_width = popup_width.saturating_sub(4);
+    let content_x = start_x + 2;
+    let mut current_y = start_y + 2;
+
+    // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+    // TOP SECTION: Title
+    // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+    let title_lines = vec![
+        " █████╗ ██╗     ██╗          ███████╗███╗   ███╗██╗",
+        "██╔══██╗██║     ██║          ██╔════╝████╗ ████║██║",
+        "███████║██║     ██║    █████╗███████╗██╔████╔██║██║",
+        "██╔══██║██║     ██║    ╚════╝╚════██║██║╚██╔╝██║██║",
+        "██║  ██║███████╗███████╗     ███████║██║ ╚═╝ ██║██║",
+        "╚═╝  ╚═╝╚══════╝╚══════╝     ╚══════╝╚═╝     ╚═╝╚═╝",
+        "",
+        "              GPU Monitoring and Management Tool",
+    ];
+
+    for line in &title_lines {
+        queue!(stdout, crossterm::cursor::MoveTo(content_x, current_y)).unwrap();
+        let centered_line = center_text(line, content_width);
+        print_colored_text(stdout, &centered_line, Color::Green, Some(Color::Black), None);
+        current_y += 1;
+    }
+
+    current_y += 1;
+
+    // Draw separator
+    queue!(stdout, crossterm::cursor::MoveTo(content_x, current_y)).unwrap();
+    print_colored_text(stdout, &"─".repeat(content_width), Color::DarkGrey, Some(Color::Black), None);
+    current_y += 2;
+
+    // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+    // MIDDLE SECTION: Cheat Sheet
+    // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+    let cheat_sheet_title = "KEYBOARD SHORTCUTS & NAVIGATION";
+    queue!(stdout, crossterm::cursor::MoveTo(content_x, current_y)).unwrap();
+    let centered_title = center_text(&cheat_sheet_title, content_width);
+    print_colored_text(stdout, &centered_title, Color::Yellow, Some(Color::Black), None);
+    current_y += 2;
+
+    // Two-column layout for shortcuts
+    let col1_width = content_width / 2;
+    let col2_x = content_x + col1_width as u16;
+
+    let shortcuts_left = vec![
+        ("Navigation", "", true),
+        ("  ← →", "Switch between tabs", false),
+        ("  ↑ ↓", "Scroll up/down", false),
+        ("  PgUp/PgDn", "Page up/down", false),
+        ("", "", false),
+        ("Display Control", "", true),
+        ("  F1 / h", "Toggle this help", false),
+        ("  F10 / q", "Exit application", false),
+        ("  ESC", "Close help or exit", false),
+    ];
+
+    let shortcuts_right = vec![
+        ("Process Control", "", true),
+        ("  p", "Sort processes by PID", false),
+        ("  m", "Sort processes by Memory", false),
+        ("", "", false),
+        ("Tab Information", "", true),
+        ("  All", "Show all GPUs across hosts", false),
+        ("  [Host]", "Show GPUs from specific host", false),
+        ("", "", false),
+        ("Color Legend", "", true),
+        ("  Green", "Normal usage (< 60%)", false),
+        ("  Yellow", "Medium usage (60-80%)", false),
+        ("  Red", "High usage (> 80%)", false),
+    ];
+
+    let max_rows = shortcuts_left.len().max(shortcuts_right.len());
+    
+    for i in 0..max_rows {
+        // Left column
+        if i < shortcuts_left.len() {
+            let (key, desc, is_header) = &shortcuts_left[i];
+            queue!(stdout, crossterm::cursor::MoveTo(content_x, current_y + i as u16)).unwrap();
+            if key.is_empty() {
+                print_colored_text(stdout, "", Color::White, Some(Color::Black), None);
+            } else if *is_header {
+                // This is a section header
+                print_colored_text(stdout, key, Color::Green, Some(Color::Black), None);
             } else {
-                line
-            };
-            
-            print_colored_text(stdout, truncated_line, Color::White, None, None);
+                print_colored_text(stdout, key, Color::White, Some(Color::Black), None);
+                print_colored_text(stdout, " : ", Color::Grey, Some(Color::Black), None);
+                print_colored_text(stdout, desc, Color::White, Some(Color::Black), None);
+            }
         }
+
+        // Right column
+        if i < shortcuts_right.len() {
+            let (key, desc, is_header) = &shortcuts_right[i];
+            queue!(stdout, crossterm::cursor::MoveTo(col2_x, current_y + i as u16)).unwrap();
+            if key.is_empty() {
+                print_colored_text(stdout, "", Color::White, Some(Color::Black), None);
+            } else if *is_header {
+                // This is a section header
+                print_colored_text(stdout, key, Color::Green, Some(Color::Black), None);
+            } else {
+                print_colored_text(stdout, key, Color::White, Some(Color::Black), None);
+                print_colored_text(stdout, " : ", Color::Grey, Some(Color::Black), None);
+                print_colored_text(stdout, desc, Color::White, Some(Color::Black), None);
+            }
+        }
+    }
+
+    current_y += max_rows as u16 + 2;
+
+    // Draw separator
+    queue!(stdout, crossterm::cursor::MoveTo(content_x, current_y)).unwrap();
+    print_colored_text(stdout, &"─".repeat(content_width), Color::DarkGrey, Some(Color::Black), None);
+    current_y += 2;
+
+    // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+    // BOTTOM SECTION: Terminal Options
+    // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+    let terminal_title = "TERMINAL USAGE OPTIONS";
+    queue!(stdout, crossterm::cursor::MoveTo(content_x, current_y)).unwrap();
+    let centered_terminal_title = center_text(&terminal_title, content_width);
+    print_colored_text(stdout, &centered_terminal_title, Color::Yellow, Some(Color::Black), None);
+    current_y += 2;
+
+    let usage_info = vec![
+        ("Local Mode:", "", true),
+        ("  sudo ./all-smi view", "Monitor local GPUs (requires sudo on macOS)", false),
+        ("", "", false),
+        ("Remote Mode:", "", true),
+        ("  ./all-smi view --hosts http://node1:9090 http://node2:9090", "Monitor remote hosts", false),
+        ("  ./all-smi view --hostfile hosts.csv", "Monitor hosts from CSV file", false),
+        ("", "", false),
+        ("API Mode:", "", true),
+        ("  ./all-smi api --port 9090", "Run as Prometheus metrics server", false),
+        ("", "", false),
+        ("Build Commands:", "", true),
+        ("  cargo build --release", "Build the application", false),
+        ("  cargo run --bin all-smi -- view", "Run with cargo (development)", false),
+    ];
+
+    for (command, desc, is_header) in &usage_info {
+        queue!(stdout, crossterm::cursor::MoveTo(content_x, current_y)).unwrap();
+        if command.is_empty() {
+            print_colored_text(stdout, "", Color::White, Some(Color::Black), None);
+        } else if *is_header {
+            // This is a section header
+            print_colored_text(stdout, command, Color::Cyan, Some(Color::Black), None);
+        } else {
+            print_colored_text(stdout, command, Color::White, Some(Color::Black), None);
+            if !desc.is_empty() {
+                print_colored_text(stdout, " # ", Color::Grey, Some(Color::Black), None);
+                print_colored_text(stdout, desc, Color::DarkGreen, Some(Color::Black), None);
+            }
+        }
+        current_y += 1;
+    }
+
+    // Bottom instruction
+    let bottom_msg = "Press F1, h, or ESC to close this help";
+    let bottom_y = start_y + popup_height as u16 - 3;
+    queue!(stdout, crossterm::cursor::MoveTo(content_x, bottom_y)).unwrap();
+    let centered_bottom = center_text(&bottom_msg, content_width);
+    print_colored_text(stdout, &centered_bottom, Color::Magenta, Some(Color::Black), None);
+    
+    // Add function keys at the very bottom for full-screen consistency
+    print_function_keys(stdout, cols, rows);
+}
+
+fn draw_window_frame<W: Write>(stdout: &mut W, x: u16, y: u16, width: usize, height: usize) {
+    // Top border
+    queue!(stdout, crossterm::cursor::MoveTo(x, y)).unwrap();
+    print_colored_text(stdout, "╔", Color::White, Some(Color::Black), None);
+    print_colored_text(stdout, &"═".repeat(width - 2), Color::White, Some(Color::Black), None);
+    print_colored_text(stdout, "╗", Color::White, Some(Color::Black), None);
+
+    // Side borders
+    for i in 1..height - 1 {
+        queue!(stdout, crossterm::cursor::MoveTo(x, y + i as u16)).unwrap();
+        print_colored_text(stdout, "║", Color::White, Some(Color::Black), None);
+        queue!(stdout, crossterm::cursor::MoveTo(x + width as u16 - 1, y + i as u16)).unwrap();
+        print_colored_text(stdout, "║", Color::White, Some(Color::Black), None);
+    }
+
+    // Bottom border
+    queue!(stdout, crossterm::cursor::MoveTo(x, y + height as u16 - 1)).unwrap();
+    print_colored_text(stdout, "╚", Color::White, Some(Color::Black), None);
+    print_colored_text(stdout, &"═".repeat(width - 2), Color::White, Some(Color::Black), None);
+    print_colored_text(stdout, "╝", Color::White, Some(Color::Black), None);
+}
+
+fn center_text(text: &str, width: usize) -> String {
+    let text_len = text.len();
+    if text_len >= width {
+        text.to_string()
+    } else {
+        let padding = (width - text_len) / 2;
+        format!("{}{}", " ".repeat(padding), text)
     }
 }
