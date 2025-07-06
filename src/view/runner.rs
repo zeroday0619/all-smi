@@ -902,9 +902,22 @@ fn render_main_view<W: Write>(
 
     // Write time/date header to buffer first
     let current_time = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    let version = env!("CARGO_PKG_VERSION");
+    let header_text = format!("all-smi - {}", current_time);
+    let version_text = format!("v{}", version);
+    
+    // Calculate spacing to right-align version
+    let total_width = cols as usize;
+    let content_length = header_text.len() + version_text.len();
+    let spacing = if total_width > content_length {
+        " ".repeat(total_width - content_length)
+    } else {
+        " ".to_string()
+    };
+    
     print_colored_text(
         &mut buffer,
-        &format!("all-smi - {}\r\n", current_time),
+        &format!("{}{}{}\r\n", header_text, spacing, version_text),
         Color::White,
         None,
         None,

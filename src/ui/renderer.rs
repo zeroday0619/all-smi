@@ -64,8 +64,15 @@ pub fn draw_bar<W: Write>(
     width: usize,
     show_text: Option<String>,
 ) {
-    let label_width = label.len();
-    let available_bar_width = width.saturating_sub(label_width + 4); // 4 for ": [" and "] "
+    // Format label to exactly 5 characters for consistent alignment
+    let formatted_label = if label.len() > 5 {
+        // Trim to 5 characters if too long
+        label[..5].to_string()
+    } else {
+        // Pad with spaces if too short
+        format!("{:<5}", label)
+    };
+    let available_bar_width = width.saturating_sub(9); // 9 for "LABEL: [" and "] " (5 + 4)
 
     // Calculate the filled portion
     let fill_ratio = (value / max_value).min(1.0);
@@ -92,7 +99,7 @@ pub fn draw_bar<W: Write>(
     };
 
     // Print label
-    print_colored_text(stdout, label, Color::White, None, None);
+    print_colored_text(stdout, &formatted_label, Color::White, None, None);
     print_colored_text(stdout, ": [", Color::White, None, None);
 
     // Calculate positioning for right-aligned text
@@ -793,8 +800,20 @@ pub fn print_gpu_info<W: Write>(
     queue!(stdout, Print("     ")).unwrap();
 
     // Calculate bar widths based on available space and number of bars
-    let num_bars = if info.ane_utilization > 0.0 { 3 } else { 2 };
-    let individual_bar_width = (bar_width - ((num_bars - 1)* 2)) / num_bars; // Account for spacing
+    // Show ANE gauge for Apple Silicon GPUs (based on UUID or name containing "Apple")
+    let is_apple_silicon = info.uuid == "AppleSiliconGPU" || info.name.contains("Apple");
+    let individual_bar_width = if is_apple_silicon {
+        // 3 bars: ensure same total space usage as 2 bars
+        // Target: same total length as 2-bar case
+        // 2-bar total: 2 * individual + 2 spaces = bar_width
+        // 3-bar total: 3 * individual + 4 spaces = bar_width  
+        // So for 3 bars: individual = (bar_width - 4) / 3
+        // But to match 2-bar total exactly, we calculate: (bar_width - 4) / 3 + 1
+        (bar_width - 4) / 3 + 1
+    } else {
+        // 2 bars: standard calculation
+        (bar_width - 2) / 2
+    };
 
     // GPU Utilization bar
     draw_bar(
@@ -817,16 +836,16 @@ pub fn print_gpu_info<W: Write>(
         None,
     );
 
-    // ANE utilization bar for Apple Silicon GPUs
-    if info.ane_utilization > 0.0 {
+    // ANE utilization bar for Apple Silicon GPUs (show even when 0)
+    if is_apple_silicon {
         queue!(stdout, Print("  ")).unwrap();
         draw_bar(
             stdout,
             "ANE",
             info.ane_utilization,
-            100.0,
+            10.0, // ANE scale: 0-10W instead of 0-100%
             individual_bar_width,
-            None,
+            Some(format!("{:.1}W", info.ane_utilization)),
         );
     }
 

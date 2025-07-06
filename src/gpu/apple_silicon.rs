@@ -32,7 +32,7 @@ impl GpuReader for AppleSiliconGpuReader {
         let gpu_metrics = get_gpu_metrics();
 
         let utilization = gpu_metrics.utilization.unwrap_or(0.0);
-        let ane_utilization = gpu_metrics.ane_utilization.unwrap_or(0.0);
+        let ane_utilization = gpu_metrics.ane_utilization.unwrap_or(0.0); // ANE power in watts, 0 if not available
         let frequency = gpu_metrics.frequency.unwrap_or(0);
         let power_consumption = gpu_metrics.power_consumption.unwrap_or(0.0);
         let mut detail = HashMap::new();

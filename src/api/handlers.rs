@@ -80,7 +80,7 @@ pub async fn metrics_handler(State(state): State<SharedState>) -> String {
             info.instance,
             info.uuid,
             i,
-            info.ane_utilization / 1000.0
+            info.ane_utilization
         ));
 
         if let Some(dla_util) = info.dla_utilization {

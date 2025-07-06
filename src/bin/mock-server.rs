@@ -57,6 +57,7 @@ struct GpuMetrics {
     temperature_celsius: u32,
     power_consumption_watts: f32,
     frequency_mhz: u32,
+    ane_utilization_watts: f32, // ANE power consumption in watts (Apple Silicon only)
 }
 
 #[derive(Clone)]
@@ -130,6 +131,8 @@ const PLACEHOLDER_TEMPERATURE: &str = "{{TEMP_";
 const PLACEHOLDER_POWER: &str = "{{POWER_";
 #[allow(dead_code)]
 const PLACEHOLDER_FREQUENCY: &str = "{{FREQ_";
+#[allow(dead_code)]
+const PLACEHOLDER_ANE: &str = "{{ANE_";
 const PLACEHOLDER_DISK_AVAIL: &str = "{{DISK_AVAIL}}";
 const PLACEHOLDER_DISK_TOTAL: &str = "{{DISK_TOTAL}}";
 
@@ -147,10 +150,10 @@ const PLACEHOLDER_SYS_MEMORY_USED: &str = "{{SYS_MEMORY_USED}}";
 const PLACEHOLDER_SYS_MEMORY_AVAILABLE: &str = "{{SYS_MEMORY_AVAILABLE}}";
 const PLACEHOLDER_SYS_MEMORY_FREE: &str = "{{SYS_MEMORY_FREE}}";
 const PLACEHOLDER_SYS_MEMORY_UTIL: &str = "{{SYS_MEMORY_UTIL}}";
-const PLACEHOLDER_SYS_MEMORY_BUFFERS: &str = "{{SYS_MEMORY_BUFFERS}}";
-const PLACEHOLDER_SYS_MEMORY_CACHED: &str = "{{SYS_MEMORY_CACHED}}";
 const PLACEHOLDER_SYS_SWAP_USED: &str = "{{SYS_SWAP_USED}}";
 const PLACEHOLDER_SYS_SWAP_FREE: &str = "{{SYS_SWAP_FREE}}";
+const PLACEHOLDER_SYS_MEMORY_BUFFERS: &str = "{{SYS_MEMORY_BUFFERS}}";
+const PLACEHOLDER_SYS_MEMORY_CACHED: &str = "{{SYS_MEMORY_CACHED}}";
 
 fn generate_uuid() -> String {
     let mut rng = rand::thread_rng();
@@ -205,6 +208,13 @@ impl MockNode {
                 let frequency_mhz =
                     (base_freq + util_freq_contribution).clamp(1000.0, 1980.0) as u32;
 
+                // ANE utilization only for Apple Silicon
+                let ane_utilization_watts = if platform == PlatformType::Apple {
+                    rng.gen_range(0.0..2.5) // ANE power consumption 0-2.5W
+                } else {
+                    0.0
+                };
+
                 GpuMetrics {
                     uuid: generate_uuid(),
                     utilization,
@@ -213,6 +223,7 @@ impl MockNode {
                     temperature_celsius,
                     power_consumption_watts,
                     frequency_mhz,
+                    ane_utilization_watts,
                 }
             })
             .collect();
@@ -545,6 +556,21 @@ impl MockNode {
             }
         }
 
+        // ANE utilization metrics (Apple Silicon only)
+        if let PlatformType::Apple = platform {
+            template.push_str("# HELP all_smi_ane_utilization ANE utilization in watts\n");
+            template.push_str("# TYPE all_smi_ane_utilization gauge\n");
+
+            for (i, gpu) in gpus.iter().enumerate() {
+                let labels = format!(
+                    "gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"",
+                    gpu_name, instance_name, gpu.uuid, i
+                );
+                let placeholder = format!("{{{{ANE_{}}}}}", i);
+                template.push_str(&format!("all_smi_ane_utilization{{{}}} {}\n", labels, placeholder));
+            }
+        }
+
         // CPU metrics
         let cpu_labels = format!(
             "cpu_model=\"{}\", instance=\"{}\", hostname=\"{}\", index=\"0\"",
@@ -734,6 +760,14 @@ impl MockNode {
                     &format!("{{{{FREQ_{}}}}}", i),
                     &gpu.frequency_mhz.to_string(),
                 );
+
+            // Replace ANE metrics for Apple Silicon
+            if let PlatformType::Apple = self.platform_type {
+                response = response.replace(
+                    &format!("{{{{ANE_{}}}}}", i),
+                    &format!("{:.3}", gpu.ane_utilization_watts),
+                );
+            }
         }
 
         // Replace CPU metrics
@@ -852,6 +886,12 @@ impl MockNode {
 
             gpu.frequency_mhz =
                 (base_freq + util_freq_contribution + freq_variation).clamp(1000.0, 1980.0) as u32;
+
+            // Update ANE utilization for Apple Silicon
+            if let PlatformType::Apple = self.platform_type {
+                let ane_delta = rng.gen_range(-0.3..0.3);
+                gpu.ane_utilization_watts = (gpu.ane_utilization_watts + ane_delta).clamp(0.0, 3.0);
+            }
         }
 
         // Update CPU metrics
