@@ -31,9 +31,9 @@ pub struct GpuInfo {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct ProcessInfo {
-    pub device_id: usize,    // GPU index (internal)
-    pub device_uuid: String, // GPU UUID
-    pub pid: u32,            // Process ID
+    pub device_id: usize,     // GPU index (internal)
+    pub device_uuid: String,  // GPU UUID
+    pub pid: u32,             // Process ID
     pub process_name: String, // Process name
     pub used_memory: u64,
 }

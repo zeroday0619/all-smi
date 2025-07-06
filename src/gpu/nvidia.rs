@@ -1,8 +1,8 @@
-use std::process::Command;
 use crate::gpu::{GpuInfo, GpuReader, ProcessInfo};
-use std::str::FromStr;
 use chrono::Local;
 use std::collections::HashMap;
+use std::process::Command;
+use std::str::FromStr;
 
 pub struct NvidiaGpuReader;
 
@@ -38,7 +38,8 @@ impl GpuReader for NvidiaGpuReader {
                         let utilization = f64::from_str(parts[3].trim()).unwrap_or(0.0);
                         let temperature = u32::from_str(parts[4].trim()).unwrap_or(0);
                         let used_memory = u64::from_str(parts[5].trim()).unwrap_or(0) * 1024 * 1024; // Convert MiB to bytes
-                        let total_memory = u64::from_str(parts[6].trim()).unwrap_or(0) * 1024 * 1024; // Convert MiB to bytes
+                        let total_memory =
+                            u64::from_str(parts[6].trim()).unwrap_or(0) * 1024 * 1024; // Convert MiB to bytes
                         let frequency = u32::from_str(parts[7].trim()).unwrap_or(0); // Frequency in MHz
                         let power_consumption = f64::from_str(parts[8].trim()).unwrap_or(0.0); // Power consumption in W
 
@@ -64,10 +65,7 @@ impl GpuReader for NvidiaGpuReader {
                     }
                 }
             } else {
-                eprintln!(
-                    "nvidia-smi command failed with status: {}",
-                    output.status
-                );
+                eprintln!("nvidia-smi command failed with status: {}", output.status);
             }
         } else {
             eprintln!("Failed to execute nvidia-smi command");

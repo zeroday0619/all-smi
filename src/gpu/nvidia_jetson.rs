@@ -1,7 +1,7 @@
 use crate::gpu::{GpuInfo, GpuReader, ProcessInfo};
+use chrono::Local;
 use std::collections::HashMap;
 use std::fs;
-use chrono::Local;
 use std::process::Command;
 
 pub struct NvidiaJetsonGpuReader;
@@ -24,8 +24,9 @@ impl GpuReader for NvidiaJetsonGpuReader {
         let temperature = fs::read_to_string("/sys/devices/virtual/thermal/thermal_zone0/temp")
             .map_or(0, |s| s.trim().parse::<u32>().unwrap_or(0) / 1000);
 
-        let power_consumption = fs::read_to_string("/sys/bus/i2c/drivers/ina3221x/0-0040/iio:device0/in_power0_input")
-            .map_or(0.0, |s| s.trim().parse::<f64>().unwrap_or(0.0) / 1000.0);
+        let power_consumption =
+            fs::read_to_string("/sys/bus/i2c/drivers/ina3221x/0-0040/iio:device0/in_power0_input")
+                .map_or(0.0, |s| s.trim().parse::<f64>().unwrap_or(0.0) / 1000.0);
 
         let dla0_util = fs::read_to_string("/sys/kernel/debug/dla_0/load")
             .map_or(0.0, |s| s.trim().parse::<f64>().unwrap_or(0.0));
@@ -78,9 +79,21 @@ fn get_memory_info() -> (u64, u64) {
 
     for line in meminfo.lines() {
         if line.starts_with("MemTotal:") {
-            total_memory = line.split_whitespace().nth(1).unwrap_or("0").parse::<u64>().unwrap_or(0) * 1024;
+            total_memory = line
+                .split_whitespace()
+                .nth(1)
+                .unwrap_or("0")
+                .parse::<u64>()
+                .unwrap_or(0)
+                * 1024;
         } else if line.starts_with("MemAvailable:") {
-            available_memory = line.split_whitespace().nth(1).unwrap_or("0").parse::<u64>().unwrap_or(0) * 1024;
+            available_memory = line
+                .split_whitespace()
+                .nth(1)
+                .unwrap_or("0")
+                .parse::<u64>()
+                .unwrap_or(0)
+                * 1024;
         }
     }
 

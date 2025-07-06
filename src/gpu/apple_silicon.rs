@@ -1,8 +1,8 @@
 use crate::gpu::{GpuInfo, GpuReader, ProcessInfo};
 use chrono::Local;
 use std::collections::HashMap;
-use std::process::{Command, Stdio};
 use std::io::{BufRead, BufReader};
+use std::process::{Command, Stdio};
 
 pub struct AppleSiliconGpuReader {
     name: String,
@@ -107,10 +107,7 @@ impl GpuReader for AppleSiliconGpuReader {
                 }
             }
         } else {
-            eprintln!(
-                "powermetrics command failed with status: {}",
-                output.status
-            );
+            eprintln!("powermetrics command failed with status: {}", output.status);
         }
 
         process_list
@@ -161,15 +158,33 @@ fn get_gpu_metrics() -> GpuMetrics {
                 }
             } else if line.contains("ANE Power:") {
                 if let Some(power_str) = line.split(':').nth(1) {
-                    ane_utilization = power_str.trim().split_whitespace().next().unwrap_or("0").parse::<f64>().ok();
+                    ane_utilization = power_str
+                        .trim()
+                        .split_whitespace()
+                        .next()
+                        .unwrap_or("0")
+                        .parse::<f64>()
+                        .ok();
                 }
             } else if line.contains("GPU HW active frequency:") {
                 if let Some(freq_str) = line.split(':').nth(1) {
-                    frequency = freq_str.trim().split_whitespace().next().unwrap_or("0").parse::<u32>().ok();
+                    frequency = freq_str
+                        .trim()
+                        .split_whitespace()
+                        .next()
+                        .unwrap_or("0")
+                        .parse::<u32>()
+                        .ok();
                 }
             } else if line.contains("GPU Power:") {
                 if let Some(power_str) = line.split(':').nth(1) {
-                    power_consumption = power_str.trim().split_whitespace().next().unwrap_or("0").parse::<f64>().ok();
+                    power_consumption = power_str
+                        .trim()
+                        .split_whitespace()
+                        .next()
+                        .unwrap_or("0")
+                        .parse::<f64>()
+                        .ok();
                     // Convert power from mW to W
                     if let Some(p) = power_consumption {
                         power_consumption = Some(p / 1000.0);
