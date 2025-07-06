@@ -204,6 +204,7 @@ struct AppState {
     hostname_scroll_offsets: std::collections::HashMap<String, usize>,
     frame_counter: u64,
     storage_info: Vec<StorageInfo>,
+    show_help: bool,
 }
 
 impl AppState {
@@ -224,6 +225,7 @@ impl AppState {
             hostname_scroll_offsets: std::collections::HashMap::new(),
             frame_counter: 0,
             storage_info: Vec::new(),
+            show_help: false,
         }
     }
 }
@@ -903,6 +905,119 @@ fn print_loading_indicator<W: Write>(stdout: &mut W, cols: u16, rows: u16) {
     print_colored_text(stdout, loading_text, Color::White, None, None);
 }
 
+fn print_help_popup<W: Write>(stdout: &mut W, cols: u16, rows: u16) {
+    // Fill the entire screen with the help popup
+    let border_color = Color::Cyan;
+    let bg_color = Color::Black;
+    let text_color = Color::White;
+    let highlight_color = Color::Yellow;
+    
+    // Clear the entire screen first
+    queue!(stdout, terminal::Clear(ClearType::All)).unwrap();
+    
+    // Draw the outer border
+    queue!(stdout, cursor::MoveTo(0, 0)).unwrap();
+    print_colored_text(stdout, &format!("┌{}┐", "─".repeat((cols - 2) as usize)), border_color, Some(bg_color), None);
+    
+    // Draw side borders and fill with background
+    for row in 1..rows-1 {
+        queue!(stdout, cursor::MoveTo(0, row)).unwrap();
+        print_colored_text(stdout, "│", border_color, Some(bg_color), None);
+        print_colored_text(stdout, &" ".repeat((cols - 2) as usize), text_color, Some(bg_color), None);
+        print_colored_text(stdout, "│", border_color, Some(bg_color), None);
+    }
+    
+    // Draw bottom border
+    queue!(stdout, cursor::MoveTo(0, rows - 1)).unwrap();
+    print_colored_text(stdout, &format!("└{}┘", "─".repeat((cols - 2) as usize)), border_color, Some(bg_color), None);
+    
+    // Content area calculations
+    let content_width = (cols - 4) as usize; // -4 for borders and padding
+    let _content_height = (rows - 2) as usize; // -2 for top and bottom borders
+    let start_x = 2;
+    let start_y = 1;
+    
+    // Section 1: Title (top section)
+    let title_y = start_y + 2;
+    let title_text = "all-smi Help";
+    let title_x = start_x + (content_width - title_text.len()) / 2;
+    queue!(stdout, cursor::MoveTo(title_x as u16, title_y)).unwrap();
+    print_colored_text(stdout, title_text, highlight_color, Some(bg_color), None);
+    
+    // Title underline
+    queue!(stdout, cursor::MoveTo(title_x as u16, title_y + 1)).unwrap();
+    print_colored_text(stdout, &"═".repeat(title_text.len()), highlight_color, Some(bg_color), None);
+    
+    // Section 2: Cheat sheet (middle section)
+    let cheat_start_y = title_y + 4;
+    let cheat_sheet_lines = vec![
+        "Navigation & Controls:",
+        "  ←/→        Switch between tabs (All, Node1, Node2, etc.)",
+        "  ↑/↓        Navigate GPU/Storage list (remote) or Process list (local)",
+        "  PgUp/PgDn   Page up/down in process list",
+        "",
+        "Sorting (Local mode only):",
+        "  p          Sort processes by PID",
+        "  m          Sort processes by Memory usage",
+        "",
+        "Application:",
+        "  F1 / h     Show/hide this help",
+        "  F10 / q    Quit application",
+        "  Esc        Exit help or quit application",
+    ];
+    
+    for (i, line) in cheat_sheet_lines.iter().enumerate() {
+        let y = cheat_start_y + i as u16;
+        if y < rows - 8 { // Leave space for bottom section
+            queue!(stdout, cursor::MoveTo(start_x as u16, y)).unwrap();
+            if line.starts_with("  ") {
+                // Indent lines - highlight the key combinations
+                let parts: Vec<&str> = line.splitn(2, ' ').collect();
+                if parts.len() == 2 && parts[0].trim() != "" {
+                    let key_part = parts[0].trim();
+                    let desc_part = parts[1];
+                    print_colored_text(stdout, "  ", text_color, Some(bg_color), None);
+                    print_colored_text(stdout, key_part, highlight_color, Some(bg_color), None);
+                    print_colored_text(stdout, &format!("  {}", desc_part), text_color, Some(bg_color), None);
+                } else {
+                    print_colored_text(stdout, line, text_color, Some(bg_color), None);
+                }
+            } else if line.ends_with(":") {
+                // Section headers
+                print_colored_text(stdout, line, Color::Cyan, Some(bg_color), None);
+            } else {
+                print_colored_text(stdout, line, text_color, Some(bg_color), None);
+            }
+        }
+    }
+    
+    // Section 3: Terminal options (bottom section)
+    let terminal_start_y = rows - 6;
+    let terminal_lines = vec![
+        "Terminal Usage:",
+        "  View Mode:  all-smi view [--hosts host1 host2] [--hostfile hosts.csv]",
+        "  API Mode:   all-smi api [--port 9090] [--interval 3]",
+    ];
+    
+    for (i, line) in terminal_lines.iter().enumerate() {
+        let y = terminal_start_y + i as u16;
+        if y < rows - 1 {
+            queue!(stdout, cursor::MoveTo(start_x as u16, y)).unwrap();
+            if line.starts_with("  ") {
+                // Command examples
+                print_colored_text(stdout, "  ", text_color, Some(bg_color), None);
+                let command_part = &line[2..];
+                print_colored_text(stdout, command_part, Color::Green, Some(bg_color), None);
+            } else if line.ends_with(":") {
+                // Section header
+                print_colored_text(stdout, line, Color::Cyan, Some(bg_color), None);
+            } else {
+                print_colored_text(stdout, line, text_color, Some(bg_color), None);
+            }
+        }
+    }
+}
+
 fn print_process_info<
     W: Write,
 >(
@@ -1466,39 +1581,53 @@ async fn run_view_mode(args: &ViewArgs) {
             if let Event::Key(key_event) = event::read().unwrap() {
                 let mut state = app_state.lock().await;
                 match key_event.code {
-                    KeyCode::Esc | KeyCode::F(10) | KeyCode::Char('q') => break,
-                    KeyCode::Left => {
-                        if state.current_tab > 0 {
-                            state.current_tab -= 1;
-                            if state.current_tab < state.tab_scroll_offset + 1 && state.tab_scroll_offset > 0 {
-                                state.tab_scroll_offset -= 1;
-                            }
+                    KeyCode::Esc => {
+                        if state.show_help {
+                            state.show_help = false;
+                        } else {
+                            break;
                         }
-                        state.gpu_scroll_offset = 0;
-                        state.storage_scroll_offset = 0;
+                    }
+                    KeyCode::F(10) | KeyCode::Char('q') => break,
+                    KeyCode::F(1) | KeyCode::Char('h') => {
+                        state.show_help = !state.show_help;
+                    }
+                    KeyCode::Left => {
+                        if !state.show_help {
+                            if state.current_tab > 0 {
+                                state.current_tab -= 1;
+                                if state.current_tab < state.tab_scroll_offset + 1 && state.tab_scroll_offset > 0 {
+                                    state.tab_scroll_offset -= 1;
+                                }
+                            }
+                            state.gpu_scroll_offset = 0;
+                            state.storage_scroll_offset = 0;
+                        }
                     }
                     KeyCode::Right => {
-                        if state.current_tab < state.tabs.len() - 1 {
-                            state.current_tab += 1;
-                            let (cols, _) = size().unwrap();
-                            let mut available_width = cols.saturating_sub(5);
-                            let mut last_visible_tab = state.tab_scroll_offset;
-                            for (i, tab) in state.tabs.iter().enumerate().skip(1).skip(state.tab_scroll_offset) {
-                                let tab_width = tab.len() as u16 + 2;
-                                if available_width < tab_width {
-                                    break;
+                        if !state.show_help {
+                            if state.current_tab < state.tabs.len() - 1 {
+                                state.current_tab += 1;
+                                let (cols, _) = size().unwrap();
+                                let mut available_width = cols.saturating_sub(5);
+                                let mut last_visible_tab = state.tab_scroll_offset;
+                                for (i, tab) in state.tabs.iter().enumerate().skip(1).skip(state.tab_scroll_offset) {
+                                    let tab_width = tab.len() as u16 + 2;
+                                    if available_width < tab_width {
+                                        break;
+                                    }
+                                    available_width -= tab_width;
+                                    last_visible_tab = i;
                                 }
-                                available_width -= tab_width;
-                                last_visible_tab = i;
+                                if state.current_tab > last_visible_tab {
+                                    state.tab_scroll_offset += 1;
+                                }
                             }
-                            if state.current_tab > last_visible_tab {
-                                state.tab_scroll_offset += 1;
-                            }
+                            state.gpu_scroll_offset = 0;
+                            state.storage_scroll_offset = 0;
                         }
-                        state.gpu_scroll_offset = 0;
-                        state.storage_scroll_offset = 0;
                     }
-                    _ if !state.loading => {
+                    _ if !state.loading && !state.show_help => {
                         // Only handle other keys if not loading
                         match key_event.code {
                             KeyCode::Up => {
@@ -1634,7 +1763,9 @@ async fn run_view_mode(args: &ViewArgs) {
 
         queue!(stdout, cursor::Hide, cursor::MoveTo(0, 0)).unwrap();
 
-        if state.loading {
+        if state.show_help {
+            print_help_popup(&mut stdout, cols, rows);
+        } else if state.loading {
             print_function_keys(&mut stdout, cols, rows);
             print_loading_indicator(&mut stdout, cols, rows);
         } else {
