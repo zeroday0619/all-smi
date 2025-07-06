@@ -68,12 +68,7 @@ pub fn calculate_tab_visibility(state: &AppState, cols: u16) -> TabVisibility {
     let mut available_width = cols.saturating_sub(8);
     let mut last_visible_tab = state.tab_scroll_offset;
 
-    for (i, tab) in state
-        .tabs
-        .iter()
-        .enumerate()
-        .skip(state.tab_scroll_offset)
-    {
+    for (i, tab) in state.tabs.iter().enumerate().skip(state.tab_scroll_offset) {
         let tab_width = tab.len() as u16 + 2;
         if available_width < tab_width {
             break;

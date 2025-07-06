@@ -21,13 +21,16 @@ use tokio::sync::Mutex;
 
 use crate::app_state::{AppState, SortCriteria};
 use crate::cli::ViewArgs;
-use crate::gpu::{get_cpu_readers, get_gpu_readers, get_memory_readers, CpuInfo, GpuInfo, MemoryInfo, ProcessInfo};
+use crate::gpu::{
+    get_cpu_readers, get_gpu_readers, get_memory_readers, CpuInfo, GpuInfo, MemoryInfo, ProcessInfo,
+};
 use crate::storage::info::StorageInfo;
 use crate::ui::buffer::BufferWriter;
 use crate::ui::help::print_help_popup;
 use crate::ui::renderer::{
-    draw_dashboard_items, draw_system_view, print_colored_text, print_cpu_info, print_function_keys,
-    print_gpu_info, print_loading_indicator, print_memory_info, print_process_info, print_storage_info,
+    draw_dashboard_items, draw_system_view, print_colored_text, print_cpu_info,
+    print_function_keys, print_gpu_info, print_loading_indicator, print_memory_info,
+    print_process_info, print_storage_info,
 };
 use crate::ui::tabs::draw_tabs;
 use crate::utils::{calculate_adaptive_interval, get_hostname, should_include_disk};
@@ -127,7 +130,7 @@ async fn run_local_mode(app_state: Arc<Mutex<AppState>>, args: ViewArgs) {
 
         // Update utilization history
         update_utilization_history(&mut state);
-        
+
         // Collect unique hostnames
         let mut hostnames: Vec<String> = state
             .gpu_info
@@ -137,7 +140,7 @@ async fn run_local_mode(app_state: Arc<Mutex<AppState>>, args: ViewArgs) {
             .into_iter()
             .collect();
         hostnames.sort();
-        
+
         // For single node, skip "All" tab and go directly to node tab
         let mut tabs = if hostnames.len() <= 1 {
             hostnames.clone()
@@ -146,12 +149,12 @@ async fn run_local_mode(app_state: Arc<Mutex<AppState>>, args: ViewArgs) {
             tabs.extend(hostnames);
             tabs
         };
-        
+
         // Ensure we have at least one tab
         if tabs.is_empty() {
             tabs.push("Local".to_string());
         }
-        
+
         state.tabs = tabs;
 
         // Always clear loading state in local mode after first iteration
@@ -221,7 +224,7 @@ async fn run_remote_mode(
 
         // Update utilization history
         update_utilization_history(&mut state);
-        
+
         let mut hostnames: HashSet<String> = HashSet::new();
 
         // Collect hostnames from GPU info
@@ -246,7 +249,7 @@ async fn run_remote_mode(
 
         let mut sorted_hostnames: Vec<String> = hostnames.into_iter().collect();
         sorted_hostnames.sort();
-        
+
         // For single node, skip "All" tab and go directly to node tab
         let tabs = if sorted_hostnames.len() <= 1 {
             sorted_hostnames
@@ -255,7 +258,7 @@ async fn run_remote_mode(
             tabs.extend(sorted_hostnames);
             tabs
         };
-        
+
         state.tabs = tabs;
         state.process_info = Vec::new(); // No process info in remote mode
 
@@ -277,7 +280,12 @@ async fn fetch_remote_data(
     client: &reqwest::Client,
     semaphore: &Arc<tokio::sync::Semaphore>,
     re: &Regex,
-) -> (Vec<GpuInfo>, Vec<CpuInfo>, Vec<MemoryInfo>, Vec<StorageInfo>) {
+) -> (
+    Vec<GpuInfo>,
+    Vec<CpuInfo>,
+    Vec<MemoryInfo>,
+    Vec<StorageInfo>,
+) {
     let mut all_gpu_info = Vec::new();
     let mut all_cpu_info = Vec::new();
     let mut all_memory_info = Vec::new();
@@ -377,7 +385,8 @@ async fn fetch_remote_data(
                     continue;
                 }
 
-                let (gpu_info, cpu_info, memory_info, storage_info) = parse_metrics(&text, &host, re);
+                let (gpu_info, cpu_info, memory_info, storage_info) =
+                    parse_metrics(&text, &host, re);
                 all_gpu_info.extend(gpu_info);
                 all_cpu_info.extend(cpu_info);
                 all_memory_info.extend(memory_info);
@@ -400,12 +409,26 @@ async fn fetch_remote_data(
         );
     }
 
-    (all_gpu_info, all_cpu_info, all_memory_info, all_storage_info)
+    (
+        all_gpu_info,
+        all_cpu_info,
+        all_memory_info,
+        all_storage_info,
+    )
 }
 
-fn parse_metrics(text: &str, host: &str, re: &Regex) -> (Vec<GpuInfo>, Vec<CpuInfo>, Vec<MemoryInfo>, Vec<StorageInfo>) {
+fn parse_metrics(
+    text: &str,
+    host: &str,
+    re: &Regex,
+) -> (
+    Vec<GpuInfo>,
+    Vec<CpuInfo>,
+    Vec<MemoryInfo>,
+    Vec<StorageInfo>,
+) {
     use crate::gpu::{AppleSiliconCpuInfo, CpuPlatformType, CpuSocketInfo};
-    
+
     let mut gpu_info_map: HashMap<String, GpuInfo> = HashMap::new();
     let mut cpu_info_map: HashMap<String, CpuInfo> = HashMap::new();
     let mut memory_info_map: HashMap<String, MemoryInfo> = HashMap::new();
@@ -516,17 +539,17 @@ fn parse_metrics(text: &str, host: &str, re: &Regex) -> (Vec<GpuInfo>, Vec<CpuIn
                         cpu_model: cpu_model.clone(),
                         architecture: "".to_string(), // Will be filled from metrics if available
                         platform_type,
-                        socket_count: 1, // Will be updated from metrics
-                        total_cores: 0, // Will be updated from metrics
-                        total_threads: 0, // Will be updated from metrics
-                        base_frequency_mhz: 0, // Will be updated from metrics
-                        max_frequency_mhz: 0, // Same as base for now
-                        cache_size_mb: 0, // Not available from metrics
-                        utilization: 0.0, // Will be updated from metrics
-                        temperature: None, // Will be updated from metrics
-                        power_consumption: None, // Will be updated from metrics
+                        socket_count: 1,             // Will be updated from metrics
+                        total_cores: 0,              // Will be updated from metrics
+                        total_threads: 0,            // Will be updated from metrics
+                        base_frequency_mhz: 0,       // Will be updated from metrics
+                        max_frequency_mhz: 0,        // Same as base for now
+                        cache_size_mb: 0,            // Not available from metrics
+                        utilization: 0.0,            // Will be updated from metrics
+                        temperature: None,           // Will be updated from metrics
+                        power_consumption: None,     // Will be updated from metrics
                         per_socket_info: Vec::new(), // Will be populated from socket metrics
-                        apple_silicon_info: None, // Will be populated for Apple Silicon
+                        apple_silicon_info: None,    // Will be populated for Apple Silicon
                         time: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
                     }
                 });
@@ -645,7 +668,9 @@ fn parse_metrics(text: &str, host: &str, re: &Regex) -> (Vec<GpuInfo>, Vec<CpuIn
                                         frequency_mhz: 0,
                                     });
                                 }
-                                if let Some(socket_info) = cpu_info.per_socket_info.get_mut(socket_id as usize) {
+                                if let Some(socket_info) =
+                                    cpu_info.per_socket_info.get_mut(socket_id as usize)
+                                {
                                     socket_info.utilization = value;
                                 }
                             }
@@ -660,8 +685,9 @@ fn parse_metrics(text: &str, host: &str, re: &Regex) -> (Vec<GpuInfo>, Vec<CpuIn
 
                 let memory_key = format!("{}:{}", host, memory_index);
 
-                let memory_info = memory_info_map.entry(memory_key).or_insert_with(|| {
-                    MemoryInfo {
+                let memory_info = memory_info_map
+                    .entry(memory_key)
+                    .or_insert_with(|| MemoryInfo {
                         hostname: hostname.clone(),
                         instance: host.to_string(),
                         total_bytes: 0,
@@ -675,8 +701,7 @@ fn parse_metrics(text: &str, host: &str, re: &Regex) -> (Vec<GpuInfo>, Vec<CpuIn
                         swap_free_bytes: 0,
                         utilization: 0.0,
                         time: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
-                    }
-                });
+                    });
 
                 match metric_name {
                     "memory_total_bytes" => {
@@ -929,7 +954,7 @@ fn render_main_view<W: Write>(
     let version = env!("CARGO_PKG_VERSION");
     let header_text = format!("all-smi - {}", current_time);
     let version_text = format!("v{}", version);
-    
+
     // Calculate spacing to right-align version
     let total_width = cols as usize;
     let content_length = header_text.len() + version_text.len();
@@ -938,7 +963,7 @@ fn render_main_view<W: Write>(
     } else {
         " ".to_string()
     };
-    
+
     print_colored_text(
         &mut buffer,
         &format!("{}{}{}\r\n", header_text, spacing, version_text),
@@ -955,15 +980,16 @@ fn render_main_view<W: Write>(
 
     let is_remote = args.hosts.is_some() || args.hostfile.is_some();
 
-    let mut gpu_info_to_display: Vec<_> = if state.current_tab < state.tabs.len() && state.tabs[state.current_tab] == "All" {
-        state.gpu_info.iter().collect()
-    } else {
-        state
-            .gpu_info
-            .iter()
-            .filter(|info| info.hostname == state.tabs[state.current_tab])
-            .collect()
-    };
+    let mut gpu_info_to_display: Vec<_> =
+        if state.current_tab < state.tabs.len() && state.tabs[state.current_tab] == "All" {
+            state.gpu_info.iter().collect()
+        } else {
+            state
+                .gpu_info
+                .iter()
+                .filter(|info| info.hostname == state.tabs[state.current_tab])
+                .collect()
+        };
 
     // Sort GPUs based on current sort criteria
     gpu_info_to_display.sort_by(|a, b| state.sort_criteria.sort_gpus(a, b));
@@ -974,17 +1000,20 @@ fn render_main_view<W: Write>(
     let available_rows = rows.saturating_sub(content_start_row).saturating_sub(1) as usize;
 
     // Calculate storage display rows
-    let storage_items_count =
-        if is_remote && state.current_tab < state.tabs.len() && state.tabs[state.current_tab] != "All" && !state.storage_info.is_empty() {
-            let current_hostname = &state.tabs[state.current_tab];
-            state
-                .storage_info
-                .iter()
-                .filter(|info| info.hostname == *current_hostname)
-                .count()
-        } else {
-            0
-        };
+    let storage_items_count = if is_remote
+        && state.current_tab < state.tabs.len()
+        && state.tabs[state.current_tab] != "All"
+        && !state.storage_info.is_empty()
+    {
+        let current_hostname = &state.tabs[state.current_tab];
+        state
+            .storage_info
+            .iter()
+            .filter(|info| info.hostname == *current_hostname)
+            .count()
+    } else {
+        0
+    };
 
     let storage_display_rows = if storage_items_count > 0 {
         // Each storage item takes 1 line (labels + usage bar on same line)
@@ -1038,7 +1067,11 @@ fn render_main_view<W: Write>(
     }
 
     // Display storage information for node-specific tabs in remote mode
-    if is_remote && state.current_tab < state.tabs.len() && state.tabs[state.current_tab] != "All" && !state.storage_info.is_empty() {
+    if is_remote
+        && state.current_tab < state.tabs.len()
+        && state.tabs[state.current_tab] != "All"
+        && !state.storage_info.is_empty()
+    {
         let current_hostname = &state.tabs[state.current_tab];
         let storage_info_to_display: Vec<_> = state
             .storage_info
@@ -1072,7 +1105,10 @@ fn render_main_view<W: Write>(
     }
 
     // Display CPU information for node-specific tabs
-    if state.current_tab < state.tabs.len() && state.tabs[state.current_tab] != "All" && !state.cpu_info.is_empty() {
+    if state.current_tab < state.tabs.len()
+        && state.tabs[state.current_tab] != "All"
+        && !state.cpu_info.is_empty()
+    {
         let current_hostname = &state.tabs[state.current_tab];
         let cpu_info_to_display: Vec<_> = state
             .cpu_info

@@ -178,7 +178,9 @@ pub async fn metrics_handler(State(state): State<SharedState>) -> String {
                 metrics.push_str(&format!(
                     "# HELP all_smi_cpu_power_consumption_watts CPU power consumption in watts\n"
                 ));
-                metrics.push_str(&format!("# TYPE all_smi_cpu_power_consumption_watts gauge\n"));
+                metrics.push_str(&format!(
+                    "# TYPE all_smi_cpu_power_consumption_watts gauge\n"
+                ));
                 metrics.push_str(&format!(
                     "all_smi_cpu_power_consumption_watts{{cpu_model=\"{}\", instance=\"{}\", hostname=\"{}\", index=\"{}\"}} {}\n",
                     cpu_info.cpu_model, cpu_info.instance, cpu_info.hostname, i, power
@@ -209,7 +211,9 @@ pub async fn metrics_handler(State(state): State<SharedState>) -> String {
                     metrics.push_str(&format!(
                         "# HELP all_smi_cpu_socket_temperature_celsius Per-socket CPU temperature in celsius\n"
                     ));
-                    metrics.push_str(&format!("# TYPE all_smi_cpu_socket_temperature_celsius gauge\n"));
+                    metrics.push_str(&format!(
+                        "# TYPE all_smi_cpu_socket_temperature_celsius gauge\n"
+                    ));
                     metrics.push_str(&format!(
                         "all_smi_cpu_socket_temperature_celsius{{cpu_model=\"{}\", instance=\"{}\", hostname=\"{}\", cpu_index=\"{}\", socket_id=\"{}\"}} {}\n",
                         cpu_info.cpu_model, cpu_info.instance, cpu_info.hostname, i, socket_info.socket_id, socket_temp

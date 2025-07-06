@@ -169,7 +169,7 @@ pub fn draw_system_view<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
         .map(|memory| memory.total_bytes)
         .sum::<u64>() as f64
         / (1024.0 * 1024.0 * 1024.0);
-    
+
     let used_system_memory_gb = state
         .memory_info
         .iter()
@@ -189,7 +189,6 @@ pub fn draw_system_view<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
         0.0
     };
 
-
     let avg_temperature = if total_gpus > 0 {
         state
             .gpu_info
@@ -201,7 +200,7 @@ pub fn draw_system_view<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
         0.0
     };
 
-    // Calculate temperature standard deviation  
+    // Calculate temperature standard deviation
     let temp_std_dev = if total_gpus > 1 {
         let temp_variance = state
             .gpu_info
@@ -242,11 +241,7 @@ pub fn draw_system_view<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
                 Color::Green,
             ),
             ("GPU Cores", format!("{}", total_gpus), Color::Cyan),
-            (
-                "Total VRAM",
-                format_ram_value(total_memory_gb),
-                Color::Blue,
-            ),
+            ("Total VRAM", format_ram_value(total_memory_gb), Color::Blue),
             (
                 "Avg. Temp",
                 format!("{:.0}°C", avg_temperature),
@@ -271,11 +266,7 @@ pub fn draw_system_view<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
                 format_ram_value(used_system_memory_gb),
                 Color::Green,
             ),
-            (
-                "GPU Util",
-                format!("{:.1}%", avg_utilization),
-                Color::Blue,
-            ),
+            ("GPU Util", format!("{:.1}%", avg_utilization), Color::Blue),
             (
                 "Used VRAM",
                 format_ram_value(used_gpu_memory_gb),
@@ -807,14 +798,14 @@ pub fn print_gpu_info<W: Write>(
         let standard_width = (bar_width - 4) / 3 + 1;
         let two_bar_width = (bar_width - 2) / 2;
         let single_bar_width = bar_width;
-        
+
         // Calculate total length with 3 standard-width bars
         let total_with_three = 3 * standard_width + 4; // 4 spaces between bars
         let target_length = std::cmp::max(
-            2 * two_bar_width + 2,  // 2-bar total length
-            single_bar_width        // single bar length
+            2 * two_bar_width + 2, // 2-bar total length
+            single_bar_width,      // single bar length
         );
-        
+
         // If 3-bar total is 1 character longer, reduce last bar by 1
         if total_with_three == target_length + 1 {
             (standard_width, standard_width - 1)
@@ -863,12 +854,7 @@ pub fn print_gpu_info<W: Write>(
     queue!(stdout, Print("\r\n")).unwrap();
 }
 
-pub fn print_cpu_info<W: Write>(
-    stdout: &mut W,
-    _index: usize,
-    info: &CpuInfo,
-    width: usize,
-) {
+pub fn print_cpu_info<W: Write>(stdout: &mut W, _index: usize, info: &CpuInfo, width: usize) {
     let mut labels: Vec<(String, Color)> = Vec::new();
 
     // Helper function to add labels with fixed width for alignment
@@ -898,7 +884,13 @@ pub fn print_cpu_info<W: Write>(
     add_label(&mut labels, "CPU ", cpu_model, Color::Cyan, 30);
 
     // Add hostname
-    add_label(&mut labels, " Host:", info.hostname.clone(), Color::Yellow, 12);
+    add_label(
+        &mut labels,
+        " Host:",
+        info.hostname.clone(),
+        Color::Yellow,
+        12,
+    );
 
     // For Apple Silicon, show core counts without utilization
     if let Some(apple_info) = &info.apple_silicon_info {
@@ -957,13 +949,7 @@ pub fn print_cpu_info<W: Write>(
             Color::Green
         };
 
-        add_label(
-            &mut labels,
-            " Temp:",
-            format!("{}°C", temp),
-            temp_color,
-            5,
-        );
+        add_label(&mut labels, " Temp:", format!("{}°C", temp), temp_color, 5);
     }
 
     // Add power consumption if available
@@ -997,7 +983,7 @@ pub fn print_cpu_info<W: Write>(
     if let Some(apple_info) = &info.apple_silicon_info {
         // Calculate bar widths for P-core and E-core gauges (2 bars)
         let individual_bar_width = (bar_width - 2) / 2; // Account for spacing between bars
-        
+
         // Show P-core utilization gauge
         draw_bar(
             stdout,
@@ -1007,9 +993,9 @@ pub fn print_cpu_info<W: Write>(
             individual_bar_width,
             None,
         );
-        
+
         queue!(stdout, Print("  ")).unwrap();
-        
+
         // Show E-core utilization gauge
         draw_bar(
             stdout,
@@ -1024,7 +1010,7 @@ pub fn print_cpu_info<W: Write>(
         if info.socket_count > 1 {
             let num_sockets = info.per_socket_info.len().min(2);
             let individual_bar_width = (bar_width - (num_sockets * 2 - 2)) / num_sockets; // Account for spacing
-            
+
             for (i, socket_info) in info.per_socket_info.iter().take(2).enumerate() {
                 if i > 0 {
                     queue!(stdout, Print("  ")).unwrap();
@@ -1054,12 +1040,7 @@ pub fn print_cpu_info<W: Write>(
     queue!(stdout, Print("\r\n")).unwrap();
 }
 
-pub fn print_memory_info<W: Write>(
-    stdout: &mut W,
-    _index: usize,
-    info: &MemoryInfo,
-    width: usize,
-) {
+pub fn print_memory_info<W: Write>(stdout: &mut W, _index: usize, info: &MemoryInfo, width: usize) {
     let mut labels: Vec<(String, Color)> = Vec::new();
 
     // Helper function to add labels with fixed width for alignment
@@ -1084,7 +1065,13 @@ pub fn print_memory_info<W: Write>(
     add_label(&mut labels, "RAM ", "Memory".to_string(), Color::Cyan, 6);
 
     // Add hostname
-    add_label(&mut labels, " Host:", info.hostname.clone(), Color::Yellow, 12);
+    add_label(
+        &mut labels,
+        " Host:",
+        info.hostname.clone(),
+        Color::Yellow,
+        12,
+    );
 
     // Add total memory
     let total_gb = info.total_bytes as f64 / (1024.0 * 1024.0 * 1024.0);

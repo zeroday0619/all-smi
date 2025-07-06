@@ -235,7 +235,14 @@ impl MockNode {
         let memory = Self::create_memory_metrics(&mut rng);
 
         // Build response template once during initialization
-        let response_template = Self::build_response_template(&instance_name, &gpu_name, &gpus, &cpu, &memory, &platform);
+        let response_template = Self::build_response_template(
+            &instance_name,
+            &gpu_name,
+            &gpus,
+            &cpu,
+            &memory,
+            &platform,
+        );
 
         let mut node = Self {
             instance_name,
@@ -259,9 +266,15 @@ impl MockNode {
         match platform {
             PlatformType::Apple => {
                 // Apple Silicon M1/M2/M3
-                let models = ["Apple M1", "Apple M2", "Apple M2 Pro", "Apple M2 Max", "Apple M3"];
+                let models = [
+                    "Apple M1",
+                    "Apple M2",
+                    "Apple M2 Pro",
+                    "Apple M2 Max",
+                    "Apple M3",
+                ];
                 let model = models[rng.gen_range(0..models.len())].to_string();
-                
+
                 let (p_cores, e_cores, gpu_cores) = match model.as_str() {
                     "Apple M1" => (4, 4, 8),
                     "Apple M2" => (4, 4, 10),
@@ -287,20 +300,20 @@ impl MockNode {
                     p_core_utilization: Some(rng.gen_range(10.0..80.0)),
                     e_core_utilization: Some(rng.gen_range(5.0..40.0)),
                 }
-            },
+            }
             PlatformType::Intel => {
                 let models = [
                     "Intel Xeon Gold 6248R",
                     "Intel Xeon Platinum 8280",
                     "Intel Core i9-13900K",
-                    "Intel Xeon E5-2699 v4"
+                    "Intel Xeon E5-2699 v4",
                 ];
                 let model = models[rng.gen_range(0..models.len())].to_string();
-                
-                let socket_count = if model.contains("Xeon") { 
-                    rng.gen_range(1..=2) 
-                } else { 
-                    1 
+
+                let socket_count = if model.contains("Xeon") {
+                    rng.gen_range(1..=2)
+                } else {
+                    1
                 };
                 let cores_per_socket = rng.gen_range(8..32);
                 let total_cores = socket_count * cores_per_socket;
@@ -309,7 +322,8 @@ impl MockNode {
                 let socket_utilizations: Vec<f32> = (0..socket_count)
                     .map(|_| rng.gen_range(20.0..80.0))
                     .collect();
-                let overall_util = socket_utilizations.iter().sum::<f32>() / socket_utilizations.len() as f32;
+                let overall_util =
+                    socket_utilizations.iter().sum::<f32>() / socket_utilizations.len() as f32;
 
                 CpuMetrics {
                     model,
@@ -327,20 +341,20 @@ impl MockNode {
                     p_core_utilization: None,
                     e_core_utilization: None,
                 }
-            },
+            }
             PlatformType::AMD => {
                 let models = [
                     "AMD EPYC 7742",
                     "AMD Ryzen 9 7950X",
                     "AMD EPYC 9554",
-                    "AMD Threadripper PRO 5995WX"
+                    "AMD Threadripper PRO 5995WX",
                 ];
                 let model = models[rng.gen_range(0..models.len())].to_string();
-                
-                let socket_count = if model.contains("EPYC") { 
-                    rng.gen_range(1..=2) 
-                } else { 
-                    1 
+
+                let socket_count = if model.contains("EPYC") {
+                    rng.gen_range(1..=2)
+                } else {
+                    1
                 };
                 let cores_per_socket = rng.gen_range(16..64);
                 let total_cores = socket_count * cores_per_socket;
@@ -349,7 +363,8 @@ impl MockNode {
                 let socket_utilizations: Vec<f32> = (0..socket_count)
                     .map(|_| rng.gen_range(25.0..85.0))
                     .collect();
-                let overall_util = socket_utilizations.iter().sum::<f32>() / socket_utilizations.len() as f32;
+                let overall_util =
+                    socket_utilizations.iter().sum::<f32>() / socket_utilizations.len() as f32;
 
                 CpuMetrics {
                     model,
@@ -367,16 +382,16 @@ impl MockNode {
                     p_core_utilization: None,
                     e_core_utilization: None,
                 }
-            },
+            }
             PlatformType::Jetson => {
                 // NVIDIA Jetson platforms
                 let models = [
                     "NVIDIA Jetson AGX Orin",
                     "NVIDIA Jetson Xavier NX",
-                    "NVIDIA Jetson Nano"
+                    "NVIDIA Jetson Nano",
                 ];
                 let model = models[rng.gen_range(0..models.len())].to_string();
-                
+
                 let (cores, threads) = match model.as_str() {
                     "NVIDIA Jetson AGX Orin" => (12, 12),
                     "NVIDIA Jetson Xavier NX" => (6, 6),
@@ -400,15 +415,12 @@ impl MockNode {
                     p_core_utilization: None,
                     e_core_utilization: None,
                 }
-            },
+            }
             PlatformType::Nvidia => {
                 // Default NVIDIA GPU server (Intel/AMD CPU)
-                let models = [
-                    "Intel Xeon Gold 6248R",
-                    "AMD EPYC 7742"
-                ];
+                let models = ["Intel Xeon Gold 6248R", "AMD EPYC 7742"];
                 let model = models[rng.gen_range(0..models.len())].to_string();
-                
+
                 let socket_count = 2;
                 let cores_per_socket = rng.gen_range(16..32);
                 let total_cores = socket_count * cores_per_socket;
@@ -417,7 +429,8 @@ impl MockNode {
                 let socket_utilizations: Vec<f32> = (0..socket_count)
                     .map(|_| rng.gen_range(30.0..85.0))
                     .collect();
-                let overall_util = socket_utilizations.iter().sum::<f32>() / socket_utilizations.len() as f32;
+                let overall_util =
+                    socket_utilizations.iter().sum::<f32>() / socket_utilizations.len() as f32;
 
                 CpuMetrics {
                     model,
@@ -435,7 +448,7 @@ impl MockNode {
                     p_core_utilization: None,
                     e_core_utilization: None,
                 }
-            },
+            }
         }
     }
 
@@ -463,7 +476,7 @@ impl MockNode {
             let max_swap_32gb = 32 * 1024 * 1024 * 1024; // 32GB in bytes
             let max_swap_eighth = total_bytes / 8; // 1/8 of total memory
             let swap_total = std::cmp::min(max_swap_32gb, max_swap_eighth);
-            
+
             // Swap is only used when memory usage is at 100%
             // Since we start at 40-80% usage, no swap is used initially
             let swap_used = 0;
@@ -510,7 +523,14 @@ impl MockNode {
     }
 
     // Build static response template with placeholders (called once during init)
-    fn build_response_template(instance_name: &str, gpu_name: &str, gpus: &[GpuMetrics], cpu: &CpuMetrics, memory: &MemoryMetrics, platform: &PlatformType) -> String {
+    fn build_response_template(
+        instance_name: &str,
+        gpu_name: &str,
+        gpus: &[GpuMetrics],
+        cpu: &CpuMetrics,
+        memory: &MemoryMetrics,
+        platform: &PlatformType,
+    ) -> String {
         let mut template = String::with_capacity(16384); // Pre-allocate 16KB
 
         // GPU Metrics headers
@@ -567,7 +587,10 @@ impl MockNode {
                     gpu_name, instance_name, gpu.uuid, i
                 );
                 let placeholder = format!("{{{{ANE_{}}}}}", i);
-                template.push_str(&format!("all_smi_ane_utilization{{{}}} {}\n", labels, placeholder));
+                template.push_str(&format!(
+                    "all_smi_ane_utilization{{{}}} {}\n",
+                    labels, placeholder
+                ));
             }
         }
 
@@ -580,35 +603,59 @@ impl MockNode {
         // Basic CPU metrics
         template.push_str("# HELP all_smi_cpu_utilization CPU utilization percentage\n");
         template.push_str("# TYPE all_smi_cpu_utilization gauge\n");
-        template.push_str(&format!("all_smi_cpu_utilization{{{}}} {}\n", cpu_labels, PLACEHOLDER_CPU_UTIL));
+        template.push_str(&format!(
+            "all_smi_cpu_utilization{{{}}} {}\n",
+            cpu_labels, PLACEHOLDER_CPU_UTIL
+        ));
 
         template.push_str("# HELP all_smi_cpu_socket_count Number of CPU sockets\n");
         template.push_str("# TYPE all_smi_cpu_socket_count gauge\n");
-        template.push_str(&format!("all_smi_cpu_socket_count{{{}}} {}\n", cpu_labels, cpu.socket_count));
+        template.push_str(&format!(
+            "all_smi_cpu_socket_count{{{}}} {}\n",
+            cpu_labels, cpu.socket_count
+        ));
 
         template.push_str("# HELP all_smi_cpu_core_count Total number of CPU cores\n");
         template.push_str("# TYPE all_smi_cpu_core_count gauge\n");
-        template.push_str(&format!("all_smi_cpu_core_count{{{}}} {}\n", cpu_labels, cpu.core_count));
+        template.push_str(&format!(
+            "all_smi_cpu_core_count{{{}}} {}\n",
+            cpu_labels, cpu.core_count
+        ));
 
         template.push_str("# HELP all_smi_cpu_thread_count Total number of CPU threads\n");
         template.push_str("# TYPE all_smi_cpu_thread_count gauge\n");
-        template.push_str(&format!("all_smi_cpu_thread_count{{{}}} {}\n", cpu_labels, cpu.thread_count));
+        template.push_str(&format!(
+            "all_smi_cpu_thread_count{{{}}} {}\n",
+            cpu_labels, cpu.thread_count
+        ));
 
         template.push_str("# HELP all_smi_cpu_frequency_mhz CPU frequency in MHz\n");
         template.push_str("# TYPE all_smi_cpu_frequency_mhz gauge\n");
-        template.push_str(&format!("all_smi_cpu_frequency_mhz{{{}}} {}\n", cpu_labels, cpu.frequency_mhz));
+        template.push_str(&format!(
+            "all_smi_cpu_frequency_mhz{{{}}} {}\n",
+            cpu_labels, cpu.frequency_mhz
+        ));
 
         // Optional CPU metrics (temperature and power)
         if cpu.temperature_celsius.is_some() {
-            template.push_str("# HELP all_smi_cpu_temperature_celsius CPU temperature in celsius\n");
+            template
+                .push_str("# HELP all_smi_cpu_temperature_celsius CPU temperature in celsius\n");
             template.push_str("# TYPE all_smi_cpu_temperature_celsius gauge\n");
-            template.push_str(&format!("all_smi_cpu_temperature_celsius{{{}}} {}\n", cpu_labels, PLACEHOLDER_CPU_TEMP));
+            template.push_str(&format!(
+                "all_smi_cpu_temperature_celsius{{{}}} {}\n",
+                cpu_labels, PLACEHOLDER_CPU_TEMP
+            ));
         }
 
         if cpu.power_consumption_watts.is_some() {
-            template.push_str("# HELP all_smi_cpu_power_consumption_watts CPU power consumption in watts\n");
+            template.push_str(
+                "# HELP all_smi_cpu_power_consumption_watts CPU power consumption in watts\n",
+            );
             template.push_str("# TYPE all_smi_cpu_power_consumption_watts gauge\n");
-            template.push_str(&format!("all_smi_cpu_power_consumption_watts{{{}}} {}\n", cpu_labels, PLACEHOLDER_CPU_POWER));
+            template.push_str(&format!(
+                "all_smi_cpu_power_consumption_watts{{{}}} {}\n",
+                cpu_labels, PLACEHOLDER_CPU_POWER
+            ));
         }
 
         // Per-socket metrics for multi-socket systems
@@ -619,37 +666,62 @@ impl MockNode {
                     cpu.model, instance_name, instance_name, socket_id
                 );
 
-                template.push_str("# HELP all_smi_cpu_socket_utilization Per-socket CPU utilization percentage\n");
+                template.push_str(
+                    "# HELP all_smi_cpu_socket_utilization Per-socket CPU utilization percentage\n",
+                );
                 template.push_str("# TYPE all_smi_cpu_socket_utilization gauge\n");
-                let placeholder = if socket_id == 0 { PLACEHOLDER_CPU_SOCKET0_UTIL } else { PLACEHOLDER_CPU_SOCKET1_UTIL };
-                template.push_str(&format!("all_smi_cpu_socket_utilization{{{}}} {}\n", socket_labels, placeholder));
+                let placeholder = if socket_id == 0 {
+                    PLACEHOLDER_CPU_SOCKET0_UTIL
+                } else {
+                    PLACEHOLDER_CPU_SOCKET1_UTIL
+                };
+                template.push_str(&format!(
+                    "all_smi_cpu_socket_utilization{{{}}} {}\n",
+                    socket_labels, placeholder
+                ));
             }
         }
 
         // Apple Silicon specific metrics
         if let PlatformType::Apple = platform {
-            if let (Some(p_count), Some(e_count), Some(gpu_count)) = 
-                (cpu.p_core_count, cpu.e_core_count, cpu.gpu_core_count) {
-                
+            if let (Some(p_count), Some(e_count), Some(gpu_count)) =
+                (cpu.p_core_count, cpu.e_core_count, cpu.gpu_core_count)
+            {
                 template.push_str("# HELP all_smi_cpu_p_core_count Apple Silicon P-core count\n");
                 template.push_str("# TYPE all_smi_cpu_p_core_count gauge\n");
-                template.push_str(&format!("all_smi_cpu_p_core_count{{{}}} {}\n", cpu_labels, p_count));
+                template.push_str(&format!(
+                    "all_smi_cpu_p_core_count{{{}}} {}\n",
+                    cpu_labels, p_count
+                ));
 
                 template.push_str("# HELP all_smi_cpu_e_core_count Apple Silicon E-core count\n");
                 template.push_str("# TYPE all_smi_cpu_e_core_count gauge\n");
-                template.push_str(&format!("all_smi_cpu_e_core_count{{{}}} {}\n", cpu_labels, e_count));
+                template.push_str(&format!(
+                    "all_smi_cpu_e_core_count{{{}}} {}\n",
+                    cpu_labels, e_count
+                ));
 
-                template.push_str("# HELP all_smi_cpu_gpu_core_count Apple Silicon GPU core count\n");
+                template
+                    .push_str("# HELP all_smi_cpu_gpu_core_count Apple Silicon GPU core count\n");
                 template.push_str("# TYPE all_smi_cpu_gpu_core_count gauge\n");
-                template.push_str(&format!("all_smi_cpu_gpu_core_count{{{}}} {}\n", cpu_labels, gpu_count));
+                template.push_str(&format!(
+                    "all_smi_cpu_gpu_core_count{{{}}} {}\n",
+                    cpu_labels, gpu_count
+                ));
 
                 template.push_str("# HELP all_smi_cpu_p_core_utilization Apple Silicon P-core utilization percentage\n");
                 template.push_str("# TYPE all_smi_cpu_p_core_utilization gauge\n");
-                template.push_str(&format!("all_smi_cpu_p_core_utilization{{{}}} {}\n", cpu_labels, PLACEHOLDER_CPU_P_CORE_UTIL));
+                template.push_str(&format!(
+                    "all_smi_cpu_p_core_utilization{{{}}} {}\n",
+                    cpu_labels, PLACEHOLDER_CPU_P_CORE_UTIL
+                ));
 
                 template.push_str("# HELP all_smi_cpu_e_core_utilization Apple Silicon E-core utilization percentage\n");
                 template.push_str("# TYPE all_smi_cpu_e_core_utilization gauge\n");
-                template.push_str(&format!("all_smi_cpu_e_core_utilization{{{}}} {}\n", cpu_labels, PLACEHOLDER_CPU_E_CORE_UTIL));
+                template.push_str(&format!(
+                    "all_smi_cpu_e_core_utilization{{{}}} {}\n",
+                    cpu_labels, PLACEHOLDER_CPU_E_CORE_UTIL
+                ));
             }
         }
 
@@ -661,50 +733,83 @@ impl MockNode {
 
         template.push_str("# HELP all_smi_memory_total_bytes Total system memory in bytes\n");
         template.push_str("# TYPE all_smi_memory_total_bytes gauge\n");
-        template.push_str(&format!("all_smi_memory_total_bytes{{{}}} {}\n", memory_labels, memory.total_bytes));
+        template.push_str(&format!(
+            "all_smi_memory_total_bytes{{{}}} {}\n",
+            memory_labels, memory.total_bytes
+        ));
 
         template.push_str("# HELP all_smi_memory_used_bytes Used system memory in bytes\n");
         template.push_str("# TYPE all_smi_memory_used_bytes gauge\n");
-        template.push_str(&format!("all_smi_memory_used_bytes{{{}}} {}\n", memory_labels, PLACEHOLDER_SYS_MEMORY_USED));
+        template.push_str(&format!(
+            "all_smi_memory_used_bytes{{{}}} {}\n",
+            memory_labels, PLACEHOLDER_SYS_MEMORY_USED
+        ));
 
-        template.push_str("# HELP all_smi_memory_available_bytes Available system memory in bytes\n");
+        template
+            .push_str("# HELP all_smi_memory_available_bytes Available system memory in bytes\n");
         template.push_str("# TYPE all_smi_memory_available_bytes gauge\n");
-        template.push_str(&format!("all_smi_memory_available_bytes{{{}}} {}\n", memory_labels, PLACEHOLDER_SYS_MEMORY_AVAILABLE));
+        template.push_str(&format!(
+            "all_smi_memory_available_bytes{{{}}} {}\n",
+            memory_labels, PLACEHOLDER_SYS_MEMORY_AVAILABLE
+        ));
 
         template.push_str("# HELP all_smi_memory_free_bytes Free system memory in bytes\n");
         template.push_str("# TYPE all_smi_memory_free_bytes gauge\n");
-        template.push_str(&format!("all_smi_memory_free_bytes{{{}}} {}\n", memory_labels, PLACEHOLDER_SYS_MEMORY_FREE));
+        template.push_str(&format!(
+            "all_smi_memory_free_bytes{{{}}} {}\n",
+            memory_labels, PLACEHOLDER_SYS_MEMORY_FREE
+        ));
 
         template.push_str("# HELP all_smi_memory_utilization Memory utilization percentage\n");
         template.push_str("# TYPE all_smi_memory_utilization gauge\n");
-        template.push_str(&format!("all_smi_memory_utilization{{{}}} {}\n", memory_labels, PLACEHOLDER_SYS_MEMORY_UTIL));
+        template.push_str(&format!(
+            "all_smi_memory_utilization{{{}}} {}\n",
+            memory_labels, PLACEHOLDER_SYS_MEMORY_UTIL
+        ));
 
         // Swap metrics if available
         if memory.swap_total_bytes > 0 {
             template.push_str("# HELP all_smi_swap_total_bytes Total swap space in bytes\n");
             template.push_str("# TYPE all_smi_swap_total_bytes gauge\n");
-            template.push_str(&format!("all_smi_swap_total_bytes{{{}}} {}\n", memory_labels, memory.swap_total_bytes));
+            template.push_str(&format!(
+                "all_smi_swap_total_bytes{{{}}} {}\n",
+                memory_labels, memory.swap_total_bytes
+            ));
 
             template.push_str("# HELP all_smi_swap_used_bytes Used swap space in bytes\n");
             template.push_str("# TYPE all_smi_swap_used_bytes gauge\n");
-            template.push_str(&format!("all_smi_swap_used_bytes{{{}}} {}\n", memory_labels, PLACEHOLDER_SYS_SWAP_USED));
+            template.push_str(&format!(
+                "all_smi_swap_used_bytes{{{}}} {}\n",
+                memory_labels, PLACEHOLDER_SYS_SWAP_USED
+            ));
 
             template.push_str("# HELP all_smi_swap_free_bytes Free swap space in bytes\n");
             template.push_str("# TYPE all_smi_swap_free_bytes gauge\n");
-            template.push_str(&format!("all_smi_swap_free_bytes{{{}}} {}\n", memory_labels, PLACEHOLDER_SYS_SWAP_FREE));
+            template.push_str(&format!(
+                "all_smi_swap_free_bytes{{{}}} {}\n",
+                memory_labels, PLACEHOLDER_SYS_SWAP_FREE
+            ));
         }
 
         // Linux-specific metrics
         if memory.buffers_bytes > 0 {
-            template.push_str("# HELP all_smi_memory_buffers_bytes Memory used for buffers in bytes\n");
+            template
+                .push_str("# HELP all_smi_memory_buffers_bytes Memory used for buffers in bytes\n");
             template.push_str("# TYPE all_smi_memory_buffers_bytes gauge\n");
-            template.push_str(&format!("all_smi_memory_buffers_bytes{{{}}} {}\n", memory_labels, PLACEHOLDER_SYS_MEMORY_BUFFERS));
+            template.push_str(&format!(
+                "all_smi_memory_buffers_bytes{{{}}} {}\n",
+                memory_labels, PLACEHOLDER_SYS_MEMORY_BUFFERS
+            ));
         }
 
         if memory.cached_bytes > 0 {
-            template.push_str("# HELP all_smi_memory_cached_bytes Memory used for cache in bytes\n");
+            template
+                .push_str("# HELP all_smi_memory_cached_bytes Memory used for cache in bytes\n");
             template.push_str("# TYPE all_smi_memory_cached_bytes gauge\n");
-            template.push_str(&format!("all_smi_memory_cached_bytes{{{}}} {}\n", memory_labels, PLACEHOLDER_SYS_MEMORY_CACHED));
+            template.push_str(&format!(
+                "all_smi_memory_cached_bytes{{{}}} {}\n",
+                memory_labels, PLACEHOLDER_SYS_MEMORY_CACHED
+            ));
         }
 
         // Disk metrics
@@ -772,9 +877,24 @@ impl MockNode {
 
         // Replace CPU metrics
         response = response
-            .replace(PLACEHOLDER_CPU_UTIL, &format!("{:.2}", self.cpu.utilization))
-            .replace(PLACEHOLDER_CPU_SOCKET0_UTIL, &format!("{:.2}", self.cpu.socket_utilizations.get(0).copied().unwrap_or(0.0)))
-            .replace(PLACEHOLDER_CPU_SOCKET1_UTIL, &format!("{:.2}", self.cpu.socket_utilizations.get(1).copied().unwrap_or(0.0)));
+            .replace(
+                PLACEHOLDER_CPU_UTIL,
+                &format!("{:.2}", self.cpu.utilization),
+            )
+            .replace(
+                PLACEHOLDER_CPU_SOCKET0_UTIL,
+                &format!(
+                    "{:.2}",
+                    self.cpu.socket_utilizations.get(0).copied().unwrap_or(0.0)
+                ),
+            )
+            .replace(
+                PLACEHOLDER_CPU_SOCKET1_UTIL,
+                &format!(
+                    "{:.2}",
+                    self.cpu.socket_utilizations.get(1).copied().unwrap_or(0.0)
+                ),
+            );
 
         if let Some(temp) = self.cpu.temperature_celsius {
             response = response.replace(PLACEHOLDER_CPU_TEMP, &temp.to_string());
@@ -786,7 +906,9 @@ impl MockNode {
 
         // Apple Silicon specific replacements
         if let PlatformType::Apple = self.platform_type {
-            if let (Some(p_util), Some(e_util)) = (self.cpu.p_core_utilization, self.cpu.e_core_utilization) {
+            if let (Some(p_util), Some(e_util)) =
+                (self.cpu.p_core_utilization, self.cpu.e_core_utilization)
+            {
                 response = response
                     .replace(PLACEHOLDER_CPU_P_CORE_UTIL, &format!("{:.2}", p_util))
                     .replace(PLACEHOLDER_CPU_E_CORE_UTIL, &format!("{:.2}", e_util));
@@ -795,25 +917,49 @@ impl MockNode {
 
         // Replace memory metrics
         response = response
-            .replace(PLACEHOLDER_SYS_MEMORY_USED, &self.memory.used_bytes.to_string())
-            .replace(PLACEHOLDER_SYS_MEMORY_AVAILABLE, &self.memory.available_bytes.to_string())
-            .replace(PLACEHOLDER_SYS_MEMORY_FREE, &self.memory.free_bytes.to_string())
-            .replace(PLACEHOLDER_SYS_MEMORY_UTIL, &format!("{:.2}", self.memory.utilization));
+            .replace(
+                PLACEHOLDER_SYS_MEMORY_USED,
+                &self.memory.used_bytes.to_string(),
+            )
+            .replace(
+                PLACEHOLDER_SYS_MEMORY_AVAILABLE,
+                &self.memory.available_bytes.to_string(),
+            )
+            .replace(
+                PLACEHOLDER_SYS_MEMORY_FREE,
+                &self.memory.free_bytes.to_string(),
+            )
+            .replace(
+                PLACEHOLDER_SYS_MEMORY_UTIL,
+                &format!("{:.2}", self.memory.utilization),
+            );
 
         // Replace swap metrics if available
         if self.memory.swap_total_bytes > 0 {
             response = response
-                .replace(PLACEHOLDER_SYS_SWAP_USED, &self.memory.swap_used_bytes.to_string())
-                .replace(PLACEHOLDER_SYS_SWAP_FREE, &self.memory.swap_free_bytes.to_string());
+                .replace(
+                    PLACEHOLDER_SYS_SWAP_USED,
+                    &self.memory.swap_used_bytes.to_string(),
+                )
+                .replace(
+                    PLACEHOLDER_SYS_SWAP_FREE,
+                    &self.memory.swap_free_bytes.to_string(),
+                );
         }
 
         // Replace buffer and cache metrics if available
         if self.memory.buffers_bytes > 0 {
-            response = response.replace(PLACEHOLDER_SYS_MEMORY_BUFFERS, &self.memory.buffers_bytes.to_string());
+            response = response.replace(
+                PLACEHOLDER_SYS_MEMORY_BUFFERS,
+                &self.memory.buffers_bytes.to_string(),
+            );
         }
 
         if self.memory.cached_bytes > 0 {
-            response = response.replace(PLACEHOLDER_SYS_MEMORY_CACHED, &self.memory.cached_bytes.to_string());
+            response = response.replace(
+                PLACEHOLDER_SYS_MEMORY_CACHED,
+                &self.memory.cached_bytes.to_string(),
+            );
         }
 
         // Replace disk metrics
@@ -917,8 +1063,10 @@ impl MockNode {
         }
 
         // Update Apple Silicon specific metrics
-        if let (Some(ref mut p_util), Some(ref mut e_util)) = 
-            (&mut self.cpu.p_core_utilization, &mut self.cpu.e_core_utilization) {
+        if let (Some(ref mut p_util), Some(ref mut e_util)) = (
+            &mut self.cpu.p_core_utilization,
+            &mut self.cpu.e_core_utilization,
+        ) {
             let p_delta = rng.gen_range(-4.0..4.0);
             let e_delta = rng.gen_range(-2.0..2.0);
             *p_util = (*p_util + p_delta).clamp(0.0, 100.0);
@@ -929,22 +1077,24 @@ impl MockNode {
         let memory_util_delta = rng.gen_range(-2.0..2.0);
         // Allow memory utilization to occasionally reach 100% to trigger swap usage
         self.memory.utilization = (self.memory.utilization + memory_util_delta).clamp(30.0, 102.0);
-        
+
         // Calculate memory usage, accounting for potential over-allocation
-        let target_used_bytes = (self.memory.total_bytes as f64 * self.memory.utilization as f64 / 100.0) as u64;
-        
+        let target_used_bytes =
+            (self.memory.total_bytes as f64 * self.memory.utilization as f64 / 100.0) as u64;
+
         if target_used_bytes > self.memory.total_bytes {
             // Memory usage exceeds physical memory - use swap
             self.memory.used_bytes = self.memory.total_bytes;
             self.memory.available_bytes = 0;
             self.memory.free_bytes = 0;
-            
+
             // Calculate swap usage based on excess memory demand
             if self.memory.swap_total_bytes > 0 {
                 let excess_bytes = target_used_bytes - self.memory.total_bytes;
                 self.memory.swap_used_bytes = excess_bytes.min(self.memory.swap_total_bytes);
-                self.memory.swap_free_bytes = self.memory.swap_total_bytes - self.memory.swap_used_bytes;
-                
+                self.memory.swap_free_bytes =
+                    self.memory.swap_total_bytes - self.memory.swap_used_bytes;
+
                 // Memory utilization should show 100% when physical memory is full
                 self.memory.utilization = 100.0;
             } else {
@@ -955,29 +1105,37 @@ impl MockNode {
             // Normal memory usage - no swap needed
             self.memory.used_bytes = target_used_bytes;
             self.memory.available_bytes = self.memory.total_bytes - target_used_bytes;
-            
+
             // Update free bytes (a portion of available bytes)
             let free_ratio = rng.gen_range(0.3..0.8);
             self.memory.free_bytes = (self.memory.available_bytes as f64 * free_ratio) as u64;
-            
+
             // No swap usage when memory is below 100%
             if self.memory.swap_total_bytes > 0 {
                 self.memory.swap_used_bytes = 0;
                 self.memory.swap_free_bytes = self.memory.swap_total_bytes;
             }
         }
-        
+
         // Small fluctuations in buffers and cache
         if self.memory.buffers_bytes > 0 {
-            let buffer_delta = rng.gen_range(-(self.memory.total_bytes as i64 / 200)..(self.memory.total_bytes as i64 / 200));
-            self.memory.buffers_bytes = self.memory.buffers_bytes
+            let buffer_delta = rng.gen_range(
+                -(self.memory.total_bytes as i64 / 200)..(self.memory.total_bytes as i64 / 200),
+            );
+            self.memory.buffers_bytes = self
+                .memory
+                .buffers_bytes
                 .saturating_add_signed(buffer_delta)
                 .min(self.memory.total_bytes / 20);
         }
-        
+
         if self.memory.cached_bytes > 0 {
-            let cache_delta = rng.gen_range(-(self.memory.total_bytes as i64 / 100)..(self.memory.total_bytes as i64 / 100));
-            self.memory.cached_bytes = self.memory.cached_bytes
+            let cache_delta = rng.gen_range(
+                -(self.memory.total_bytes as i64 / 100)..(self.memory.total_bytes as i64 / 100),
+            );
+            self.memory.cached_bytes = self
+                .memory
+                .cached_bytes
                 .saturating_add_signed(cache_delta)
                 .min(self.memory.total_bytes / 5);
         }
