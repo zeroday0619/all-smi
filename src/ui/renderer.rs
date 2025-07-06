@@ -1,4 +1,5 @@
 use std::io::Write;
+use std::collections::HashMap;
 
 use crossterm::{
     queue,
@@ -64,10 +65,14 @@ pub fn draw_bar<W: Write>(
     // Choose color based on usage
     let color = if fill_ratio > 0.8 {
         Color::Red
-    } else if fill_ratio > 0.6 {
+    } else if fill_ratio > 0.70 {
         Color::Yellow
-    } else {
+    } else if fill_ratio > 0.25 {
         Color::Green
+    } else if fill_ratio > 0.05 {
+        Color::DarkGreen
+    } else {
+        Color::DarkGrey
     };
 
     // Prepare text to display inside the bar
@@ -89,26 +94,21 @@ pub fn draw_bar<W: Write>(
         0
     };
 
-    // Print the bar with embedded text
+    // Print the bar with embedded text using filled vertical lines
     for i in 0..available_bar_width {
         if i >= text_pos && i < text_pos + text_len {
             // Print text character
             let char_index = i - text_pos;
             if let Some(ch) = display_text.chars().nth(char_index) {
-                if i < filled_width {
-                    // Text in filled area - use contrasting color
-                    print_colored_text(stdout, &ch.to_string(), Color::Black, None, None);
-                } else {
-                    // Text in empty area - use white color
-                    print_colored_text(stdout, &ch.to_string(), Color::White, None, None);
-                }
+                // Always use white for text to ensure readability
+                print_colored_text(stdout, &ch.to_string(), Color::White, None, None);
             }
         } else if i < filled_width {
-            // Filled area without text
-            print_colored_text(stdout, "█", color, None, None);
+            // Print filled area with shorter vertical lines in load color
+            print_colored_text(stdout, "▬", color, None, None);
         } else {
-            // Empty area without text
-            print_colored_text(stdout, "░", Color::DarkGrey, None, None);
+            // Print empty line segments
+            print_colored_text(stdout, "─", Color::DarkGrey, None, None);
         }
     }
 
@@ -179,7 +179,6 @@ pub fn draw_dashboard_items<W: Write>(stdout: &mut W, state: &AppState, cols: u1
 
 pub fn draw_utilization_history<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
     let box_width = (cols as usize).min(80);
-    let history_width = box_width - 20; // Leave space for labels
     
     if state.utilization_history.is_empty() {
         return;
@@ -191,45 +190,183 @@ pub fn draw_utilization_history<W: Write>(stdout: &mut W, state: &AppState, cols
     let avg_temp = state.temperature_history.iter().sum::<f64>() / state.temperature_history.len() as f64;
 
     // Print header
-    print_colored_text(stdout, "Cluster Usage History", Color::Cyan, None, None);
+    print_colored_text(stdout, "Cluster Overview", Color::Cyan, None, None);
     queue!(stdout, Print("\r\n")).unwrap();
 
-    // Print utilization history
-    print_colored_text(stdout, "GPU Util: ", Color::Yellow, None, None);
-    print_history_bar(stdout, &state.utilization_history, history_width, 100.0);
-    print_colored_text(stdout, &format!(" {:.1}%", avg_util), Color::White, None, None);
-    queue!(stdout, Print("\r\n")).unwrap();
+    // Split layout: left half for node view, right half for history gauges
+    let left_width = box_width / 2;
+    let right_width = box_width - left_width;
+    let history_width = right_width.saturating_sub(15); // Leave space for labels
 
-    // Print memory history
-    print_colored_text(stdout, "Memory:   ", Color::Yellow, None, None);
-    print_history_bar(stdout, &state.memory_history, history_width, 100.0);
-    print_colored_text(stdout, &format!(" {:.1}%", avg_mem), Color::White, None, None);
-    queue!(stdout, Print("\r\n")).unwrap();
-
-    // Print temperature history
-    print_colored_text(stdout, "Temp:     ", Color::Yellow, None, None);
-    print_history_bar(stdout, &state.temperature_history, history_width, 100.0);
-    print_colored_text(stdout, &format!(" {:.0}°C", avg_temp), Color::White, None, None);
-    queue!(stdout, Print("\r\n")).unwrap();
+    // Print node view and history gauges side by side
+    print_node_view_and_history(stdout, state, left_width, right_width, history_width, avg_util, avg_mem, avg_temp);
 }
 
-fn print_history_bar<W: Write>(stdout: &mut W, history: &std::collections::VecDeque<f64>, width: usize, max_value: f64) {
+fn print_node_view_and_history<W: Write>(
+    stdout: &mut W,
+    state: &AppState,
+    left_width: usize,
+    _right_width: usize,
+    history_width: usize,
+    avg_util: f64,
+    avg_mem: f64,
+    avg_temp: f64,
+) {
+    // Get nodes (excluding "All" tab)
+    let nodes: Vec<&String> = state.tabs.iter().skip(1).collect();
+    
+    // Calculate per-node utilization
+    let mut node_utils: HashMap<String, f64> = HashMap::new();
+    for node in &nodes {
+        let node_gpus: Vec<_> = state.gpu_info.iter().filter(|gpu| &gpu.hostname == *node).collect();
+        if !node_gpus.is_empty() {
+            let node_util = node_gpus.iter().map(|gpu| gpu.utilization).sum::<f64>() / node_gpus.len() as f64;
+            node_utils.insert(node.to_string(), node_util);
+        }
+    }
+    
+    // Calculate node grid layout
+    let nodes_per_row = left_width.saturating_sub(2).max(1);
+    let num_rows = if nodes.is_empty() { 
+        1 
+    } else { 
+        ((nodes.len() - 1) / nodes_per_row) + 1 
+    };
+    let num_rows = num_rows.min(3); // Limit to 3 rows max
+    
+    // Print each row of the combined view
+    for row in 0..3 {
+        if row < num_rows {
+            // Print node view for this row
+            print_node_view_row(stdout, &nodes, &node_utils, state.current_tab, left_width, row, nodes_per_row);
+        } else {
+            // Print empty space for this row
+            print_colored_text(stdout, &" ".repeat(left_width), Color::White, None, None);
+        }
+        
+        // Print corresponding history line
+        match row {
+            0 => {
+                print_colored_text(stdout, "GPU Util: ", Color::Yellow, None, None);
+                print_history_bar_with_value(stdout, &state.utilization_history, history_width, 100.0, format!("{:.1}%", avg_util));
+            },
+            1 => {
+                print_colored_text(stdout, "Memory:   ", Color::Yellow, None, None);
+                print_history_bar_with_value(stdout, &state.memory_history, history_width, 100.0, format!("{:.1}%", avg_mem));
+            },
+            2 => {
+                print_colored_text(stdout, "Temp:     ", Color::Yellow, None, None);
+                print_history_bar_with_value(stdout, &state.temperature_history, history_width, 100.0, format!("{:.0}°C", avg_temp));
+            },
+            _ => {}
+        }
+        queue!(stdout, Print("\r\n")).unwrap();
+    }
+}
+
+fn print_node_view_row<W: Write>(
+    stdout: &mut W,
+    nodes: &[&String],
+    node_utils: &HashMap<String, f64>,
+    current_tab: usize,
+    left_width: usize,
+    row: usize,
+    nodes_per_row: usize,
+) {
+    let start_index = row * nodes_per_row;
+    let end_index = ((row + 1) * nodes_per_row).min(nodes.len());
+    let mut node_count = 0;
+    
+    // Print nodes for this specific row
+    for (i, node) in nodes.iter().enumerate().skip(start_index).take(end_index - start_index) {
+        let utilization = node_utils.get(*node).unwrap_or(&0.0);
+        let is_selected = current_tab == i + 1; // +1 because we skip "All" tab
+        
+        let (char, color) = get_node_char_and_color(*utilization, is_selected);
+        
+        // Print the character with its color
+        print_colored_text(stdout, &char.to_string(), color, None, None);
+        node_count += 1;
+    }
+    
+    // Pad the remaining space
+    let remaining_space = left_width.saturating_sub(node_count);
+    if remaining_space > 0 {
+        print_colored_text(stdout, &" ".repeat(remaining_space), Color::White, None, None);
+    }
+}
+
+fn get_node_char_and_color(utilization: f64, is_selected: bool) -> (char, Color) {
+    let base_char = if utilization > 87.5 {
+        '█'
+    } else if utilization > 75.0 {
+        '▇'
+    } else if utilization > 62.5 {
+        '▆'
+    } else if utilization > 50.0 {
+        '▅'
+    } else if utilization > 37.5 {
+        '▄'
+    } else if utilization > 25.0 {
+        '▃'
+    } else if utilization > 12.5 {
+        '▂'
+    } else if utilization > 0.0 {
+        '▁'
+    } else {
+        '░'
+    };
+    
+    let color = if is_selected {
+        Color::Cyan
+    } else if utilization > 80.0 {
+        Color::Red
+    } else if utilization > 60.0 {
+        Color::Yellow
+    } else {
+        Color::Green
+    };
+    
+    (base_char, color)
+}
+
+fn print_history_bar_with_value<W: Write>(
+    stdout: &mut W,
+    history: &std::collections::VecDeque<f64>,
+    width: usize,
+    max_value: f64,
+    value_text: String,
+) {
     queue!(stdout, Print("[")).unwrap();
     
     let data_points = history.len();
     if data_points == 0 {
         // Empty history
-        print_colored_text(stdout, &"░".repeat(width), Color::DarkGrey, None, None);
+        print_colored_text(stdout, &"⠀".repeat(width), Color::DarkGrey, None, None);
     } else {
+        // Calculate position for value text (right-aligned)
+        let text_len = value_text.len();
+        let text_pos = if width > text_len {
+            width - text_len
+        } else {
+            0
+        };
+        
         for i in 0..width {
+            // Check if we should print the value text character
+            if i >= text_pos && i < text_pos + text_len {
+                let char_index = i - text_pos;
+                if let Some(ch) = value_text.chars().nth(char_index) {
+                    print_colored_text(stdout, &ch.to_string(), Color::White, None, None);
+                    continue;
+                }
+            }
+            
             let data_index = if data_points >= width {
-                // More data than display width, sample from the end
                 data_points - width + i
             } else {
-                // Less data than display width, pad with empty and show data at the end
                 if i < width - data_points {
-                    // Empty space
-                    print_colored_text(stdout, "░", Color::DarkGrey, None, None);
+                    print_colored_text(stdout, "⠀", Color::DarkGrey, None, None);
                     continue;
                 } else {
                     i - (width - data_points)
@@ -240,29 +377,36 @@ fn print_history_bar<W: Write>(stdout: &mut W, history: &std::collections::VecDe
                 let value = history[data_index];
                 let intensity = (value / max_value).min(1.0);
                 
-                let (char, color) = if intensity > 0.8 {
-                    ("█", Color::Red)
-                } else if intensity > 0.6 {
-                    ("▆", Color::Yellow)
-                } else if intensity > 0.4 {
-                    ("▄", Color::Green)
-                } else if intensity > 0.2 {
-                    ("▂", Color::Green)
+                let (char, color) = if intensity > 0.875 {
+                    ("⣿", Color::Red)
+                } else if intensity > 0.9 {
+                    ("⣶", Color::Red)
+                } else if intensity > 0.85 {
+                    ("⣴", Color::Yellow)
+                } else if intensity > 0.70 {
+                    ("⣤", Color::Yellow)
+                } else if intensity > 0.625 {
+                    ("⣠", Color::Green)
+                } else if intensity > 0.50 {
+                    ("⣀", Color::Green)
+                } else if intensity > 0.25 {
+                    ("⡀", Color::DarkGreen)
                 } else if intensity > 0.0 {
-                    ("▁", Color::DarkGreen)
+                    ("⠀", Color::DarkGreen)
                 } else {
-                    ("░", Color::DarkGrey)
+                    ("⠀", Color::DarkGrey)
                 };
                 
                 print_colored_text(stdout, char, color, None, None);
             } else {
-                print_colored_text(stdout, "░", Color::DarkGrey, None, None);
+                print_colored_text(stdout, "⠀", Color::DarkGrey, None, None);
             }
         }
     }
     
     queue!(stdout, Print("]")).unwrap();
 }
+
 
 pub fn draw_tabs<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
     // Print tabs
@@ -538,7 +682,7 @@ pub fn print_gpu_info<W: Write>(
 
 pub fn print_storage_info<W: Write>(
     stdout: &mut W,
-    index: usize,
+    _index: usize,
     info: &StorageInfo,
     width: usize,
 ) {
@@ -572,11 +716,11 @@ pub fn print_storage_info<W: Write>(
         0.0
     };
 
-    // Add disk info
+    // First line: Basic disk information
     add_label(&mut labels, "DISK ", info.mount_point.clone(), Color::Cyan, 15);
     add_label(&mut labels, " Host:", info.hostname.clone(), Color::Yellow, 12);
 
-    // Add usage info
+    // Add usage percentage
     let usage_color = if usage_percent > 90.0 {
         Color::Red
     } else if usage_percent > 80.0 {
@@ -587,10 +731,10 @@ pub fn print_storage_info<W: Write>(
 
     add_label(
         &mut labels,
-        " Used:",
-        format!("{:.1}/{:.1}GB", used_gb, total_gb),
+        " Usage:",
+        format!("{:.1}%", usage_percent),
         usage_color,
-        15,
+        6,
     );
 
     add_label(
@@ -601,16 +745,26 @@ pub fn print_storage_info<W: Write>(
         10,
     );
 
-    // Print all labels
+    // Print all labels in first line
     for (text, color) in labels {
         print_colored_text(stdout, &text, color, None, None);
     }
+    queue!(stdout, Print("\r\n")).unwrap();
 
-    queue!(stdout, Print("  ")).unwrap();
-
-    // Print usage bar on same line with embedded text to prevent wrapping
-    let bar_width = width.saturating_sub(50);
-    draw_bar(stdout, "USAGE", usage_percent, 100.0, bar_width, None);
+    // Second line: Usage bar with capacity information embedded
+    queue!(stdout, Print("     ")).unwrap(); // Indent to align with GPU bars
+    
+    let bar_width = width.saturating_sub(10);
+    let capacity_text = format!("{:.1}/{:.1}GB", used_gb, total_gb);
+    
+    draw_bar(
+        stdout,
+        "USAGE",
+        usage_percent,
+        100.0,
+        bar_width,
+        Some(capacity_text),
+    );
 
     queue!(stdout, Print("\r\n")).unwrap();
 }
