@@ -7,7 +7,7 @@ use std::time::Duration;
 use chrono::Local;
 use crossterm::{
     cursor,
-    event::{self, Event, KeyCode},
+    event::{self, Event, KeyCode, DisableMouseCapture, EnableMouseCapture},
     execute, queue,
     style::{Color, Print, ResetColor, SetBackgroundColor, SetForegroundColor},
     terminal::{
@@ -506,6 +506,7 @@ async fn run_ui_loop(app_state: Arc<Mutex<AppState>>, args: &ViewArgs) {
     if let Err(_) = execute!(
         stdout,
         EnterAlternateScreen,
+        EnableMouseCapture,
         terminal::Clear(ClearType::All)
     ) {
         eprintln!("Failed to initialize terminal display");
@@ -516,13 +517,29 @@ async fn run_ui_loop(app_state: Arc<Mutex<AppState>>, args: &ViewArgs) {
     loop {
         if let Ok(has_event) = event::poll(Duration::from_millis(50)) {
             if has_event {
-                if let Ok(Event::Key(key_event)) = event::read() {
-                    let mut state = app_state.lock().await;
-                    let should_break = handle_key_event(key_event, &mut state, args).await;
-                    if should_break {
-                        break;
+                if let Ok(event) = event::read() {
+                    match event {
+                        Event::Key(key_event) => {
+                            let mut state = app_state.lock().await;
+                            let should_break = handle_key_event(key_event, &mut state, args).await;
+                            if should_break {
+                                break;
+                            }
+                            drop(state);
+                        }
+                        Event::Mouse(_) => {
+                            // Ignore mouse events to prevent interference
+                        }
+                        Event::Resize(_, _) => {
+                            // Ignore resize events - the display will adjust automatically
+                        }
+                        Event::FocusGained | Event::FocusLost => {
+                            // Ignore focus events
+                        }
+                        Event::Paste(_) => {
+                            // Ignore paste events
+                        }
                     }
-                    drop(state);
                 }
             }
         }
@@ -564,7 +581,7 @@ async fn run_ui_loop(app_state: Arc<Mutex<AppState>>, args: &ViewArgs) {
         }
     }
 
-    let _ = execute!(stdout, LeaveAlternateScreen);
+    let _ = execute!(stdout, LeaveAlternateScreen, DisableMouseCapture);
     let _ = disable_raw_mode();
 }
 

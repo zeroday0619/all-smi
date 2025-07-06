@@ -144,31 +144,44 @@ pub fn draw_system_view<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
         0.0
     };
     
+    // Calculate temperature standard deviation
+    let temp_std_dev = if total_gpus > 1 {
+        let temp_variance = state.gpu_info.iter()
+            .map(|gpu| {
+                let diff = gpu.temperature as f64 - avg_temperature;
+                diff * diff
+            })
+            .sum::<f64>() / (total_gpus - 1) as f64;
+        temp_variance.sqrt()
+    } else {
+        0.0
+    };
+    
     let avg_power = if total_gpus > 0 {
         total_power_watts / total_gpus as f64
     } else {
         0.0
     };
     
-    // First row: | Nodes | - | Total GPU Mem | - | Total Power |
+    // First row: | Nodes | - | Total GPU mem | Avg. Temp | Total Power |
     print_dashboard_row(stdout, 
         &[
             ("Nodes", format!("{}", total_nodes), Color::Yellow),
             ("-", "-".to_string(), Color::DarkGrey),
-            ("Total GPU Mem", format!("{:.1}GB", total_memory_gb), Color::Green),
-            ("-", "-".to_string(), Color::DarkGrey),
-            ("Total Power", format!("{:.1}W", total_power_watts), Color::Red),
+            ("Total GPU mem", format!("{:.1}GB", total_memory_gb), Color::Green),
+            ("Avg. Temp", format!("{:.0}°C", avg_temperature), Color::Magenta),
+            ("Total Power", format!("{:.1}kW", total_power_watts / 1000.0), Color::Red),
         ],
         box_width
     );
     
-    // Second row: | GPUs | Avg. Util. | Memory % | Std. Temp | Avg. Power |
+    // Second row: | GPUs | Avg. Util. | Memory % | Temp. Stdev | Avg. Power |
     print_dashboard_row(stdout,
         &[
             ("GPUs", format!("{}", total_gpus), Color::Yellow),
             ("Avg. Util.", format!("{:.1}%", avg_utilization), Color::Green),
             ("Memory %", format!("{:.1}%", memory_percent), Color::Blue),
-            ("Std. Temp", format!("{:.0}°C", avg_temperature), Color::Magenta),
+            ("Temp. Stdev", format!("±{:.1}°C", temp_std_dev), Color::Magenta),
             ("Avg. Power", format!("{:.1}W", avg_power), Color::Red),
         ],
         box_width
