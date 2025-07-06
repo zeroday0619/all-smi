@@ -674,8 +674,9 @@ fn render_main_view<W: Write>(
     // Sort GPUs based on current sort criteria
     gpu_info_to_display.sort_by(|a, b| state.sort_criteria.sort_gpus(a, b));
 
-    // Calculate available display area  
-    let content_start_row = 19; // Increased to provide more space for dashboard with history
+    // Calculate dynamic header size for accurate space allocation
+    let header_lines = calculate_header_lines(&state);
+    let content_start_row = header_lines;
     let available_rows = rows.saturating_sub(content_start_row).saturating_sub(1) as usize;
 
     // Calculate storage display rows
@@ -700,7 +701,13 @@ fn render_main_view<W: Write>(
 
     // Calculate GPU display area
     let gpu_display_rows = if is_remote {
-        available_rows.saturating_sub(storage_display_rows)
+        if state.current_tab == 0 {
+            // "All" tab: no storage display, use full available space
+            available_rows
+        } else {
+            // Specific host tab: reserve space for storage if needed
+            available_rows.saturating_sub(storage_display_rows)
+        }
     } else {
         available_rows / 2
     };
@@ -914,4 +921,34 @@ impl SortCriteria {
             a_index.cmp(&b_index)
         })
     }
+}
+
+fn calculate_header_lines(state: &AppState) -> u16 {
+    // Calculate the actual number of lines used by the header content
+    let mut lines = 0u16;
+    
+    // Line 1: "all-smi - {timestamp}"
+    lines += 1;
+    
+    // Line 2: "Cluster Overview"
+    lines += 1;
+    
+    // Lines 3-6: draw_system_view (2 dashboard rows, each takes 2 lines)
+    lines += 4;
+    
+    // Line 7: Separator line in draw_dashboard_items
+    lines += 1;
+    
+    // Lines 8-12: draw_utilization_history
+    // This shows live statistics with node view and history gauges
+    if !state.utilization_history.is_empty() {
+        lines += 5; // Header + node view + history display
+    } else {
+        lines += 1; // Just header line when no history
+    }
+    
+    // Line N: draw_tabs (tabs line + separator)
+    lines += 2;
+    
+    lines
 }
