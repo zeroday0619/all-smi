@@ -346,7 +346,9 @@ This project is licensed under the MIT License. See the LICENSE file for details
 ## Changelog
 
 ### Recent Updates
-
+- **v0.3.3:** CPU, Memory, and ANE support, and UI fixes
+- **v0.3.2:** Cargo.toml for publishing and release process
+- **v0.3.1:** GitHub actions and Dockerfile, and UI fixes
 - **v0.3.0:** Multi-architecture support, optimized space allocation, enhanced UI
 - **v0.2.2:** GPU sorting functionality with hotkeys
 - **v0.2.1:** Help system improvements and code refactoring
