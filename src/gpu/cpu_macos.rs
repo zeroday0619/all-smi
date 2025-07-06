@@ -1,0 +1,430 @@
+use crate::gpu::{AppleSiliconCpuInfo, CpuInfo, CpuPlatformType, CpuReader, CpuSocketInfo};
+use crate::utils::system::get_hostname;
+use chrono::Local;
+use std::process::Command;
+
+pub struct MacOsCpuReader {
+    is_apple_silicon: bool,
+}
+
+impl MacOsCpuReader {
+    pub fn new() -> Self {
+        let is_apple_silicon = Self::detect_apple_silicon();
+        Self { is_apple_silicon }
+    }
+
+    fn detect_apple_silicon() -> bool {
+        if let Ok(output) = Command::new("uname").arg("-m").output() {
+            let architecture = String::from_utf8_lossy(&output.stdout);
+            return architecture.trim() == "arm64";
+        }
+        false
+    }
+
+    fn get_cpu_info_from_system(&self) -> Result<CpuInfo, Box<dyn std::error::Error>> {
+        let hostname = get_hostname();
+        let instance = hostname.clone();
+        let time = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+        if self.is_apple_silicon {
+            self.get_apple_silicon_cpu_info(hostname, instance, time)
+        } else {
+            self.get_intel_mac_cpu_info(hostname, instance, time)
+        }
+    }
+
+    fn get_apple_silicon_cpu_info(
+        &self,
+        hostname: String,
+        instance: String,
+        time: String,
+    ) -> Result<CpuInfo, Box<dyn std::error::Error>> {
+        // Get CPU model and core counts using system_profiler
+        let output = Command::new("system_profiler")
+            .arg("SPHardwareDataType")
+            .output()?;
+
+        let hardware_info = String::from_utf8_lossy(&output.stdout);
+        let (cpu_model, p_core_count, e_core_count, gpu_core_count) =
+            self.parse_apple_silicon_hardware_info(&hardware_info)?;
+
+        // Get CPU utilization using powermetrics
+        let cpu_utilization = self.get_cpu_utilization_powermetrics()?;
+        let (p_core_utilization, e_core_utilization) = self.get_apple_silicon_core_utilization()?;
+
+        // Get CPU frequency information
+        let base_frequency = self.get_cpu_base_frequency()?;
+        let max_frequency = self.get_cpu_max_frequency()?;
+
+        // Get CPU temperature (may not be available)
+        let temperature = self.get_cpu_temperature();
+
+        // Power consumption from powermetrics
+        let power_consumption = self.get_cpu_power_consumption();
+
+        let total_cores = p_core_count + e_core_count;
+        let total_threads = total_cores; // Apple Silicon doesn't use hyperthreading
+
+        let apple_silicon_info = Some(AppleSiliconCpuInfo {
+            p_core_count,
+            e_core_count,
+            gpu_core_count,
+            p_core_utilization,
+            e_core_utilization,
+            ane_ops_per_second: None, // ANE metrics are complex to get
+        });
+
+        // Create per-socket info (Apple Silicon typically has 1 socket)
+        let per_socket_info = vec![CpuSocketInfo {
+            socket_id: 0,
+            utilization: cpu_utilization,
+            cores: total_cores,
+            threads: total_threads,
+            temperature,
+            frequency_mhz: base_frequency,
+        }];
+
+        Ok(CpuInfo {
+            hostname,
+            instance,
+            cpu_model,
+            architecture: "arm64".to_string(),
+            platform_type: CpuPlatformType::AppleSilicon,
+            socket_count: 1,
+            total_cores,
+            total_threads,
+            base_frequency_mhz: base_frequency,
+            max_frequency_mhz: max_frequency,
+            cache_size_mb: 0, // Cache size is not easily available
+            utilization: cpu_utilization,
+            temperature,
+            power_consumption,
+            per_socket_info,
+            apple_silicon_info,
+            time,
+        })
+    }
+
+    fn get_intel_mac_cpu_info(
+        &self,
+        hostname: String,
+        instance: String,
+        time: String,
+    ) -> Result<CpuInfo, Box<dyn std::error::Error>> {
+        // Get CPU information using system_profiler
+        let output = Command::new("system_profiler")
+            .arg("SPHardwareDataType")
+            .output()?;
+
+        let hardware_info = String::from_utf8_lossy(&output.stdout);
+        let (cpu_model, socket_count, total_cores, total_threads, base_frequency, cache_size) =
+            self.parse_intel_mac_hardware_info(&hardware_info)?;
+
+        // Get CPU utilization using iostat or top
+        let cpu_utilization = self.get_cpu_utilization_iostat()?;
+
+        // Get CPU temperature (may not be available)
+        let temperature = self.get_cpu_temperature();
+
+        // Power consumption is not easily available on Intel Macs
+        let power_consumption = None;
+
+        // Create per-socket info
+        let mut per_socket_info = Vec::new();
+        for socket_id in 0..socket_count {
+            per_socket_info.push(CpuSocketInfo {
+                socket_id,
+                utilization: cpu_utilization,
+                cores: total_cores / socket_count,
+                threads: total_threads / socket_count,
+                temperature,
+                frequency_mhz: base_frequency,
+            });
+        }
+
+        Ok(CpuInfo {
+            hostname,
+            instance,
+            cpu_model,
+            architecture: "x86_64".to_string(),
+            platform_type: CpuPlatformType::Intel,
+            socket_count,
+            total_cores,
+            total_threads,
+            base_frequency_mhz: base_frequency,
+            max_frequency_mhz: base_frequency, // Max frequency not easily available
+            cache_size_mb: cache_size,
+            utilization: cpu_utilization,
+            temperature,
+            power_consumption,
+            per_socket_info,
+            apple_silicon_info: None,
+            time,
+        })
+    }
+
+    fn parse_apple_silicon_hardware_info(
+        &self,
+        hardware_info: &str,
+    ) -> Result<(String, u32, u32, u32), Box<dyn std::error::Error>> {
+        let mut cpu_model = String::new();
+        let mut p_core_count = 0u32;
+        let mut e_core_count = 0u32;
+        let mut gpu_core_count = 0u32;
+
+        for line in hardware_info.lines() {
+            let line = line.trim();
+            if line.starts_with("Chip:") {
+                cpu_model = line.split(':').nth(1).unwrap_or("").trim().to_string();
+
+                // Parse core information from chip name (e.g., "Apple M2 Pro")
+                if cpu_model.contains("M1")
+                    && !cpu_model.contains("Pro")
+                    && !cpu_model.contains("Max")
+                {
+                    p_core_count = 4;
+                    e_core_count = 4;
+                    gpu_core_count = 8;
+                } else if cpu_model.contains("M1 Pro") {
+                    p_core_count = 8;
+                    e_core_count = 2;
+                    gpu_core_count = 16;
+                } else if cpu_model.contains("M1 Max") {
+                    p_core_count = 8;
+                    e_core_count = 2;
+                    gpu_core_count = 32;
+                } else if cpu_model.contains("M2")
+                    && !cpu_model.contains("Pro")
+                    && !cpu_model.contains("Max")
+                {
+                    p_core_count = 4;
+                    e_core_count = 4;
+                    gpu_core_count = 10;
+                } else if cpu_model.contains("M2 Pro") {
+                    p_core_count = 8;
+                    e_core_count = 4;
+                    gpu_core_count = 19;
+                } else if cpu_model.contains("M2 Max") {
+                    p_core_count = 8;
+                    e_core_count = 4;
+                    gpu_core_count = 38;
+                } else if cpu_model.contains("M3")
+                    && !cpu_model.contains("Pro")
+                    && !cpu_model.contains("Max")
+                {
+                    p_core_count = 4;
+                    e_core_count = 4;
+                    gpu_core_count = 10;
+                } else if cpu_model.contains("M3 Pro") {
+                    p_core_count = 6;
+                    e_core_count = 6;
+                    gpu_core_count = 18;
+                } else if cpu_model.contains("M3 Max") {
+                    p_core_count = 8;
+                    e_core_count = 8;
+                    gpu_core_count = 40;
+                } else {
+                    // Default fallback
+                    p_core_count = 4;
+                    e_core_count = 4;
+                    gpu_core_count = 8;
+                }
+            } else if line.starts_with("Total Number of Cores:") {
+                if let Some(cores_str) = line.split(':').nth(1) {
+                    let cores_str = cores_str.trim();
+                    if let Ok(total_cores) = cores_str.parse::<u32>() {
+                        // If we couldn't parse from chip name, use this as fallback
+                        if p_core_count == 0 && e_core_count == 0 {
+                            p_core_count = total_cores / 2;
+                            e_core_count = total_cores / 2;
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok((cpu_model, p_core_count, e_core_count, gpu_core_count))
+    }
+
+    fn parse_intel_mac_hardware_info(
+        &self,
+        hardware_info: &str,
+    ) -> Result<(String, u32, u32, u32, u32, u32), Box<dyn std::error::Error>> {
+        let mut cpu_model = String::new();
+        let mut socket_count = 1u32;
+        let mut total_cores = 0u32;
+        let mut total_threads = 0u32;
+        let mut base_frequency = 0u32;
+        let mut cache_size = 0u32;
+
+        for line in hardware_info.lines() {
+            let line = line.trim();
+            if line.starts_with("Processor Name:") {
+                cpu_model = line.split(':').nth(1).unwrap_or("").trim().to_string();
+            } else if line.starts_with("Processor Speed:") {
+                if let Some(speed_str) = line.split(':').nth(1) {
+                    let speed_str = speed_str.trim();
+                    if let Some(ghz_str) = speed_str.split_whitespace().next() {
+                        if let Ok(ghz) = ghz_str.parse::<f64>() {
+                            base_frequency = (ghz * 1000.0) as u32;
+                        }
+                    }
+                }
+            } else if line.starts_with("Number of Processors:") {
+                if let Some(proc_str) = line.split(':').nth(1) {
+                    if let Ok(procs) = proc_str.trim().parse::<u32>() {
+                        socket_count = procs;
+                    }
+                }
+            } else if line.starts_with("Total Number of Cores:") {
+                if let Some(cores_str) = line.split(':').nth(1) {
+                    if let Ok(cores) = cores_str.trim().parse::<u32>() {
+                        total_cores = cores;
+                        total_threads = cores * 2; // Assume hyperthreading
+                    }
+                }
+            } else if line.starts_with("L3 Cache:") {
+                if let Some(cache_str) = line.split(':').nth(1) {
+                    let cache_str = cache_str.trim();
+                    if let Some(size_str) = cache_str.split_whitespace().next() {
+                        if let Ok(size) = size_str.parse::<u32>() {
+                            cache_size = size;
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok((
+            cpu_model,
+            socket_count,
+            total_cores,
+            total_threads,
+            base_frequency,
+            cache_size,
+        ))
+    }
+
+    fn get_cpu_utilization_powermetrics(&self) -> Result<f64, Box<dyn std::error::Error>> {
+        // Use a short sampling period for powermetrics
+        let output = Command::new("powermetrics")
+            .args(&["--samplers", "cpu_power", "-n", "1", "-i", "1000"])
+            .output()?;
+
+        let powermetrics_output = String::from_utf8_lossy(&output.stdout);
+
+        // Parse CPU utilization from powermetrics output
+        for line in powermetrics_output.lines() {
+            if line.contains("CPU Average frequency as fraction of nominal") {
+                // This is a rough approximation
+                if let Some(value_str) = line.split(':').nth(1) {
+                    if let Ok(fraction) = value_str.trim().parse::<f64>() {
+                        return Ok(fraction * 100.0);
+                    }
+                }
+            }
+        }
+
+        // Fallback to iostat if powermetrics doesn't work
+        self.get_cpu_utilization_iostat()
+    }
+
+    fn get_cpu_utilization_iostat(&self) -> Result<f64, Box<dyn std::error::Error>> {
+        let output = Command::new("iostat").args(&["-c", "1"]).output()?;
+
+        let iostat_output = String::from_utf8_lossy(&output.stdout);
+
+        // Parse CPU utilization from iostat output
+        for line in iostat_output.lines() {
+            if line.contains("avg-cpu") {
+                continue;
+            }
+            if line
+                .trim()
+                .chars()
+                .next()
+                .map_or(false, |c| c.is_ascii_digit())
+            {
+                let fields: Vec<&str> = line.split_whitespace().collect();
+                if fields.len() >= 6 {
+                    // iostat format: %user %nice %system %iowait %steal %idle
+                    let idle = fields[5].parse::<f64>().unwrap_or(0.0);
+                    return Ok(100.0 - idle);
+                }
+            }
+        }
+
+        Ok(0.0)
+    }
+
+    fn get_apple_silicon_core_utilization(&self) -> Result<(f64, f64), Box<dyn std::error::Error>> {
+        // This is a simplified implementation
+        // In practice, getting separate P-core and E-core utilization requires more complex parsing
+        let overall_util = self.get_cpu_utilization_powermetrics()?;
+
+        // For now, assume equal distribution (this is not accurate)
+        // A more sophisticated implementation would parse detailed powermetrics output
+        Ok((overall_util * 0.6, overall_util * 0.4))
+    }
+
+    fn get_cpu_base_frequency(&self) -> Result<u32, Box<dyn std::error::Error>> {
+        if self.is_apple_silicon {
+            // Apple Silicon base frequencies are not easily available
+            // Return typical values based on chip
+            Ok(3000) // 3 GHz as default
+        } else {
+            // Try to get from system_profiler (already parsed in get_intel_mac_cpu_info)
+            Ok(2400) // Default fallback
+        }
+    }
+
+    fn get_cpu_max_frequency(&self) -> Result<u32, Box<dyn std::error::Error>> {
+        if self.is_apple_silicon {
+            // Apple Silicon max frequencies vary by core type
+            Ok(3500) // Typical P-core max frequency
+        } else {
+            Ok(3000) // Default for Intel Macs
+        }
+    }
+
+    fn get_cpu_temperature(&self) -> Option<u32> {
+        // Temperature monitoring on macOS requires specialized tools
+        // This is a placeholder - actual implementation might use external tools
+        None
+    }
+
+    fn get_cpu_power_consumption(&self) -> Option<f64> {
+        // Power consumption from powermetrics (simplified)
+        if let Ok(output) = Command::new("powermetrics")
+            .args(&["--samplers", "cpu_power", "-n", "1", "-i", "1000"])
+            .output()
+        {
+            let powermetrics_output = String::from_utf8_lossy(&output.stdout);
+
+            for line in powermetrics_output.lines() {
+                if line.contains("CPU Power:") {
+                    if let Some(value_str) = line.split(':').nth(1) {
+                        if let Some(watts_str) = value_str.split_whitespace().next() {
+                            if let Ok(watts) = watts_str.parse::<f64>() {
+                                return Some(watts);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+}
+
+impl CpuReader for MacOsCpuReader {
+    fn get_cpu_info(&self) -> Vec<CpuInfo> {
+        match self.get_cpu_info_from_system() {
+            Ok(cpu_info) => vec![cpu_info],
+            Err(e) => {
+                eprintln!("Error reading CPU info: {}", e);
+                vec![]
+            }
+        }
+    }
+}
