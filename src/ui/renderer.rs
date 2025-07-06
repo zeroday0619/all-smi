@@ -498,7 +498,8 @@ pub fn draw_tabs<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
     queue!(stdout, Print("Tabs: ")).unwrap();
     for (text, color) in labels {
         if color == Color::Black {
-            print_colored_text(stdout, &text, Color::White, Some(Color::White), None);
+            // Selected tab: white text on blue background for good visibility
+            print_colored_text(stdout, &text, Color::White, Some(Color::Blue), None);
         } else {
             print_colored_text(stdout, &text, color, None, None);
         }
@@ -514,7 +515,7 @@ pub fn draw_tabs<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
 
 pub fn print_gpu_info<W: Write>(
     stdout: &mut W,
-    index: usize,
+    _index: usize,
     info: &GpuInfo,
     width: usize,
     device_name_scroll_offset: usize,
@@ -692,7 +693,7 @@ pub fn print_gpu_info<W: Write>(
     // GPU Utilization bar
     draw_bar(
         stdout,
-        "GPU",
+        "UTIL",
         info.utilization,
         100.0,
         individual_bar_width,
@@ -825,12 +826,48 @@ pub fn print_process_info<W: Write>(
 ) {
     queue!(stdout, Print("\r\nProcesses:\r\n")).unwrap();
     
-    // Print header
+    let width = cols as usize;
+    
+    // Calculate column widths dynamically based on terminal width
+    let min_widths = [6, 12, 8, 6, 8, 8, 8, 10]; // Minimum widths for each column
+    let total_min_width: usize = min_widths.iter().sum::<usize>() + 7; // 7 spaces between columns
+    
+    let (pid_w, user_w, name_w, cpu_w, mem_w, gpu_mem_w, state_w, command_w) = if width > total_min_width {
+        let extra_space = width - total_min_width;
+        // Distribute extra space mainly to name and command columns
+        let name_extra = extra_space / 3;
+        let command_extra = extra_space - name_extra;
+        
+        (
+            min_widths[0],                    // PID: 6
+            min_widths[1],                    // USER: 12  
+            min_widths[2] + name_extra,       // NAME: 8 + extra
+            min_widths[3],                    // CPU%: 6
+            min_widths[4],                    // MEM%: 8
+            min_widths[5],                    // GPU MEM: 8
+            min_widths[6],                    // STATE: 8
+            min_widths[7] + command_extra,    // COMMAND: 10 + extra
+        )
+    } else {
+        // Use minimum widths if terminal is too narrow
+        (min_widths[0], min_widths[1], min_widths[2], min_widths[3], 
+         min_widths[4], min_widths[5], min_widths[6], min_widths[7])
+    };
+    
+    // Print header with improved spacing and colors
     print_colored_text(
         stdout,
         &format!(
-            "{:<6} {:<20} {:<10} {:<15}",
-            "PID", "Name", "GPU", "Memory"
+            "{:<width_pid$} {:<width_user$} {:<width_name$} {:<width_cpu$} {:<width_mem$} {:<width_gpu_mem$} {:<width_state$} {:<width_command$}",
+            "PID", "USER", "NAME", "CPU%", "MEM%", "GPU MEM", "STATE", "COMMAND",
+            width_pid = pid_w,
+            width_user = user_w,
+            width_name = name_w,
+            width_cpu = cpu_w,
+            width_mem = mem_w,
+            width_gpu_mem = gpu_mem_w,
+            width_state = state_w,
+            width_command = command_w
         ),
         Color::Cyan,
         None,
@@ -839,8 +876,7 @@ pub fn print_process_info<W: Write>(
     queue!(stdout, Print("\r\n")).unwrap();
 
     let visible_rows = half_rows.saturating_sub(3) as usize; // Subtract header rows
-    let end_index = (start_index + visible_rows).min(processes.len());
-
+    
     for (i, process) in processes.iter().enumerate().skip(start_index).take(visible_rows) {
         let bg_color = if i == selected_index {
             Some(Color::DarkBlue)
@@ -848,38 +884,173 @@ pub fn print_process_info<W: Write>(
             None
         };
 
-        let memory_mb = process.used_memory as f64 / (1024.0 * 1024.0);
+        // Format memory values
+        let gpu_memory_mb = process.used_memory as f64 / (1024.0 * 1024.0);
+        let gpu_mem_str = if gpu_memory_mb >= 1024.0 {
+            format!("{:.1}GB", gpu_memory_mb / 1024.0)
+        } else {
+            format!("{:.0}MB", gpu_memory_mb)
+        };
         
+        // Format CPU percentage with appropriate color
+        let cpu_color = if process.cpu_percent > 80.0 {
+            Color::Red
+        } else if process.cpu_percent > 50.0 {
+            Color::Yellow
+        } else {
+            Color::White
+        };
+        
+        // Format memory percentage with appropriate color
+        let mem_color = if process.memory_percent > 80.0 {
+            Color::Red
+        } else if process.memory_percent > 50.0 {
+            Color::Yellow
+        } else {
+            Color::White
+        };
+        
+        // Truncate strings to fit column widths
+        let truncate_string = |s: &str, max_len: usize| -> String {
+            if s.len() > max_len {
+                if max_len > 3 {
+                    format!("{}...", &s[..max_len-3])
+                } else {
+                    s.chars().take(max_len).collect()
+                }
+            } else {
+                s.to_string()
+            }
+        };
+        
+        let user_display = truncate_string(&process.user, user_w);
+        let name_display = truncate_string(&process.process_name, name_w);
+        let command_display = truncate_string(&process.command, command_w);
+        
+        // Print PID column
         print_colored_text(
             stdout,
-            &format!(
-                "{:<6} {:<20} {:<10} {:<15}",
-                process.pid,
-                if process.process_name.len() > 20 {
-                    format!("{}...", &process.process_name[..17])
-                } else {
-                    process.process_name.clone()
-                },
-                process.device_id,
-                format!("{:.1}MB", memory_mb)
-            ),
+            &format!("{:<width$}", process.pid, width = pid_w),
             Color::White,
             bg_color,
             None,
         );
+        queue!(stdout, Print(" ")).unwrap();
+        
+        // Print USER column
+        print_colored_text(
+            stdout,
+            &format!("{:<width$}", user_display, width = user_w),
+            Color::Green,
+            bg_color,
+            None,
+        );
+        queue!(stdout, Print(" ")).unwrap();
+        
+        // Print NAME column
+        print_colored_text(
+            stdout,
+            &format!("{:<width$}", name_display, width = name_w),
+            Color::White,
+            bg_color,
+            None,
+        );
+        queue!(stdout, Print(" ")).unwrap();
+        
+        // Print CPU% column
+        print_colored_text(
+            stdout,
+            &format!("{:<width$.1}", process.cpu_percent, width = cpu_w),
+            cpu_color,
+            bg_color,
+            None,
+        );
+        queue!(stdout, Print(" ")).unwrap();
+        
+        // Print MEM% column
+        print_colored_text(
+            stdout,
+            &format!("{:<width$.1}", process.memory_percent, width = mem_w),
+            mem_color,
+            bg_color,
+            None,
+        );
+        queue!(stdout, Print(" ")).unwrap();
+        
+        // Print GPU MEM column
+        print_colored_text(
+            stdout,
+            &format!("{:<width$}", gpu_mem_str, width = gpu_mem_w),
+            Color::Magenta,
+            bg_color,
+            None,
+        );
+        queue!(stdout, Print(" ")).unwrap();
+        
+        // Print STATE column
+        let state_color = match process.state.as_str() {
+            "R" => Color::Green,   // Running
+            "S" => Color::White,   // Sleeping
+            "D" => Color::Red,     // Uninterruptible sleep
+            "Z" => Color::Red,     // Zombie
+            "T" => Color::Yellow,  // Stopped
+            _ => Color::White,
+        };
+        print_colored_text(
+            stdout,
+            &format!("{:<width$}", process.state, width = state_w),
+            state_color,
+            bg_color,
+            None,
+        );
+        queue!(stdout, Print(" ")).unwrap();
+        
+        // Print COMMAND column
+        print_colored_text(
+            stdout,
+            &format!("{:<width$}", command_display, width = command_w),
+            Color::Cyan,
+            bg_color,
+            None,
+        );
+        
         queue!(stdout, Print("\r\n")).unwrap();
     }
 }
 
-pub fn print_function_keys<W: Write>(stdout: &mut W, cols: u16, rows: u16) {
+pub fn print_function_keys<W: Write>(
+    stdout: &mut W, 
+    cols: u16, 
+    rows: u16, 
+    state: &crate::app_state::AppState, 
+    is_remote: bool
+) {
     // Move to bottom of screen
     queue!(stdout, crossterm::cursor::MoveTo(0, rows - 1)).unwrap();
 
-    let function_keys = "F1:Help F10:Exit ←→:Tabs ↑↓:Scroll PgUp/PgDn:Page p:PID m:Memory";
+    // Get current sorting indicator
+    let sort_indicator = match state.sort_criteria {
+        crate::app_state::SortCriteria::Default => "Sort:Default",
+        crate::app_state::SortCriteria::Pid => "Sort:PID",
+        crate::app_state::SortCriteria::Memory => "Sort:Memory",
+        crate::app_state::SortCriteria::Utilization => "Sort:Util",
+        crate::app_state::SortCriteria::GpuMemory => "Sort:GPU-Mem",
+        crate::app_state::SortCriteria::Power => "Sort:Power",
+        crate::app_state::SortCriteria::Temperature => "Sort:Temp",
+    };
+
+    let function_keys = if is_remote {
+        // Remote mode: only GPU sorting
+        format!("1:Help q:Exit ←→:Tabs ↑↓:Scroll PgUp/PgDn:Page u:Util g:GPU-Mem [{}]", sort_indicator)
+    } else {
+        // Local mode: both process and GPU sorting
+        format!("1:Help q:Exit ←→:Tabs ↑↓:Scroll PgUp/PgDn:Page p:PID m:Memory u:Util g:GPU-Mem [{}]", sort_indicator)
+    };
+
     let truncated_keys = if function_keys.len() > cols as usize {
         &function_keys[..cols as usize]
     } else {
-        function_keys
+        &function_keys
     };
 
     print_colored_text(stdout, truncated_keys, Color::White, Some(Color::DarkBlue), None);
@@ -901,7 +1072,13 @@ pub fn print_loading_indicator<W: Write>(stdout: &mut W, cols: u16, rows: u16) {
     print_colored_text(stdout, message, Color::Yellow, None, None);
 }
 
-pub fn print_help_popup<W: Write>(stdout: &mut W, cols: u16, rows: u16) {
+pub fn print_help_popup<W: Write>(
+    stdout: &mut W, 
+    cols: u16, 
+    rows: u16, 
+    state: &crate::app_state::AppState, 
+    is_remote: bool
+) {
     // Use nearly full screen with small margin
     let popup_width = cols.saturating_sub(4) as usize;
     let popup_height = rows.saturating_sub(2) as usize;
@@ -970,8 +1147,8 @@ pub fn print_help_popup<W: Write>(stdout: &mut W, cols: u16, rows: u16) {
         ("  PgUp/PgDn", "Page up/down", false),
         ("", "", false),
         ("Display Control", "", true),
-        ("  F1 / h", "Toggle this help", false),
-        ("  F10 / q", "Exit application", false),
+        ("  1 / h", "Toggle this help", false),
+        ("  q", "Exit application", false),
         ("  ESC", "Close help or exit", false),
     ];
 
@@ -1083,7 +1260,7 @@ pub fn print_help_popup<W: Write>(stdout: &mut W, cols: u16, rows: u16) {
     print_colored_text(stdout, &centered_bottom, Color::Magenta, Some(Color::Black), None);
     
     // Add function keys at the very bottom for full-screen consistency
-    print_function_keys(stdout, cols, rows);
+    print_function_keys(stdout, cols, rows, state, is_remote);
 }
 
 fn draw_window_frame<W: Write>(stdout: &mut W, x: u16, y: u16, width: usize, height: usize) {

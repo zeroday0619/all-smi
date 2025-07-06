@@ -21,8 +21,8 @@ pub async fn handle_key_event(
                 true // Exit
             }
         }
-        KeyCode::F(10) | KeyCode::Char('q') => true, // Exit
-        KeyCode::F(1) | KeyCode::Char('h') => {
+        KeyCode::Char('q') => true, // Exit
+        KeyCode::Char('1') | KeyCode::Char('h') => {
             state.show_help = !state.show_help;
             false
         }
@@ -95,6 +95,8 @@ fn handle_navigation_keys(key_code: KeyCode, state: &mut AppState, args: &ViewAr
         KeyCode::PageDown => handle_page_down(state, args),
         KeyCode::Char('p') => state.sort_criteria = SortCriteria::Pid,
         KeyCode::Char('m') => state.sort_criteria = SortCriteria::Memory,
+        KeyCode::Char('u') => state.sort_criteria = SortCriteria::Utilization,
+        KeyCode::Char('g') => state.sort_criteria = SortCriteria::GpuMemory,
         _ => {}
     }
 }

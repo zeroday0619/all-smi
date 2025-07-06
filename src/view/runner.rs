@@ -7,9 +7,9 @@ use std::time::Duration;
 use chrono::Local;
 use crossterm::{
     cursor,
-    event::{self, Event, KeyCode, DisableMouseCapture, EnableMouseCapture},
+    event::{self, Event, DisableMouseCapture, EnableMouseCapture},
     execute, queue,
-    style::{Color, Print, ResetColor, SetBackgroundColor, SetForegroundColor},
+    style::{Color, Print},
     terminal::{
         self, disable_raw_mode, enable_raw_mode, size, ClearType, EnterAlternateScreen,
         LeaveAlternateScreen,
@@ -31,7 +31,6 @@ use crate::ui::renderer::{
 };
 use crate::utils::{calculate_adaptive_interval, get_hostname, should_include_disk};
 use crate::view::event_handler::handle_key_event;
-use std::collections::VecDeque;
 
 pub async fn run_view_mode(args: &ViewArgs) {
     let mut initial_state = AppState::new();
@@ -567,7 +566,8 @@ async fn run_ui_loop(app_state: Arc<Mutex<AppState>>, args: &ViewArgs) {
         if state.show_help {
             render_help_view(&mut stdout, &state, args, cols, rows);
         } else if state.loading {
-            print_function_keys(&mut stdout, cols, rows);
+            let is_remote = args.hosts.is_some() || args.hostfile.is_some();
+            print_function_keys(&mut stdout, cols, rows, &state, is_remote);
             print_loading_indicator(&mut stdout, cols, rows);
         } else {
             render_main_view(&mut stdout, &state, args, cols, rows);
@@ -610,8 +610,8 @@ fn update_scroll_offsets(state: &mut AppState) {
 
 fn render_help_view<W: Write>(
     stdout: &mut W,
-    _state: &AppState,
-    _args: &ViewArgs,
+    state: &AppState,
+    args: &ViewArgs,
     cols: u16,
     rows: u16,
 ) {
@@ -619,7 +619,8 @@ fn render_help_view<W: Write>(
     let mut buffer = BufferWriter::new();
     
     // Write help popup to buffer
-    print_help_popup(&mut buffer, cols, rows);
+    let is_remote = args.hosts.is_some() || args.hostfile.is_some();
+    print_help_popup(&mut buffer, cols, rows, state, is_remote);
     
     // Output the entire buffer to stdout in one operation with full screen clear
     queue!(stdout, cursor::MoveTo(0, 0)).unwrap();
@@ -668,22 +669,8 @@ fn render_main_view<W: Write>(
             .collect()
     };
 
-    // Sort GPUs by hostname first, then by index
-    gpu_info_to_display.sort_by(|a, b| {
-        a.hostname.cmp(&b.hostname).then_with(|| {
-            let a_index = a
-                .detail
-                .get("index")
-                .and_then(|s| s.parse::<u32>().ok())
-                .unwrap_or(0);
-            let b_index = b
-                .detail
-                .get("index")
-                .and_then(|s| s.parse::<u32>().ok())
-                .unwrap_or(0);
-            a_index.cmp(&b_index)
-        })
-    });
+    // Sort GPUs based on current sort criteria
+    gpu_info_to_display.sort_by(|a, b| state.sort_criteria.sort_gpus(a, b));
 
     // Calculate available display area  
     let content_start_row = 19; // Increased to provide more space for dashboard with history
@@ -784,7 +771,7 @@ fn render_main_view<W: Write>(
     // Display process info for local mode
     if !state.process_info.is_empty() && !is_remote {
         let mut sorted_process_info = state.process_info.clone();
-        sorted_process_info.sort_by(|a, b| state.sort_criteria.sort(a, b));
+        sorted_process_info.sort_by(|a, b| state.sort_criteria.sort_processes(a, b));
 
         print_process_info(
             &mut buffer,
@@ -801,7 +788,7 @@ fn render_main_view<W: Write>(
     queue!(stdout, terminal::Clear(ClearType::FromCursorDown)).unwrap();
     print!("{}", buffer.get_buffer());
 
-    print_function_keys(stdout, cols, rows);
+    print_function_keys(stdout, cols, rows, state, is_remote);
 }
 
 fn update_utilization_history(state: &mut AppState) {
@@ -843,10 +830,86 @@ fn update_utilization_history(state: &mut AppState) {
 }
 
 impl SortCriteria {
-    fn sort(&self, a: &ProcessInfo, b: &ProcessInfo) -> std::cmp::Ordering {
+    fn sort_processes(&self, a: &ProcessInfo, b: &ProcessInfo) -> std::cmp::Ordering {
         match self {
             SortCriteria::Pid => a.pid.cmp(&b.pid),
             SortCriteria::Memory => b.used_memory.cmp(&a.used_memory),
+            _ => a.pid.cmp(&b.pid), // Default to PID for non-process sorting
         }
+    }
+
+    fn sort_gpus(&self, a: &GpuInfo, b: &GpuInfo) -> std::cmp::Ordering {
+        match self {
+            SortCriteria::Default => {
+                // Sort by hostname first, then by index (original behavior)
+                a.hostname.cmp(&b.hostname).then_with(|| {
+                    let a_index = a
+                        .detail
+                        .get("index")
+                        .and_then(|s| s.parse::<u32>().ok())
+                        .unwrap_or(0);
+                    let b_index = b
+                        .detail
+                        .get("index")
+                        .and_then(|s| s.parse::<u32>().ok())
+                        .unwrap_or(0);
+                    a_index.cmp(&b_index)
+                })
+            },
+            SortCriteria::Utilization => {
+                // Sort by utilization (descending), then by hostname and index
+                b.utilization.partial_cmp(&a.utilization)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then_with(|| a.hostname.cmp(&b.hostname))
+                    .then_with(|| {
+                        let a_index = a.detail.get("index").and_then(|s| s.parse::<u32>().ok()).unwrap_or(0);
+                        let b_index = b.detail.get("index").and_then(|s| s.parse::<u32>().ok()).unwrap_or(0);
+                        a_index.cmp(&b_index)
+                    })
+            },
+            SortCriteria::GpuMemory => {
+                // Sort by memory usage (descending), then by hostname and index
+                b.used_memory.cmp(&a.used_memory)
+                    .then_with(|| a.hostname.cmp(&b.hostname))
+                    .then_with(|| {
+                        let a_index = a.detail.get("index").and_then(|s| s.parse::<u32>().ok()).unwrap_or(0);
+                        let b_index = b.detail.get("index").and_then(|s| s.parse::<u32>().ok()).unwrap_or(0);
+                        a_index.cmp(&b_index)
+                    })
+            },
+            SortCriteria::Power => {
+                // Sort by power consumption (descending), then by hostname and index
+                b.power_consumption.partial_cmp(&a.power_consumption)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then_with(|| a.hostname.cmp(&b.hostname))
+                    .then_with(|| {
+                        let a_index = a.detail.get("index").and_then(|s| s.parse::<u32>().ok()).unwrap_or(0);
+                        let b_index = b.detail.get("index").and_then(|s| s.parse::<u32>().ok()).unwrap_or(0);
+                        a_index.cmp(&b_index)
+                    })
+            },
+            SortCriteria::Temperature => {
+                // Sort by temperature (descending), then by hostname and index
+                b.temperature.cmp(&a.temperature)
+                    .then_with(|| a.hostname.cmp(&b.hostname))
+                    .then_with(|| {
+                        let a_index = a.detail.get("index").and_then(|s| s.parse::<u32>().ok()).unwrap_or(0);
+                        let b_index = b.detail.get("index").and_then(|s| s.parse::<u32>().ok()).unwrap_or(0);
+                        a_index.cmp(&b_index)
+                    })
+            },
+            _ => {
+                // For process sorting criteria, fall back to default GPU sorting
+                self.sort_gpus_default(a, b)
+            }
+        }
+    }
+
+    fn sort_gpus_default(&self, a: &GpuInfo, b: &GpuInfo) -> std::cmp::Ordering {
+        a.hostname.cmp(&b.hostname).then_with(|| {
+            let a_index = a.detail.get("index").and_then(|s| s.parse::<u32>().ok()).unwrap_or(0);
+            let b_index = b.detail.get("index").and_then(|s| s.parse::<u32>().ok()).unwrap_or(0);
+            a_index.cmp(&b_index)
+        })
     }
 }

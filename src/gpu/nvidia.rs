@@ -1,4 +1,4 @@
-use crate::gpu::{GpuInfo, GpuReader, ProcessInfo};
+use crate::gpu::{GpuInfo, GpuReader, ProcessInfo, get_system_process_info};
 use chrono::Local;
 use std::collections::HashMap;
 use std::process::Command;
@@ -96,12 +96,39 @@ impl GpuReader for NvidiaGpuReader {
                         let process_name = parts[2].trim().to_string();
                         let used_memory = u64::from_str(parts[3].trim()).unwrap_or(0) * 1024 * 1024; // Convert MiB to bytes
 
+                        // Get additional system process information
+                        let (cpu_percent, memory_percent, memory_rss, memory_vms, user, state, start_time, cpu_time, command, ppid, threads) = 
+                            get_system_process_info(pid).unwrap_or((
+                                0.0,  // cpu_percent
+                                0.0,  // memory_percent
+                                0,    // memory_rss
+                                0,    // memory_vms
+                                "unknown".to_string(),  // user
+                                "?".to_string(),        // state
+                                "unknown".to_string(),  // start_time
+                                0,    // cpu_time
+                                process_name.clone(),   // command (fallback to process_name)
+                                0,    // ppid
+                                1,    // threads
+                            ));
+
                         process_list.push(ProcessInfo {
                             device_id: 0, // Actual GPU index would need additional logic
                             device_uuid,
                             pid,
                             process_name,
                             used_memory,
+                            cpu_percent,
+                            memory_percent,
+                            memory_rss,
+                            memory_vms,
+                            user,
+                            state,
+                            start_time,
+                            cpu_time,
+                            command,
+                            ppid,
+                            threads,
                         });
                     }
                 }

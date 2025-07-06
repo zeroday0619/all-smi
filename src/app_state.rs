@@ -27,8 +27,17 @@ pub struct AppState {
 
 #[derive(Clone)]
 pub enum SortCriteria {
+    // Process sorting (local mode only)
     Pid,
     Memory,
+    // GPU sorting (both local and remote modes)
+    Default,        // Hostname then index (current behavior)
+    Utilization,    // GPU utilization
+    GpuMemory,      // GPU memory usage
+    #[allow(dead_code)]
+    Power,          // Power consumption
+    #[allow(dead_code)]
+    Temperature,    // Temperature
 }
 
 impl AppState {
@@ -38,7 +47,7 @@ impl AppState {
             process_info: Vec::new(),
             selected_process_index: 0,
             start_index: 0,
-            sort_criteria: SortCriteria::Pid,
+            sort_criteria: SortCriteria::Default,
             loading: true,
             tabs: vec![
                 "All".to_string(),

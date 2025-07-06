@@ -1,5 +1,4 @@
 use axum::{routing::get, Router};
-use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
