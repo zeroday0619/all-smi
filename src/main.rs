@@ -953,8 +953,14 @@ fn print_help_popup<W: Write>(stdout: &mut W, cols: u16, rows: u16) {
     let cheat_sheet_lines = vec![
         "Navigation & Controls:",
         "  ←/→        Switch between tabs (All, Node1, Node2, etc.)",
-        "  ↑/↓        Navigate GPU/Storage list (remote) or Process list (local)",
-        "  PgUp/PgDn   Page up/down in process list",
+        "",
+        "Remote Mode (monitoring remote hosts):",
+        "  ↑/↓        Navigate GPU/Storage list one item at a time",
+        "  PgUp/PgDn  Page through GPU list (full page at a time)",
+        "",
+        "Local Mode (single machine):",
+        "  ↑/↓        Navigate process list one item at a time",
+        "  PgUp/PgDn  Page through process list (full page at a time)",
         "",
         "Sorting (Local mode only):",
         "  p          Sort processes by PID",
@@ -1699,31 +1705,105 @@ async fn run_view_mode(args: &ViewArgs) {
                                 }
                             }
                             KeyCode::PageUp => {
-                                let (_cols, rows) = size().unwrap();
-                                let half_rows = rows / 2;
-                                let page_size = half_rows.saturating_sub(1) as usize;
-                                state.selected_process_index =
-                                    state.selected_process_index.saturating_sub(page_size);
-                                if state.selected_process_index < state.start_index {
-                                    state.start_index = state.selected_process_index;
-                                }
-                            }
-                            KeyCode::PageDown => {
-                                if !state.process_info.is_empty() {
+                                let is_remote = args.hosts.is_some() || args.hostfile.is_some();
+                                if is_remote {
+                                    // Remote mode - page up through GPU list
+                                    let (_cols, rows) = size().unwrap();
+                                    let content_start_row = 12;
+                                    let available_rows = rows.saturating_sub(content_start_row).saturating_sub(1) as usize;
+                                    
+                                    // Calculate storage display space for current tab
+                                    let storage_items_count = if state.current_tab > 0 && !state.storage_info.is_empty() {
+                                        let current_hostname = &state.tabs[state.current_tab];
+                                        state.storage_info.iter()
+                                            .filter(|info| info.hostname == *current_hostname)
+                                            .count()
+                                    } else {
+                                        0
+                                    };
+                                    let storage_display_rows = if storage_items_count > 0 {
+                                        storage_items_count + 2
+                                    } else {
+                                        0
+                                    };
+                                    
+                                    let gpu_display_rows = available_rows.saturating_sub(storage_display_rows);
+                                    let max_gpu_items = gpu_display_rows / 2; // Each GPU takes 2 rows
+                                    let page_size = max_gpu_items.max(1); // At least 1 item per page
+                                    
+                                    state.gpu_scroll_offset = state.gpu_scroll_offset.saturating_sub(page_size);
+                                    state.storage_scroll_offset = 0; // Reset storage scroll when paging GPU list
+                                } else {
+                                    // Local mode - page up through process list
                                     let (_cols, rows) = size().unwrap();
                                     let half_rows = rows / 2;
                                     let page_size = half_rows.saturating_sub(1) as usize;
-                                    state.selected_process_index = (state.selected_process_index
-                                        + page_size)
-                                        .min(state.process_info.len() - 1);
-                                    let visible_process_rows =
-                                        half_rows.saturating_sub(1) as usize;
-                                    if state.selected_process_index
-                                        >= state.start_index + visible_process_rows
-                                    {
-                                        state.start_index = state.selected_process_index
-                                            - visible_process_rows
-                                            + 1;
+                                    state.selected_process_index =
+                                        state.selected_process_index.saturating_sub(page_size);
+                                    if state.selected_process_index < state.start_index {
+                                        state.start_index = state.selected_process_index;
+                                    }
+                                }
+                            }
+                            KeyCode::PageDown => {
+                                let is_remote = args.hosts.is_some() || args.hostfile.is_some();
+                                if is_remote {
+                                    // Remote mode - page down through GPU list
+                                    let (_cols, rows) = size().unwrap();
+                                    let content_start_row = 12;
+                                    let available_rows = rows.saturating_sub(content_start_row).saturating_sub(1) as usize;
+                                    
+                                    // Calculate storage display space for current tab
+                                    let storage_items_count = if state.current_tab > 0 && !state.storage_info.is_empty() {
+                                        let current_hostname = &state.tabs[state.current_tab];
+                                        state.storage_info.iter()
+                                            .filter(|info| info.hostname == *current_hostname)
+                                            .count()
+                                    } else {
+                                        0
+                                    };
+                                    let storage_display_rows = if storage_items_count > 0 {
+                                        storage_items_count + 2
+                                    } else {
+                                        0
+                                    };
+                                    
+                                    let gpu_display_rows = available_rows.saturating_sub(storage_display_rows);
+                                    let max_gpu_items = gpu_display_rows / 2; // Each GPU takes 2 rows
+                                    let page_size = max_gpu_items.max(1); // At least 1 item per page
+                                    
+                                    // Calculate total GPUs for current tab
+                                    let total_gpus = if state.current_tab == 0 {
+                                        state.gpu_info.len()
+                                    } else {
+                                        state.gpu_info.iter()
+                                            .filter(|info| info.hostname == state.tabs[state.current_tab])
+                                            .count()
+                                    };
+                                    
+                                    if total_gpus > 0 {
+                                        let max_offset = total_gpus.saturating_sub(max_gpu_items);
+                                        state.gpu_scroll_offset = (state.gpu_scroll_offset + page_size).min(max_offset);
+                                        state.storage_scroll_offset = 0; // Reset storage scroll when paging GPU list
+                                    }
+                                } else {
+                                    // Local mode - page down through process list
+                                    if !state.process_info.is_empty() {
+                                        let (_cols, rows) = size().unwrap();
+                                        let half_rows = rows / 2;
+                                        let page_size = half_rows.saturating_sub(1) as usize;
+                                        state.selected_process_index = (state.selected_process_index
+                                            + page_size)
+                                            .min(state.process_info.len() - 1);
+                                        let visible_process_rows =
+                                            half_rows.saturating_sub(1) as usize;
+                                        if state.selected_process_index
+                                            >= state.start_index + visible_process_rows
+                                        {
+                                            state.start_index = state.selected_process_index
+                                                - visible_process_rows
+                                                + 1;
+                                        }
                                     }
                                 }
                             }
