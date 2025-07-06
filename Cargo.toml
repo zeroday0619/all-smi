@@ -1,6 +1,6 @@
 [package]
 name = "all-smi"
-version = "0.3.2"
+version = "0.3.3"
 description = "Command-line utility for monitoring GPU hardware. It provides a real-time view of GPU utilization, memory usage, temperature, power consumption, and other metrics."
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/inureyes/all-smi"
@@ -38,5 +38,5 @@ mock = []
 
 [[bin]]
 name = "all-smi-mock-server"
-path = "src/bin/mock-server.rs"
+path = "src/bin/all-smi-mock-server.rs"
 required-features = ["mock"]

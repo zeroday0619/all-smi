@@ -11,24 +11,15 @@ pub fn draw_tabs<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
     // Print tabs
     let mut labels: Vec<(String, Color)> = Vec::new();
 
-    // Add "All" tab with special formatting
-    if state.current_tab == 0 {
-        labels.push(("All".to_string(), Color::Black));
-        labels.push((" ".to_string(), Color::White));
-    } else {
-        labels.push(("All".to_string(), Color::White));
-        labels.push((" ".to_string(), Color::White));
-    }
-
     // Calculate available width for tabs
-    let mut available_width = cols.saturating_sub(5); // Reserve space for "All" and some padding
+    // Reserve space for "Tabs: " prefix (6 chars) plus some padding
+    let mut available_width = cols.saturating_sub(8);
 
     // Skip tabs that are before the scroll offset
     let visible_tabs: Vec<_> = state
         .tabs
         .iter()
         .enumerate()
-        .skip(1) // Skip "All" tab
         .skip(state.tab_scroll_offset)
         .collect();
 
@@ -74,14 +65,13 @@ fn render_tab_separator<W: Write>(stdout: &mut W, cols: u16) {
 
 #[allow(dead_code)]
 pub fn calculate_tab_visibility(state: &AppState, cols: u16) -> TabVisibility {
-    let mut available_width = cols.saturating_sub(5);
+    let mut available_width = cols.saturating_sub(8);
     let mut last_visible_tab = state.tab_scroll_offset;
 
     for (i, tab) in state
         .tabs
         .iter()
         .enumerate()
-        .skip(1)
         .skip(state.tab_scroll_offset)
     {
         let tab_width = tab.len() as u16 + 2;
@@ -93,7 +83,7 @@ pub fn calculate_tab_visibility(state: &AppState, cols: u16) -> TabVisibility {
     }
 
     TabVisibility {
-        first_visible: state.tab_scroll_offset + 1, // +1 because we skip "All" tab
+        first_visible: state.tab_scroll_offset,
         last_visible: last_visible_tab,
         has_more_left: state.tab_scroll_offset > 0,
         has_more_right: last_visible_tab < state.tabs.len() - 1,
@@ -116,6 +106,8 @@ mod tests {
     fn create_test_state() -> AppState {
         AppState {
             gpu_info: Vec::new(),
+            cpu_info: Vec::new(),
+            memory_info: Vec::new(),
             process_info: Vec::new(),
             selected_process_index: 0,
             start_index: 0,
@@ -147,7 +139,7 @@ mod tests {
         let state = create_test_state();
         let visibility = calculate_tab_visibility(&state, 80);
 
-        assert_eq!(visibility.first_visible, 1);
+        assert_eq!(visibility.first_visible, 0);
         assert!(!visibility.has_more_left);
         assert!(!visibility.has_more_right || state.tabs.len() > 4);
     }
@@ -158,7 +150,7 @@ mod tests {
         state.tab_scroll_offset = 1;
         let visibility = calculate_tab_visibility(&state, 80);
 
-        assert_eq!(visibility.first_visible, 2);
+        assert_eq!(visibility.first_visible, 1);
         assert!(visibility.has_more_left);
     }
 }

@@ -94,7 +94,7 @@ struct MemoryMetrics {
     utilization: f32,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 enum PlatformType {
     Nvidia,
     Apple,

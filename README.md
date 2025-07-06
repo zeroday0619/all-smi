@@ -114,7 +114,7 @@ Download the latest release from the [GitHub releases page](https://github.com/i
    cargo build --release
    
    # Build mock server for testing
-   cargo build --release --bin mock-server
+   cargo build --release --bin all-smi-mock-server --features mock
    ```
 
 3. **Run tests:**
