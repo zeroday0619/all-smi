@@ -9,7 +9,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use crate::api::handlers::{metrics_handler, SharedState};
 use crate::app_state::AppState;
 use crate::cli::ApiArgs;
-use crate::gpu::{get_cpu_readers, get_gpu_readers};
+use crate::gpu::{get_cpu_readers, get_gpu_readers, get_memory_readers};
 
 pub async fn run_api_mode(args: &ApiArgs) {
     tracing_subscriber::registry()
@@ -29,6 +29,7 @@ pub async fn run_api_mode(args: &ApiArgs) {
     tokio::spawn(async move {
         let gpu_readers = get_gpu_readers();
         let cpu_readers = get_cpu_readers();
+        let memory_readers = get_memory_readers();
         loop {
             let all_gpu_info = gpu_readers
                 .iter()
@@ -38,6 +39,11 @@ pub async fn run_api_mode(args: &ApiArgs) {
             let all_cpu_info = cpu_readers
                 .iter()
                 .flat_map(|reader| reader.get_cpu_info())
+                .collect();
+
+            let all_memory_info = memory_readers
+                .iter()
+                .flat_map(|reader| reader.get_memory_info())
                 .collect();
 
             let all_processes = if processes {
@@ -52,6 +58,7 @@ pub async fn run_api_mode(args: &ApiArgs) {
             let mut state = state_clone.write().await;
             state.gpu_info = all_gpu_info;
             state.cpu_info = all_cpu_info;
+            state.memory_info = all_memory_info;
             state.process_info = all_processes;
             if state.loading {
                 state.loading = false;

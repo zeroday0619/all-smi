@@ -7,8 +7,17 @@ use crossterm::{
 };
 
 use crate::app_state::AppState;
-use crate::gpu::{CpuInfo, GpuInfo, ProcessInfo};
+use crate::gpu::{CpuInfo, GpuInfo, MemoryInfo, ProcessInfo};
 use crate::storage::info::StorageInfo;
+
+// Helper function to format RAM values with appropriate units
+fn format_ram_value(gb_value: f64) -> String {
+    if gb_value >= 1024.0 {
+        format!("{:.2}TB", gb_value / 1024.0)
+    } else {
+        format!("{:.0}GB", gb_value)
+    }
+}
 
 pub fn print_colored_text<W: Write>(
     stdout: &mut W,
@@ -146,6 +155,21 @@ pub fn draw_system_view<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
         })
         .sum::<u32>();
 
+    // Calculate total system memory
+    let total_system_memory_gb = state
+        .memory_info
+        .iter()
+        .map(|memory| memory.total_bytes)
+        .sum::<u64>() as f64
+        / (1024.0 * 1024.0 * 1024.0);
+    
+    let used_system_memory_gb = state
+        .memory_info
+        .iter()
+        .map(|memory| memory.used_bytes)
+        .sum::<u64>() as f64
+        / (1024.0 * 1024.0 * 1024.0);
+
     // Calculate averages
     let avg_utilization = if total_gpus > 0 {
         state
@@ -158,17 +182,6 @@ pub fn draw_system_view<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
         0.0
     };
 
-    let used_memory_gb = state
-        .gpu_info
-        .iter()
-        .map(|gpu| gpu.used_memory)
-        .sum::<u64>() as f64
-        / (1024.0 * 1024.0 * 1024.0);
-    let memory_percent = if total_memory_gb > 0.0 {
-        (used_memory_gb / total_memory_gb) * 100.0
-    } else {
-        0.0
-    };
 
     let avg_temperature = if total_gpus > 0 {
         state
@@ -181,7 +194,7 @@ pub fn draw_system_view<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
         0.0
     };
 
-    // Calculate temperature standard deviation
+    // Calculate temperature standard deviation  
     let temp_std_dev = if total_gpus > 1 {
         let temp_variance = state
             .gpu_info
@@ -203,16 +216,29 @@ pub fn draw_system_view<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
         0.0
     };
 
-    // First row: | Nodes | CPU Cores | Total GPU mem | Avg. Temp | Total Power |
+    // Calculate used GPU memory in GB
+    let used_gpu_memory_gb = state
+        .gpu_info
+        .iter()
+        .map(|gpu| gpu.used_memory)
+        .sum::<u64>() as f64
+        / (1024.0 * 1024.0 * 1024.0);
+
+    // First row: | Nodes | Total RAM | GPU Cores | Total GPU RAM | Avg. Temp | Total Power |
     print_dashboard_row(
         stdout,
         &[
             ("Nodes", format!("{}", total_nodes), Color::Yellow),
-            ("CPU Cores", format!("{}", total_cpu_cores), Color::Cyan),
             (
-                "Total GPU mem",
-                format!("{:.1}GB", total_memory_gb),
+                "Total RAM",
+                format_ram_value(total_system_memory_gb),
                 Color::Green,
+            ),
+            ("GPU Cores", format!("{}", total_gpus), Color::Cyan),
+            (
+                "Total VRAM",
+                format_ram_value(total_memory_gb),
+                Color::Blue,
             ),
             (
                 "Avg. Temp",
@@ -228,17 +254,26 @@ pub fn draw_system_view<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
         box_width,
     );
 
-    // Second row: | GPUs | Avg. Util. | Memory % | Temp. Stdev | Avg. Power |
+    // Second row: | CPU Cores | Used RAM | Avg. GPU Util | Used GPU RAM | Temp. Stdev | Avg. Power |
     print_dashboard_row(
         stdout,
         &[
-            ("GPUs", format!("{}", total_gpus), Color::Yellow),
+            ("CPU Cores", format!("{}", total_cpu_cores), Color::Cyan),
             (
-                "Avg. Util.",
-                format!("{:.1}%", avg_utilization),
+                "Used RAM",
+                format_ram_value(used_system_memory_gb),
                 Color::Green,
             ),
-            ("Memory %", format!("{:.1}%", memory_percent), Color::Blue),
+            (
+                "GPU Util",
+                format!("{:.1}%", avg_utilization),
+                Color::Blue,
+            ),
+            (
+                "Used VRAM",
+                format_ram_value(used_gpu_memory_gb),
+                Color::Blue,
+            ),
             (
                 "Temp. Stdev",
                 format!("±{:.1}°C", temp_std_dev),
@@ -264,15 +299,21 @@ pub fn draw_dashboard_items<W: Write>(stdout: &mut W, state: &AppState, cols: u1
 fn print_dashboard_row<W: Write>(
     stdout: &mut W,
     items: &[(&str, String, Color)],
-    total_width: usize,
+    _total_width: usize,
 ) {
-    let item_count = items.len();
-    let item_width = total_width / item_count;
+    const ITEM_WIDTH: usize = 15; // Fixed width for each dashboard item
 
     // Print labels row
     print_colored_text(stdout, "│", Color::DarkGrey, None, None);
     for (label, _, color) in items {
-        let formatted_label = format!(" {:<width$}", label, width = item_width.saturating_sub(3));
+        // Truncate label if too long, ensuring it fits in 15 characters minus padding and separator
+        let max_label_len = ITEM_WIDTH.saturating_sub(3);
+        let truncated_label = if label.len() > max_label_len {
+            &label[..max_label_len]
+        } else {
+            label
+        };
+        let formatted_label = format!(" {:<width$}", truncated_label, width = max_label_len);
         print_colored_text(stdout, &formatted_label, *color, None, None);
         print_colored_text(stdout, "│", Color::DarkGrey, None, None);
     }
@@ -281,7 +322,14 @@ fn print_dashboard_row<W: Write>(
     // Print values row
     print_colored_text(stdout, "│", Color::DarkGrey, None, None);
     for (_, value, _) in items {
-        let formatted_value = format!(" {:<width$}", value, width = item_width.saturating_sub(3));
+        // Truncate value if too long, ensuring it fits in 15 characters minus padding and separator
+        let max_value_len = ITEM_WIDTH.saturating_sub(3);
+        let truncated_value = if value.len() > max_value_len {
+            &value[..max_value_len]
+        } else {
+            value
+        };
+        let formatted_value = format!(" {:<width$}", truncated_value, width = max_value_len);
         print_colored_text(stdout, &formatted_value, Color::White, None, None);
         print_colored_text(stdout, "│", Color::DarkGrey, None, None);
     }
@@ -382,7 +430,7 @@ fn print_node_view_and_history<W: Write>(
         // Print corresponding history line
         match row {
             0 => {
-                print_colored_text(stdout, "GPU Util: ", Color::Yellow, None, None);
+                print_colored_text(stdout, "GPU Util.", Color::Yellow, None, None);
                 print_history_bar_with_value(
                     stdout,
                     &state.utilization_history,
@@ -392,7 +440,7 @@ fn print_node_view_and_history<W: Write>(
                 );
             }
             1 => {
-                print_colored_text(stdout, "Memory:   ", Color::Yellow, None, None);
+                print_colored_text(stdout, "GPU Mem. ", Color::Yellow, None, None);
                 print_history_bar_with_value(
                     stdout,
                     &state.memory_history,
@@ -402,7 +450,7 @@ fn print_node_view_and_history<W: Write>(
                 );
             }
             2 => {
-                print_colored_text(stdout, "Temp:     ", Color::Yellow, None, None);
+                print_colored_text(stdout, "Temp     ", Color::Yellow, None, None);
                 print_history_bar_with_value(
                     stdout,
                     &state.temperature_history,
@@ -746,7 +794,7 @@ pub fn print_gpu_info<W: Write>(
 
     // Calculate bar widths based on available space and number of bars
     let num_bars = if info.ane_utilization > 0.0 { 3 } else { 2 };
-    let individual_bar_width = (bar_width - (num_bars * 2)) / num_bars; // Account for spacing
+    let individual_bar_width = (bar_width - ((num_bars - 1)* 2)) / num_bars; // Account for spacing
 
     // GPU Utilization bar
     draw_bar(
@@ -972,6 +1020,111 @@ pub fn print_cpu_info<W: Write>(
             );
         }
     }
+
+    queue!(stdout, Print("\r\n")).unwrap();
+}
+
+pub fn print_memory_info<W: Write>(
+    stdout: &mut W,
+    _index: usize,
+    info: &MemoryInfo,
+    width: usize,
+) {
+    let mut labels: Vec<(String, Color)> = Vec::new();
+
+    // Helper function to add labels with fixed width for alignment
+    fn add_label(
+        labels: &mut Vec<(String, Color)>,
+        label: &str,
+        value: String,
+        label_color: Color,
+        value_width: usize,
+    ) {
+        labels.push((label.to_string(), label_color));
+        // Pad or truncate value to ensure consistent width
+        let formatted_value = if value.len() > value_width {
+            value.chars().take(value_width).collect()
+        } else {
+            format!("{:<width$}", value, width = value_width)
+        };
+        labels.push((formatted_value, Color::White));
+    }
+
+    // Add memory type label
+    add_label(&mut labels, "RAM ", "Memory".to_string(), Color::Cyan, 6);
+
+    // Add hostname
+    add_label(&mut labels, " Host:", info.hostname.clone(), Color::Yellow, 12);
+
+    // Add total memory
+    let total_gb = info.total_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
+    add_label(
+        &mut labels,
+        " Total:",
+        format!("{:.1}GB", total_gb),
+        Color::White,
+        8,
+    );
+
+    // Add used memory
+    let used_gb = info.used_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
+    add_label(
+        &mut labels,
+        " Used:",
+        format!("{:.1}GB", used_gb),
+        Color::White,
+        8,
+    );
+
+    // Add available memory
+    let available_gb = info.available_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
+    add_label(
+        &mut labels,
+        " Avail:",
+        format!("{:.1}GB", available_gb),
+        Color::Green,
+        8,
+    );
+
+    // Add swap if available
+    if info.swap_total_bytes > 0 {
+        let swap_total_gb = info.swap_total_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
+        let swap_used_gb = info.swap_used_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
+        add_label(
+            &mut labels,
+            " Swap:",
+            format!("{:.1}/{:.1}GB", swap_used_gb, swap_total_gb),
+            Color::DarkYellow,
+            12,
+        );
+    }
+
+    // Print all labels, wrapping as needed
+    let mut current_width = 0;
+    for (text, color) in labels {
+        if current_width + text.len() > width && current_width > 0 {
+            queue!(stdout, Print("\r\n")).unwrap();
+            current_width = 0;
+        }
+        print_colored_text(stdout, &text, color, None, None);
+        current_width += text.len();
+    }
+
+    queue!(stdout, Print("\r\n")).unwrap();
+
+    // Add memory utilization gauge on the next line (matching GPU/CPU format)
+    let bar_width = width.saturating_sub(10);
+    queue!(stdout, Print("     ")).unwrap();
+
+    // Show memory utilization gauge
+    draw_bar(
+        stdout,
+        "RAM",
+        info.utilization as f64,
+        100.0,
+        bar_width,
+        None,
+    );
 
     queue!(stdout, Print("\r\n")).unwrap();
 }

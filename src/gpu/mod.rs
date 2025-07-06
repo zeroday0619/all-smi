@@ -6,6 +6,10 @@ pub mod nvidia_jetson;
 pub mod cpu_linux;
 pub mod cpu_macos;
 
+// Memory reader modules
+pub mod memory_linux;
+pub mod memory_macos;
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -18,6 +22,10 @@ pub trait GpuReader: Send {
 
 pub trait CpuReader: Send {
     fn get_cpu_info(&self) -> Vec<CpuInfo>;
+}
+
+pub trait MemoryReader: Send {
+    fn get_memory_info(&self) -> Vec<MemoryInfo>;
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -108,6 +116,23 @@ pub struct AppleSiliconCpuInfo {
     pub ane_ops_per_second: Option<f64>, // ANE operations per second
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct MemoryInfo {
+    pub hostname: String,
+    pub instance: String,
+    pub total_bytes: u64,           // Total system memory in bytes
+    pub used_bytes: u64,            // Used memory in bytes
+    pub available_bytes: u64,       // Available memory in bytes
+    pub free_bytes: u64,            // Free memory in bytes
+    pub buffers_bytes: u64,         // Buffer memory in bytes (Linux specific)
+    pub cached_bytes: u64,          // Cached memory in bytes (Linux specific)
+    pub swap_total_bytes: u64,      // Total swap space in bytes
+    pub swap_used_bytes: u64,       // Used swap space in bytes
+    pub swap_free_bytes: u64,       // Free swap space in bytes
+    pub utilization: f64,           // Memory utilization percentage
+    pub time: String,               // Timestamp
+}
+
 pub fn get_gpu_readers() -> Vec<Box<dyn GpuReader>> {
     let mut readers: Vec<Box<dyn GpuReader>> = Vec::new();
     let os_type = std::env::consts::OS;
@@ -143,6 +168,23 @@ pub fn get_cpu_readers() -> Vec<Box<dyn CpuReader>> {
             readers.push(Box::new(cpu_macos::MacOsCpuReader::new()));
         }
         _ => println!("CPU monitoring not supported for OS type: {}", os_type),
+    }
+
+    readers
+}
+
+pub fn get_memory_readers() -> Vec<Box<dyn MemoryReader>> {
+    let mut readers: Vec<Box<dyn MemoryReader>> = Vec::new();
+    let os_type = std::env::consts::OS;
+
+    match os_type {
+        "linux" => {
+            readers.push(Box::new(memory_linux::LinuxMemoryReader::new()));
+        }
+        "macos" => {
+            readers.push(Box::new(memory_macos::MacOsMemoryReader::new()));
+        }
+        _ => println!("Memory monitoring not supported for OS type: {}", os_type),
     }
 
     readers

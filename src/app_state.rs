@@ -1,4 +1,4 @@
-use crate::gpu::{CpuInfo, GpuInfo, ProcessInfo};
+use crate::gpu::{CpuInfo, GpuInfo, MemoryInfo, ProcessInfo};
 use crate::storage::info::StorageInfo;
 use std::collections::{HashMap, VecDeque};
 
@@ -6,6 +6,7 @@ use std::collections::{HashMap, VecDeque};
 pub struct AppState {
     pub gpu_info: Vec<GpuInfo>,
     pub cpu_info: Vec<CpuInfo>,
+    pub memory_info: Vec<MemoryInfo>,
     pub process_info: Vec<ProcessInfo>,
     pub selected_process_index: usize,
     pub start_index: usize,
@@ -46,6 +47,7 @@ impl AppState {
         AppState {
             gpu_info: Vec::new(),
             cpu_info: Vec::new(),
+            memory_info: Vec::new(),
             process_info: Vec::new(),
             selected_process_index: 0,
             start_index: 0,

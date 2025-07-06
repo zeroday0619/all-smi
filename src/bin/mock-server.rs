@@ -79,6 +79,20 @@ struct CpuMetrics {
     e_core_utilization: Option<f32>,
 }
 
+#[derive(Clone)]
+struct MemoryMetrics {
+    total_bytes: u64,
+    used_bytes: u64,
+    available_bytes: u64,
+    free_bytes: u64,
+    buffers_bytes: u64,
+    cached_bytes: u64,
+    swap_total_bytes: u64,
+    swap_used_bytes: u64,
+    swap_free_bytes: u64,
+    utilization: f32,
+}
+
 #[derive(Clone, Debug)]
 enum PlatformType {
     Nvidia,
@@ -95,6 +109,7 @@ struct MockNode {
     gpu_name: String,
     gpus: Vec<GpuMetrics>,
     cpu: CpuMetrics,
+    memory: MemoryMetrics,
     platform_type: PlatformType,
     disk_available_bytes: u64,
     disk_total_bytes: u64,
@@ -126,6 +141,16 @@ const PLACEHOLDER_CPU_P_CORE_UTIL: &str = "{{CPU_P_CORE_UTIL}}";
 const PLACEHOLDER_CPU_E_CORE_UTIL: &str = "{{CPU_E_CORE_UTIL}}";
 const PLACEHOLDER_CPU_TEMP: &str = "{{CPU_TEMP}}";
 const PLACEHOLDER_CPU_POWER: &str = "{{CPU_POWER}}";
+
+// System memory placeholders
+const PLACEHOLDER_SYS_MEMORY_USED: &str = "{{SYS_MEMORY_USED}}";
+const PLACEHOLDER_SYS_MEMORY_AVAILABLE: &str = "{{SYS_MEMORY_AVAILABLE}}";
+const PLACEHOLDER_SYS_MEMORY_FREE: &str = "{{SYS_MEMORY_FREE}}";
+const PLACEHOLDER_SYS_MEMORY_UTIL: &str = "{{SYS_MEMORY_UTIL}}";
+const PLACEHOLDER_SYS_MEMORY_BUFFERS: &str = "{{SYS_MEMORY_BUFFERS}}";
+const PLACEHOLDER_SYS_MEMORY_CACHED: &str = "{{SYS_MEMORY_CACHED}}";
+const PLACEHOLDER_SYS_SWAP_USED: &str = "{{SYS_SWAP_USED}}";
+const PLACEHOLDER_SYS_SWAP_FREE: &str = "{{SYS_SWAP_FREE}}";
 
 fn generate_uuid() -> String {
     let mut rng = rand::thread_rng();
@@ -195,14 +220,18 @@ impl MockNode {
         // Initialize CPU metrics based on platform
         let cpu = Self::create_cpu_metrics(&platform, &mut rng);
 
+        // Initialize memory metrics
+        let memory = Self::create_memory_metrics(&mut rng);
+
         // Build response template once during initialization
-        let response_template = Self::build_response_template(&instance_name, &gpu_name, &gpus, &cpu, &platform);
+        let response_template = Self::build_response_template(&instance_name, &gpu_name, &gpus, &cpu, &memory, &platform);
 
         let mut node = Self {
             instance_name,
             gpu_name,
             gpus,
             cpu,
+            memory,
             platform_type: platform,
             disk_available_bytes: rng.gen_range(disk_total_bytes / 10..disk_total_bytes * 9 / 10),
             disk_total_bytes,
@@ -399,6 +428,54 @@ impl MockNode {
         }
     }
 
+    fn create_memory_metrics(rng: &mut rand::rngs::ThreadRng) -> MemoryMetrics {
+        // Memory size options: 256GB, 512GB, 1TB, 2TB, 4TB
+        let memory_sizes_gb = [256, 512, 1024, 2048, 4096];
+        let total_gb = memory_sizes_gb[rng.gen_range(0..memory_sizes_gb.len())];
+        let total_bytes = total_gb as u64 * 1024 * 1024 * 1024;
+
+        // Start used memory at 40%+ and make it fluctuate
+        let base_utilization = rng.gen_range(40.0..80.0);
+        let utilization = base_utilization as f32;
+        let used_bytes = (total_bytes as f64 * utilization as f64 / 100.0) as u64;
+        let available_bytes = total_bytes - used_bytes;
+        let free_bytes = rng.gen_range(available_bytes / 4..available_bytes * 3 / 4);
+
+        // Linux-specific memory breakdown
+        let buffers_bytes = rng.gen_range(total_bytes / 100..total_bytes / 20); // 1-5% for buffers
+        let cached_bytes = rng.gen_range(total_bytes / 50..total_bytes / 10); // 2-10% for cache
+
+        // Swap configuration (some nodes have swap, others don't)
+        let (swap_total_bytes, swap_used_bytes, swap_free_bytes) = if rng.gen_bool(0.7) {
+            // 70% chance of having swap
+            // Swap size: min(1/8 of total memory, 32GB)
+            let max_swap_32gb = 32 * 1024 * 1024 * 1024; // 32GB in bytes
+            let max_swap_eighth = total_bytes / 8; // 1/8 of total memory
+            let swap_total = std::cmp::min(max_swap_32gb, max_swap_eighth);
+            
+            // Swap is only used when memory usage is at 100%
+            // Since we start at 40-80% usage, no swap is used initially
+            let swap_used = 0;
+            let swap_free = swap_total;
+            (swap_total, swap_used, swap_free)
+        } else {
+            (0, 0, 0)
+        };
+
+        MemoryMetrics {
+            total_bytes,
+            used_bytes,
+            available_bytes,
+            free_bytes,
+            buffers_bytes,
+            cached_bytes,
+            swap_total_bytes,
+            swap_used_bytes,
+            swap_free_bytes,
+            utilization,
+        }
+    }
+
     fn extract_gpu_memory_gb(gpu_name: &str) -> u64 {
         // Extract memory size from GPU name (e.g., "NVIDIA H200 141GB HBM3" -> 141)
         if let Some(gb_pos) = gpu_name.find("GB") {
@@ -422,7 +499,7 @@ impl MockNode {
     }
 
     // Build static response template with placeholders (called once during init)
-    fn build_response_template(instance_name: &str, gpu_name: &str, gpus: &[GpuMetrics], cpu: &CpuMetrics, platform: &PlatformType) -> String {
+    fn build_response_template(instance_name: &str, gpu_name: &str, gpus: &[GpuMetrics], cpu: &CpuMetrics, memory: &MemoryMetrics, platform: &PlatformType) -> String {
         let mut template = String::with_capacity(16384); // Pre-allocate 16KB
 
         // GPU Metrics headers
@@ -550,6 +627,60 @@ impl MockNode {
             }
         }
 
+        // Memory metrics
+        let memory_labels = format!(
+            "instance=\"{}\", hostname=\"{}\", index=\"0\"",
+            instance_name, instance_name
+        );
+
+        template.push_str("# HELP all_smi_memory_total_bytes Total system memory in bytes\n");
+        template.push_str("# TYPE all_smi_memory_total_bytes gauge\n");
+        template.push_str(&format!("all_smi_memory_total_bytes{{{}}} {}\n", memory_labels, memory.total_bytes));
+
+        template.push_str("# HELP all_smi_memory_used_bytes Used system memory in bytes\n");
+        template.push_str("# TYPE all_smi_memory_used_bytes gauge\n");
+        template.push_str(&format!("all_smi_memory_used_bytes{{{}}} {}\n", memory_labels, PLACEHOLDER_SYS_MEMORY_USED));
+
+        template.push_str("# HELP all_smi_memory_available_bytes Available system memory in bytes\n");
+        template.push_str("# TYPE all_smi_memory_available_bytes gauge\n");
+        template.push_str(&format!("all_smi_memory_available_bytes{{{}}} {}\n", memory_labels, PLACEHOLDER_SYS_MEMORY_AVAILABLE));
+
+        template.push_str("# HELP all_smi_memory_free_bytes Free system memory in bytes\n");
+        template.push_str("# TYPE all_smi_memory_free_bytes gauge\n");
+        template.push_str(&format!("all_smi_memory_free_bytes{{{}}} {}\n", memory_labels, PLACEHOLDER_SYS_MEMORY_FREE));
+
+        template.push_str("# HELP all_smi_memory_utilization Memory utilization percentage\n");
+        template.push_str("# TYPE all_smi_memory_utilization gauge\n");
+        template.push_str(&format!("all_smi_memory_utilization{{{}}} {}\n", memory_labels, PLACEHOLDER_SYS_MEMORY_UTIL));
+
+        // Swap metrics if available
+        if memory.swap_total_bytes > 0 {
+            template.push_str("# HELP all_smi_swap_total_bytes Total swap space in bytes\n");
+            template.push_str("# TYPE all_smi_swap_total_bytes gauge\n");
+            template.push_str(&format!("all_smi_swap_total_bytes{{{}}} {}\n", memory_labels, memory.swap_total_bytes));
+
+            template.push_str("# HELP all_smi_swap_used_bytes Used swap space in bytes\n");
+            template.push_str("# TYPE all_smi_swap_used_bytes gauge\n");
+            template.push_str(&format!("all_smi_swap_used_bytes{{{}}} {}\n", memory_labels, PLACEHOLDER_SYS_SWAP_USED));
+
+            template.push_str("# HELP all_smi_swap_free_bytes Free swap space in bytes\n");
+            template.push_str("# TYPE all_smi_swap_free_bytes gauge\n");
+            template.push_str(&format!("all_smi_swap_free_bytes{{{}}} {}\n", memory_labels, PLACEHOLDER_SYS_SWAP_FREE));
+        }
+
+        // Linux-specific metrics
+        if memory.buffers_bytes > 0 {
+            template.push_str("# HELP all_smi_memory_buffers_bytes Memory used for buffers in bytes\n");
+            template.push_str("# TYPE all_smi_memory_buffers_bytes gauge\n");
+            template.push_str(&format!("all_smi_memory_buffers_bytes{{{}}} {}\n", memory_labels, PLACEHOLDER_SYS_MEMORY_BUFFERS));
+        }
+
+        if memory.cached_bytes > 0 {
+            template.push_str("# HELP all_smi_memory_cached_bytes Memory used for cache in bytes\n");
+            template.push_str("# TYPE all_smi_memory_cached_bytes gauge\n");
+            template.push_str(&format!("all_smi_memory_cached_bytes{{{}}} {}\n", memory_labels, PLACEHOLDER_SYS_MEMORY_CACHED));
+        }
+
         // Disk metrics
         template.push_str("# HELP all_smi_disk_total_bytes Total disk space in bytes\n");
         template.push_str("# TYPE all_smi_disk_total_bytes gauge\n");
@@ -626,6 +757,29 @@ impl MockNode {
                     .replace(PLACEHOLDER_CPU_P_CORE_UTIL, &format!("{:.2}", p_util))
                     .replace(PLACEHOLDER_CPU_E_CORE_UTIL, &format!("{:.2}", e_util));
             }
+        }
+
+        // Replace memory metrics
+        response = response
+            .replace(PLACEHOLDER_SYS_MEMORY_USED, &self.memory.used_bytes.to_string())
+            .replace(PLACEHOLDER_SYS_MEMORY_AVAILABLE, &self.memory.available_bytes.to_string())
+            .replace(PLACEHOLDER_SYS_MEMORY_FREE, &self.memory.free_bytes.to_string())
+            .replace(PLACEHOLDER_SYS_MEMORY_UTIL, &format!("{:.2}", self.memory.utilization));
+
+        // Replace swap metrics if available
+        if self.memory.swap_total_bytes > 0 {
+            response = response
+                .replace(PLACEHOLDER_SYS_SWAP_USED, &self.memory.swap_used_bytes.to_string())
+                .replace(PLACEHOLDER_SYS_SWAP_FREE, &self.memory.swap_free_bytes.to_string());
+        }
+
+        // Replace buffer and cache metrics if available
+        if self.memory.buffers_bytes > 0 {
+            response = response.replace(PLACEHOLDER_SYS_MEMORY_BUFFERS, &self.memory.buffers_bytes.to_string());
+        }
+
+        if self.memory.cached_bytes > 0 {
+            response = response.replace(PLACEHOLDER_SYS_MEMORY_CACHED, &self.memory.cached_bytes.to_string());
         }
 
         // Replace disk metrics
@@ -729,6 +883,63 @@ impl MockNode {
             let e_delta = rng.gen_range(-2.0..2.0);
             *p_util = (*p_util + p_delta).clamp(0.0, 100.0);
             *e_util = (*e_util + e_delta).clamp(0.0, 100.0);
+        }
+
+        // Update memory metrics with gradual fluctuation
+        let memory_util_delta = rng.gen_range(-2.0..2.0);
+        // Allow memory utilization to occasionally reach 100% to trigger swap usage
+        self.memory.utilization = (self.memory.utilization + memory_util_delta).clamp(30.0, 102.0);
+        
+        // Calculate memory usage, accounting for potential over-allocation
+        let target_used_bytes = (self.memory.total_bytes as f64 * self.memory.utilization as f64 / 100.0) as u64;
+        
+        if target_used_bytes > self.memory.total_bytes {
+            // Memory usage exceeds physical memory - use swap
+            self.memory.used_bytes = self.memory.total_bytes;
+            self.memory.available_bytes = 0;
+            self.memory.free_bytes = 0;
+            
+            // Calculate swap usage based on excess memory demand
+            if self.memory.swap_total_bytes > 0 {
+                let excess_bytes = target_used_bytes - self.memory.total_bytes;
+                self.memory.swap_used_bytes = excess_bytes.min(self.memory.swap_total_bytes);
+                self.memory.swap_free_bytes = self.memory.swap_total_bytes - self.memory.swap_used_bytes;
+                
+                // Memory utilization should show 100% when physical memory is full
+                self.memory.utilization = 100.0;
+            } else {
+                // No swap available, cap at 100% physical memory
+                self.memory.utilization = 100.0;
+            }
+        } else {
+            // Normal memory usage - no swap needed
+            self.memory.used_bytes = target_used_bytes;
+            self.memory.available_bytes = self.memory.total_bytes - target_used_bytes;
+            
+            // Update free bytes (a portion of available bytes)
+            let free_ratio = rng.gen_range(0.3..0.8);
+            self.memory.free_bytes = (self.memory.available_bytes as f64 * free_ratio) as u64;
+            
+            // No swap usage when memory is below 100%
+            if self.memory.swap_total_bytes > 0 {
+                self.memory.swap_used_bytes = 0;
+                self.memory.swap_free_bytes = self.memory.swap_total_bytes;
+            }
+        }
+        
+        // Small fluctuations in buffers and cache
+        if self.memory.buffers_bytes > 0 {
+            let buffer_delta = rng.gen_range(-(self.memory.total_bytes as i64 / 200)..(self.memory.total_bytes as i64 / 200));
+            self.memory.buffers_bytes = self.memory.buffers_bytes
+                .saturating_add_signed(buffer_delta)
+                .min(self.memory.total_bytes / 20);
+        }
+        
+        if self.memory.cached_bytes > 0 {
+            let cache_delta = rng.gen_range(-(self.memory.total_bytes as i64 / 100)..(self.memory.total_bytes as i64 / 100));
+            self.memory.cached_bytes = self.memory.cached_bytes
+                .saturating_add_signed(cache_delta)
+                .min(self.memory.total_bytes / 5);
         }
 
         // Change disk available bytes by a small amount, up to 1 GiB

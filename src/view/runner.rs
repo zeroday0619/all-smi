@@ -21,13 +21,13 @@ use tokio::sync::Mutex;
 
 use crate::app_state::{AppState, SortCriteria};
 use crate::cli::ViewArgs;
-use crate::gpu::{get_cpu_readers, get_gpu_readers, CpuInfo, GpuInfo, ProcessInfo};
+use crate::gpu::{get_cpu_readers, get_gpu_readers, get_memory_readers, CpuInfo, GpuInfo, MemoryInfo, ProcessInfo};
 use crate::storage::info::StorageInfo;
 use crate::ui::buffer::BufferWriter;
 use crate::ui::help::print_help_popup;
 use crate::ui::renderer::{
     draw_dashboard_items, draw_system_view, print_colored_text, print_cpu_info, print_function_keys,
-    print_gpu_info, print_loading_indicator, print_process_info, print_storage_info,
+    print_gpu_info, print_loading_indicator, print_memory_info, print_process_info, print_storage_info,
 };
 use crate::ui::tabs::draw_tabs;
 use crate::utils::{calculate_adaptive_interval, get_hostname, should_include_disk};
@@ -66,6 +66,7 @@ pub async fn run_view_mode(args: &ViewArgs) {
 async fn run_local_mode(app_state: Arc<Mutex<AppState>>, args: ViewArgs) {
     let gpu_readers = get_gpu_readers();
     let cpu_readers = get_cpu_readers();
+    let memory_readers = get_memory_readers();
     loop {
         let all_gpu_info: Vec<GpuInfo> = gpu_readers
             .iter()
@@ -75,6 +76,11 @@ async fn run_local_mode(app_state: Arc<Mutex<AppState>>, args: ViewArgs) {
         let all_cpu_info: Vec<CpuInfo> = cpu_readers
             .iter()
             .flat_map(|reader| reader.get_cpu_info())
+            .collect();
+
+        let all_memory_info: Vec<MemoryInfo> = memory_readers
+            .iter()
+            .flat_map(|reader| reader.get_memory_info())
             .collect();
 
         let all_processes: Vec<ProcessInfo> = gpu_readers
@@ -115,6 +121,7 @@ async fn run_local_mode(app_state: Arc<Mutex<AppState>>, args: ViewArgs) {
             }
         }
         state.cpu_info = all_cpu_info;
+        state.memory_info = all_memory_info;
         state.process_info = all_processes;
         state.storage_info = all_storage_info;
 
@@ -180,7 +187,7 @@ async fn run_remote_mode(
     let semaphore = Arc::new(tokio::sync::Semaphore::new(max_concurrent_connections));
 
     loop {
-        let (all_gpu_info, all_cpu_info, all_storage_info) =
+        let (all_gpu_info, all_cpu_info, all_memory_info, all_storage_info) =
             fetch_remote_data(&hosts, &client, &semaphore, &re).await;
 
         // Deduplicate storage info by instance and mount_point
@@ -194,6 +201,7 @@ async fn run_remote_mode(
         let mut state = app_state.lock().await;
         state.gpu_info = all_gpu_info;
         state.cpu_info = all_cpu_info;
+        state.memory_info = all_memory_info;
         state.storage_info = final_storage_info;
 
         // Update utilization history
@@ -208,6 +216,11 @@ async fn run_remote_mode(
 
         // Collect hostnames from CPU info
         for info in &state.cpu_info {
+            hostnames.insert(info.hostname.clone());
+        }
+
+        // Collect hostnames from memory info
+        for info in &state.memory_info {
             hostnames.insert(info.hostname.clone());
         }
 
@@ -240,9 +253,10 @@ async fn fetch_remote_data(
     client: &reqwest::Client,
     semaphore: &Arc<tokio::sync::Semaphore>,
     re: &Regex,
-) -> (Vec<GpuInfo>, Vec<CpuInfo>, Vec<StorageInfo>) {
+) -> (Vec<GpuInfo>, Vec<CpuInfo>, Vec<MemoryInfo>, Vec<StorageInfo>) {
     let mut all_gpu_info = Vec::new();
     let mut all_cpu_info = Vec::new();
+    let mut all_memory_info = Vec::new();
     let mut all_storage_info = Vec::new();
 
     // Parallel data collection with concurrency limiting and retries
@@ -339,9 +353,10 @@ async fn fetch_remote_data(
                     continue;
                 }
 
-                let (gpu_info, cpu_info, storage_info) = parse_metrics(&text, &host, re);
+                let (gpu_info, cpu_info, memory_info, storage_info) = parse_metrics(&text, &host, re);
                 all_gpu_info.extend(gpu_info);
                 all_cpu_info.extend(cpu_info);
+                all_memory_info.extend(memory_info);
                 all_storage_info.extend(storage_info);
             }
             Ok(None) => {
@@ -361,14 +376,15 @@ async fn fetch_remote_data(
         );
     }
 
-    (all_gpu_info, all_cpu_info, all_storage_info)
+    (all_gpu_info, all_cpu_info, all_memory_info, all_storage_info)
 }
 
-fn parse_metrics(text: &str, host: &str, re: &Regex) -> (Vec<GpuInfo>, Vec<CpuInfo>, Vec<StorageInfo>) {
+fn parse_metrics(text: &str, host: &str, re: &Regex) -> (Vec<GpuInfo>, Vec<CpuInfo>, Vec<MemoryInfo>, Vec<StorageInfo>) {
     use crate::gpu::{AppleSiliconCpuInfo, CpuPlatformType, CpuSocketInfo};
     
     let mut gpu_info_map: HashMap<String, GpuInfo> = HashMap::new();
     let mut cpu_info_map: HashMap<String, CpuInfo> = HashMap::new();
+    let mut memory_info_map: HashMap<String, MemoryInfo> = HashMap::new();
     let mut storage_info_map: HashMap<String, StorageInfo> = HashMap::new();
     let mut host_instance_name: Option<String> = None;
 
@@ -613,6 +629,64 @@ fn parse_metrics(text: &str, host: &str, re: &Regex) -> (Vec<GpuInfo>, Vec<CpuIn
                     }
                     _ => {}
                 }
+            } else if metric_name.starts_with("memory_") || metric_name.starts_with("swap_") {
+                // Handle memory metrics
+                let hostname = host.split(':').next().unwrap_or_default().to_string();
+                let memory_index = labels.get("index").cloned().unwrap_or("0".to_string());
+
+                let memory_key = format!("{}:{}", host, memory_index);
+
+                let memory_info = memory_info_map.entry(memory_key).or_insert_with(|| {
+                    MemoryInfo {
+                        hostname: hostname.clone(),
+                        instance: host.to_string(),
+                        total_bytes: 0,
+                        used_bytes: 0,
+                        available_bytes: 0,
+                        free_bytes: 0,
+                        buffers_bytes: 0,
+                        cached_bytes: 0,
+                        swap_total_bytes: 0,
+                        swap_used_bytes: 0,
+                        swap_free_bytes: 0,
+                        utilization: 0.0,
+                        time: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+                    }
+                });
+
+                match metric_name {
+                    "memory_total_bytes" => {
+                        memory_info.total_bytes = value as u64;
+                    }
+                    "memory_used_bytes" => {
+                        memory_info.used_bytes = value as u64;
+                    }
+                    "memory_available_bytes" => {
+                        memory_info.available_bytes = value as u64;
+                    }
+                    "memory_free_bytes" => {
+                        memory_info.free_bytes = value as u64;
+                    }
+                    "memory_buffers_bytes" => {
+                        memory_info.buffers_bytes = value as u64;
+                    }
+                    "memory_cached_bytes" => {
+                        memory_info.cached_bytes = value as u64;
+                    }
+                    "memory_utilization" => {
+                        memory_info.utilization = value;
+                    }
+                    "swap_total_bytes" => {
+                        memory_info.swap_total_bytes = value as u64;
+                    }
+                    "swap_used_bytes" => {
+                        memory_info.swap_used_bytes = value as u64;
+                    }
+                    "swap_free_bytes" => {
+                        memory_info.swap_free_bytes = value as u64;
+                    }
+                    _ => {}
+                }
             } else if metric_name.starts_with("disk_") {
                 // Handle disk metrics
                 let mount_point = labels.get("mount_point").cloned().unwrap_or_default();
@@ -663,6 +737,10 @@ fn parse_metrics(text: &str, host: &str, re: &Regex) -> (Vec<GpuInfo>, Vec<CpuIn
         for cpu_info in cpu_info_map.values_mut() {
             cpu_info.hostname = instance_name.clone();
         }
+        // Update memory hostnames to use instance name
+        for memory_info in memory_info_map.values_mut() {
+            memory_info.hostname = instance_name.clone();
+        }
         // Update storage hostnames to use instance name
         for storage_info in storage_info_map.values_mut() {
             storage_info.hostname = instance_name.clone();
@@ -672,6 +750,7 @@ fn parse_metrics(text: &str, host: &str, re: &Regex) -> (Vec<GpuInfo>, Vec<CpuIn
     (
         gpu_info_map.into_values().collect(),
         cpu_info_map.into_values().collect(),
+        memory_info_map.into_values().collect(),
         storage_info_map.into_values().collect(),
     )
 }
@@ -969,6 +1048,23 @@ fn render_main_view<W: Write>(
             for (index, info) in cpu_info_to_display.iter().enumerate() {
                 print_cpu_info(&mut buffer, index, info, width);
                 if index < cpu_info_to_display.len() - 1 {
+                    queue!(buffer, Print("\r\n")).unwrap();
+                }
+            }
+        }
+
+        // Display memory info for node-specific tabs
+        let memory_info_to_display: Vec<&MemoryInfo> = state
+            .memory_info
+            .iter()
+            .filter(|info| info.hostname == *current_hostname)
+            .collect();
+
+        if !memory_info_to_display.is_empty() {
+            queue!(buffer, Print("\r\n")).unwrap();
+            for (index, info) in memory_info_to_display.iter().enumerate() {
+                print_memory_info(&mut buffer, index, info, width);
+                if index < memory_info_to_display.len() - 1 {
                     queue!(buffer, Print("\r\n")).unwrap();
                 }
             }

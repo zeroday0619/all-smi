@@ -278,6 +278,114 @@ pub async fn metrics_handler(State(state): State<SharedState>) -> String {
         }
     }
 
+    // Memory metrics
+    if !state.memory_info.is_empty() {
+        for (i, memory_info) in state.memory_info.iter().enumerate() {
+            // Total memory
+            metrics.push_str(&format!(
+                "# HELP all_smi_memory_total_bytes Total system memory in bytes\n"
+            ));
+            metrics.push_str(&format!("# TYPE all_smi_memory_total_bytes gauge\n"));
+            metrics.push_str(&format!(
+                "all_smi_memory_total_bytes{{instance=\"{}\", hostname=\"{}\", index=\"{}\"}} {}\n",
+                memory_info.instance, memory_info.hostname, i, memory_info.total_bytes
+            ));
+
+            // Used memory
+            metrics.push_str(&format!(
+                "# HELP all_smi_memory_used_bytes Used system memory in bytes\n"
+            ));
+            metrics.push_str(&format!("# TYPE all_smi_memory_used_bytes gauge\n"));
+            metrics.push_str(&format!(
+                "all_smi_memory_used_bytes{{instance=\"{}\", hostname=\"{}\", index=\"{}\"}} {}\n",
+                memory_info.instance, memory_info.hostname, i, memory_info.used_bytes
+            ));
+
+            // Available memory
+            metrics.push_str(&format!(
+                "# HELP all_smi_memory_available_bytes Available system memory in bytes\n"
+            ));
+            metrics.push_str(&format!("# TYPE all_smi_memory_available_bytes gauge\n"));
+            metrics.push_str(&format!(
+                "all_smi_memory_available_bytes{{instance=\"{}\", hostname=\"{}\", index=\"{}\"}} {}\n",
+                memory_info.instance, memory_info.hostname, i, memory_info.available_bytes
+            ));
+
+            // Free memory
+            metrics.push_str(&format!(
+                "# HELP all_smi_memory_free_bytes Free system memory in bytes\n"
+            ));
+            metrics.push_str(&format!("# TYPE all_smi_memory_free_bytes gauge\n"));
+            metrics.push_str(&format!(
+                "all_smi_memory_free_bytes{{instance=\"{}\", hostname=\"{}\", index=\"{}\"}} {}\n",
+                memory_info.instance, memory_info.hostname, i, memory_info.free_bytes
+            ));
+
+            // Memory utilization
+            metrics.push_str(&format!(
+                "# HELP all_smi_memory_utilization Memory utilization percentage\n"
+            ));
+            metrics.push_str(&format!("# TYPE all_smi_memory_utilization gauge\n"));
+            metrics.push_str(&format!(
+                "all_smi_memory_utilization{{instance=\"{}\", hostname=\"{}\", index=\"{}\"}} {}\n",
+                memory_info.instance, memory_info.hostname, i, memory_info.utilization
+            ));
+
+            // Swap metrics if available
+            if memory_info.swap_total_bytes > 0 {
+                metrics.push_str(&format!(
+                    "# HELP all_smi_swap_total_bytes Total swap space in bytes\n"
+                ));
+                metrics.push_str(&format!("# TYPE all_smi_swap_total_bytes gauge\n"));
+                metrics.push_str(&format!(
+                    "all_smi_swap_total_bytes{{instance=\"{}\", hostname=\"{}\", index=\"{}\"}} {}\n",
+                    memory_info.instance, memory_info.hostname, i, memory_info.swap_total_bytes
+                ));
+
+                metrics.push_str(&format!(
+                    "# HELP all_smi_swap_used_bytes Used swap space in bytes\n"
+                ));
+                metrics.push_str(&format!("# TYPE all_smi_swap_used_bytes gauge\n"));
+                metrics.push_str(&format!(
+                    "all_smi_swap_used_bytes{{instance=\"{}\", hostname=\"{}\", index=\"{}\"}} {}\n",
+                    memory_info.instance, memory_info.hostname, i, memory_info.swap_used_bytes
+                ));
+
+                metrics.push_str(&format!(
+                    "# HELP all_smi_swap_free_bytes Free swap space in bytes\n"
+                ));
+                metrics.push_str(&format!("# TYPE all_smi_swap_free_bytes gauge\n"));
+                metrics.push_str(&format!(
+                    "all_smi_swap_free_bytes{{instance=\"{}\", hostname=\"{}\", index=\"{}\"}} {}\n",
+                    memory_info.instance, memory_info.hostname, i, memory_info.swap_free_bytes
+                ));
+            }
+
+            // Linux-specific metrics
+            if memory_info.buffers_bytes > 0 {
+                metrics.push_str(&format!(
+                    "# HELP all_smi_memory_buffers_bytes Memory used for buffers in bytes\n"
+                ));
+                metrics.push_str(&format!("# TYPE all_smi_memory_buffers_bytes gauge\n"));
+                metrics.push_str(&format!(
+                    "all_smi_memory_buffers_bytes{{instance=\"{}\", hostname=\"{}\", index=\"{}\"}} {}\n",
+                    memory_info.instance, memory_info.hostname, i, memory_info.buffers_bytes
+                ));
+            }
+
+            if memory_info.cached_bytes > 0 {
+                metrics.push_str(&format!(
+                    "# HELP all_smi_memory_cached_bytes Memory used for cache in bytes\n"
+                ));
+                metrics.push_str(&format!("# TYPE all_smi_memory_cached_bytes gauge\n"));
+                metrics.push_str(&format!(
+                    "all_smi_memory_cached_bytes{{instance=\"{}\", hostname=\"{}\", index=\"{}\"}} {}\n",
+                    memory_info.instance, memory_info.hostname, i, memory_info.cached_bytes
+                ));
+            }
+        }
+    }
+
     // Use instance name for disk metrics to ensure consistency with GPU metrics
     let instance = state
         .gpu_info
