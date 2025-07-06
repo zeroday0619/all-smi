@@ -185,6 +185,7 @@ fn get_mode_specific_shortcuts(is_remote: bool) -> Vec<(&'static str, &'static s
     if is_remote {
         vec![
             ("GPU Sorting", "", true),
+            ("  d", "Sort GPUs by Default (Host+Index)", false),
             ("  u", "Sort GPUs by Utilization", false),
             ("  g", "Sort GPUs by Memory usage", false),
             ("", "", false),
@@ -204,6 +205,7 @@ fn get_mode_specific_shortcuts(is_remote: bool) -> Vec<(&'static str, &'static s
             ("  m", "Sort processes by Memory", false),
             ("", "", false),
             ("GPU Sorting", "", true),
+            ("  d", "Sort GPUs by Default (Host+Index)", false),
             ("  u", "Sort GPUs by Utilization", false),
             ("  g", "Sort GPUs by Memory usage", false),
             ("", "", false),

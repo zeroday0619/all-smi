@@ -454,64 +454,6 @@ fn print_history_bar_with_value<W: Write>(
 }
 
 
-pub fn draw_tabs<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
-    // Print tabs
-    let mut labels: Vec<(String, Color)> = Vec::new();
-
-    // Add "All" tab with special formatting
-    if state.current_tab == 0 {
-        labels.push(("All".to_string(), Color::Black));
-        labels.push((" ".to_string(), Color::White));
-    } else {
-        labels.push(("All".to_string(), Color::White));
-        labels.push((" ".to_string(), Color::White));
-    }
-
-    // Calculate available width for tabs
-    let mut available_width = cols.saturating_sub(5); // Reserve space for "All" and some padding
-
-    // Skip tabs that are before the scroll offset
-    let visible_tabs: Vec<_> = state
-        .tabs
-        .iter()
-        .enumerate()
-        .skip(1) // Skip "All" tab
-        .skip(state.tab_scroll_offset)
-        .collect();
-
-    for (i, tab) in visible_tabs {
-        let tab_width = tab.len() as u16 + 2; // Tab name + 2 spaces padding
-        if available_width < tab_width {
-            break; // No more space
-        }
-
-        if state.current_tab == i {
-            labels.push((format!(" {} ", tab), Color::Black));
-        } else {
-            labels.push((format!(" {} ", tab), Color::White));
-        }
-
-        available_width -= tab_width;
-    }
-
-    // Render tabs
-    queue!(stdout, Print("Tabs: ")).unwrap();
-    for (text, color) in labels {
-        if color == Color::Black {
-            // Selected tab: white text on blue background for good visibility
-            print_colored_text(stdout, &text, Color::White, Some(Color::Blue), None);
-        } else {
-            print_colored_text(stdout, &text, color, None, None);
-        }
-    }
-
-    queue!(stdout, Print("\r\n")).unwrap();
-
-    // Print separator
-    let separator = "─".repeat(cols as usize);
-    print_colored_text(stdout, &separator, Color::DarkGrey, None, None);
-    queue!(stdout, Print("\r\n")).unwrap();
-}
 
 pub fn print_gpu_info<W: Write>(
     stdout: &mut W,
@@ -1041,10 +983,10 @@ pub fn print_function_keys<W: Write>(
 
     let function_keys = if is_remote {
         // Remote mode: only GPU sorting
-        format!("1:Help q:Exit ←→:Tabs ↑↓:Scroll PgUp/PgDn:Page u:Util g:GPU-Mem [{}]", sort_indicator)
+        format!("1:Help q:Exit ←→:Tabs ↑↓:Scroll PgUp/PgDn:Page d:Default u:Util g:GPU-Mem [{}]", sort_indicator)
     } else {
         // Local mode: both process and GPU sorting
-        format!("1:Help q:Exit ←→:Tabs ↑↓:Scroll PgUp/PgDn:Page p:PID m:Memory u:Util g:GPU-Mem [{}]", sort_indicator)
+        format!("1:Help q:Exit ←→:Tabs ↑↓:Scroll PgUp/PgDn:Page p:PID m:Memory d:Default u:Util g:GPU-Mem [{}]", sort_indicator)
     };
 
     let truncated_keys = if function_keys.len() > cols as usize {
