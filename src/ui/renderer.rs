@@ -802,17 +802,28 @@ pub fn print_gpu_info<W: Write>(
     // Calculate bar widths based on available space and number of bars
     // Show ANE gauge for Apple Silicon GPUs (based on UUID or name containing "Apple")
     let is_apple_silicon = info.uuid == "AppleSiliconGPU" || info.name.contains("Apple");
-    let individual_bar_width = if is_apple_silicon {
+    let (individual_bar_width, last_bar_width) = if is_apple_silicon {
         // 3 bars: ensure same total space usage as 2 bars
-        // Target: same total length as 2-bar case
-        // 2-bar total: 2 * individual + 2 spaces = bar_width
-        // 3-bar total: 3 * individual + 4 spaces = bar_width  
-        // So for 3 bars: individual = (bar_width - 4) / 3
-        // But to match 2-bar total exactly, we calculate: (bar_width - 4) / 3 + 1
-        (bar_width - 4) / 3 + 1
+        let standard_width = (bar_width - 4) / 3 + 1;
+        let two_bar_width = (bar_width - 2) / 2;
+        let single_bar_width = bar_width;
+        
+        // Calculate total length with 3 standard-width bars
+        let total_with_three = 3 * standard_width + 4; // 4 spaces between bars
+        let target_length = std::cmp::max(
+            2 * two_bar_width + 2,  // 2-bar total length
+            single_bar_width        // single bar length
+        );
+        
+        // If 3-bar total is 1 character longer, reduce last bar by 1
+        if total_with_three == target_length + 1 {
+            (standard_width, standard_width - 1)
+        } else {
+            (standard_width, standard_width)
+        }
     } else {
-        // 2 bars: standard calculation
-        (bar_width - 2) / 2
+        let width = (bar_width - 2) / 2;
+        (width, width)
     };
 
     // GPU Utilization bar
@@ -844,7 +855,7 @@ pub fn print_gpu_info<W: Write>(
             "ANE",
             info.ane_utilization,
             10.0, // ANE scale: 0-10W instead of 0-100%
-            individual_bar_width,
+            last_bar_width,
             Some(format!("{:.1}W", info.ane_utilization)),
         );
     }
