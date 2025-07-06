@@ -1,161 +1,268 @@
 # all-smi
 
-`all-smi` is a command-line utility for monitoring GPU hardware. It provides a real-time view of GPU utilization, memory usage, temperature, power consumption, and other metrics. The tool is designed to be a cross-platform alternative to `nvidia-smi`, with support for both NVIDIA and Apple Silicon GPUs.
+`all-smi` is a command-line utility for monitoring GPU hardware across multiple systems. It provides a real-time view of GPU utilization, memory usage, temperature, power consumption, and other metrics. The tool is designed to be a cross-platform alternative to `nvidia-smi`, with support for NVIDIA GPUs, Apple Silicon GPUs, and NVIDIA Jetson platforms.
 
-The application presents a terminal-based user interface that displays GPU information in a clear and organized manner. It also lists processes currently utilizing the GPU, along with their memory consumption.
+The application presents a terminal-based user interface with cluster overview, interactive sorting, and both local and remote monitoring capabilities. It also provides an API mode for Prometheus metrics integration.
+
+![screenshot](screenshots/all-smi-all-tab.jpg)
 
 ## Features
 
-- **GPU Monitoring:** Displays real-time metrics for each detected GPU, including:
+### GPU Monitoring
+- **Real-time Metrics:** Displays comprehensive GPU information including:
   - GPU Name and Driver Version
-  - Utilization Percentage
-  - Memory Usage (Used and Total)
-  - Temperature
-  - Clock Frequency
-  - Power Consumption
-- **Process Information:** Lists processes running on the GPU, showing:
-  - Process ID (PID)
-  - Process Name
+  - Utilization Percentage with color-coded status
+  - Memory Usage (Used/Total in GB)
+  - Temperature in Celsius
+  - Clock Frequency in MHz
+  - Power Consumption in Watts
+- **Multi-GPU Support:** Handles multiple GPUs per system with individual monitoring
+- **Interactive Sorting:** Sort GPUs by utilization, memory usage, or default (hostname+index) order
+
+### Cluster Management
+- **Cluster Overview Dashboard:** Real-time statistics showing:
+  - Total nodes and GPUs across the cluster
+  - Average utilization and memory usage
+  - Temperature statistics with standard deviation
+  - Total and average power consumption
+- **Live Statistics History:** Visual graphs showing utilization, memory, and temperature trends
+- **Tabbed Interface:** Switch between "All" view and individual host tabs
+
+### Process Information
+- **GPU Process Monitoring:** Lists processes running on GPUs with:
+  - Process ID (PID) and Parent PID
+  - Process Name and Command Line
   - GPU Memory Usage
-- **Cross-Platform Support:**
-  - **Linux:** Supports NVIDIA GPUs via the `nvidia-smi` command.
-  - **macOS:** Supports Apple Silicon GPUs by interfacing with system commands like `powermetrics` and `system_profiler`.
-- **Interactive UI:**
-  - A terminal-based UI that refreshes periodically.
-  - Allows sorting of the process list by PID or memory usage.
-  - Provides clear visual bars for utilization and memory.
+  - User and State Information
+- **Interactive Sorting:** Sort processes by PID or memory usage
+- **System Integration:** Full process details from system information
+
+### Cross-Platform Support
+- **Linux:** Supports NVIDIA GPUs via `nvidia-smi` command
+- **macOS:** Supports Apple Silicon GPUs via `powermetrics` and Metal framework
+- **NVIDIA Jetson:** Special support for Tegra-based systems with DLA (Deep Learning Accelerator)
+
+### Remote Monitoring
+- **Multi-Host Support:** Monitor up to 128+ remote systems simultaneously
+- **Connection Management:** Optimized networking with connection pooling and retry logic
+- **Storage Monitoring:** Disk usage information for remote hosts
+- **High Availability:** Resilient to connection failures with automatic retry
+
+### Interactive UI
+- **Keyboard Controls:**
+  - Navigation: Arrow keys, Page Up/Down for scrolling
+  - Sorting: 'd' (default), 'u' (utilization), 'g' (GPU memory), 'p' (PID), 'm' (memory)
+  - Interface: '1' or 'h' (help), 'q' (quit), Tab switching
+- **Color-Coded Status:** Green (≤60%), Yellow (60-80%), Red (>80%) for resource usage
+- **Responsive Design:** Adapts to terminal size with optimized space allocation
+- **Help System:** Comprehensive built-in help with context-sensitive shortcuts
 
 ## Technology Stack
 
-- **Language:** Rust
-- **Key Crates:**
-  - `tokio`: For asynchronous runtime.
-  - `crossterm`: For terminal manipulation and UI.
-  - `chrono`: For timestamping.
-  - `metal` & `objc`: For Apple Silicon GPU interaction on macOS.
+- **Language:** Rust 2021 Edition
+- **Async Runtime:** Tokio for high-performance networking
+- **Key Dependencies:**
+  - `crossterm`: Terminal manipulation and UI
+  - `axum`: Web framework for API mode
+  - `reqwest`: HTTP client for remote monitoring
+  - `chrono`: Date/time handling
+  - `clap`: Command-line argument parsing
+  - `serde`: Serialization for data exchange
+  - `metal`/`objc`: Apple Silicon GPU integration on macOS
+  - `sysinfo`: System information gathering
 
 ## Installation
 
 ### Prerequisites
 
-- Rust and Cargo must be installed.
-- On Linux with an NVIDIA GPU, the `nvidia-smi` command must be available.
-- On macOS, the tool requires `sudo` privileges to run `powermetrics`.
+- **Rust:** Version 1.75 or later with Cargo
+- **Linux (NVIDIA):** `nvidia-smi` command must be available
+- **macOS:** Requires `sudo` privileges for `powermetrics` access
+- **Network:** For remote monitoring functionality
 
-### Building from source
+### Building from Source
 
-1.  **Clone the repository:**
-    ```bash
-    git clone https://github.com/inureyes/all-smi.git
-    cd all-smi
-    ```
-2.  **Build the project:**
-    ```bash
-    # Build the main application
-    cargo build --release
-    
-    # Build specific binary (e.g., mock-server)
-    cargo build --release --bin mock-server
-    ```
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/inureyes/all-smi.git
+   cd all-smi
+   ```
+
+2. **Build the project:**
+   ```bash
+   # Build the main application
+   cargo build --release
+   
+   # Build mock server for testing
+   cargo build --release --bin mock-server
+   ```
+
+3. **Run tests:**
+   ```bash
+   cargo test
+   cargo clippy
+   cargo fmt --check
+   ```
 
 ## Usage
 
-`all-smi` can be run in two modes: `view` and `api`. You can see the help message for each mode by running:
+### Command Overview
 
 ```bash
+# Show help
 ./target/release/all-smi --help
-./target/release/all-smi view --help
-./target/release/all-smi api --help
-```
 
-### View Mode
-
-The `view` mode displays a terminal-based user interface. This is the default mode if no command is provided.
-
-```bash
+# Local monitoring (requires sudo on macOS)
 sudo ./target/release/all-smi view
-```
 
-You can also monitor remote machines running `all-smi` in API mode.
+# Remote monitoring
+./target/release/all-smi view --hosts http://node1:9090 http://node2:9090
+./target/release/all-smi view --hostfile hosts.csv
 
-#### Remote Monitoring
-
-To monitor remote machines, you can use the `--hosts` or `--hostfile` argument.
-
-- **Using `--hosts`:**
-
-  Pass a list of host addresses to the `--hosts` argument.
-
-  ```bash
-  ./target/release/all-smi view --hosts http://remote1:9090 http://remote2:9090
-  ```
-
-- **Using `--hostfile`:**
-
-  Create a file with a list of host addresses (one per line) and pass the file path to the `--hostfile` argument.
-
-  ```bash
-  # hosts.txt
-  http://remote1:9090
-  http://remote2:9090
-  ```
-
-  ```bash
-  ./target/release/all-smi view --hostfile hosts.txt
-  ```
-
-### API Mode
-
-The `api` mode exposes the GPU metrics in Prometheus format.
-
-```bash
+# API mode
 ./target/release/all-smi api --port 9090
 ```
 
-The metrics will be available at `http://localhost:9090/metrics`.
+### View Mode (Interactive Monitoring)
 
-## Testing with Mock Server
+The `view` mode provides a terminal-based interface with real-time updates.
 
-For testing and development purposes, a mock server is provided that simulates multiple GPU nodes with realistic metrics.
-
-### Building the Mock Server
-
+#### Local Mode
 ```bash
-cargo build --release --bin mock-server
+# Monitor local GPUs (requires sudo on macOS)
+sudo ./target/release/all-smi view
+
+# With custom refresh interval
+sudo ./target/release/all-smi view --interval 5
 ```
 
-### Running the Mock Server
+#### Remote Monitoring
+
+Monitor multiple remote systems running in API mode:
 
 ```bash
-# Start a single mock server on port 9090
+# Direct host specification
+./target/release/all-smi view --hosts http://gpu-node1:9090 http://gpu-node2:9090
+
+# Using host file
+./target/release/all-smi view --hostfile hosts.csv --interval 2
+```
+
+Host file format (CSV):
+```
+http://gpu-node1:9090
+http://gpu-node2:9090
+http://gpu-node3:9090
+```
+
+#### Keyboard Controls
+
+- **Navigation:** ←→ (switch tabs), ↑↓ (scroll), PgUp/PgDn (page navigation)
+- **Sorting:** 'd' (default), 'u' (utilization), 'g' (GPU memory), 'p' (PID), 'm' (memory)
+- **Interface:** '1'/'h' (help), 'q' (quit), ESC (close help)
+
+### API Mode (Prometheus Metrics)
+
+Expose GPU metrics in Prometheus format for integration with monitoring systems:
+
+```bash
+# Start API server
+./target/release/all-smi api --port 9090
+
+# Custom bind address
+./target/release/all-smi api --port 8080 --bind 0.0.0.0
+```
+
+Metrics available at `http://localhost:9090/metrics` include:
+- `all_smi_gpu_utilization`
+- `all_smi_gpu_memory_used_bytes`
+- `all_smi_gpu_memory_total_bytes`
+- `all_smi_gpu_temperature_celsius`
+- `all_smi_gpu_power_consumption_watts`
+- `all_smi_disk_total_bytes`
+- `all_smi_disk_available_bytes`
+
+## Development and Testing
+
+### Mock Server for Testing
+
+The included mock server simulates realistic GPU clusters for development and testing:
+
+```bash
+# Build mock server
+cargo build --release --bin mock-server
+
+# Start single mock instance
 ./target/release/mock-server --port-range 9090
 
-# Start multiple mock servers on a port range
-./target/release/mock-server --port-range 10001-10010
+# Start multiple instances
+./target/release/mock-server --port-range 10001-10010 -o hosts.csv
 
-# Specify custom GPU name and output file
-./target/release/mock-server --port-range 10001-10005 --gpu-name "NVIDIA RTX 4090" -o test-hosts.csv
+# Custom configuration
+./target/release/mock-server --port-range 10001-10005 \
+  --gpu-name "NVIDIA H100 80GB HBM3" -o test-hosts.csv
 ```
 
-The mock server will:
-- Generate realistic GPU metrics with random variations
-- Create a CSV file with the host addresses for easy testing
-- Simulate multiple GPUs per node
-- Provide disk usage information
+Mock server features:
+- **8 GPUs per node** with realistic metrics
+- **Randomized values** that change over time
+- **Storage simulation** with various disk sizes
+- **Template-based responses** for performance
+- **Instance naming** with node-XXXX format
 
-### Testing with Mock Data
-
-After starting the mock servers, you can test the view mode with the generated hosts file:
+### Testing High-Scale Scenarios
 
 ```bash
-# View mock data from multiple hosts
-./target/release/all-smi view --hostfile hosts.csv
+# Start 128 mock servers
+./target/release/mock-server --port-range 10001-10128 -o large-cluster.csv &
+
+# Monitor large cluster
+./target/release/all-smi view --hostfile large-cluster.csv --interval 1
 ```
+
+## Architecture
+
+### Core Components
+
+- **GPU Abstraction Layer:** Platform-specific readers implementing the `GpuReader` trait
+- **Async Networking:** Concurrent remote data collection with connection pooling
+- **Terminal UI:** Double-buffered rendering with responsive layout
+- **Data Processing:** Real-time metrics aggregation and historical tracking
+
+### Platform Support
+
+- **NVIDIA GPUs:** Via `nvidia-smi` command parsing
+- **Apple Silicon:** Via `powermetrics` and Metal framework integration
+- **NVIDIA Jetson:** Specialized Tegra platform support with DLA monitoring
+
+### Performance Optimizations
+
+- **Connection Management:** 64 concurrent connections with retry logic
+- **Adaptive Intervals:** 2-6 second refresh based on cluster size
+- **Memory Efficiency:** Stream processing and connection pooling
+- **Rendering:** Double buffering to prevent display flickering
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a pull request or open an issue.
+Contributions are welcome! Areas for contribution include:
+
+- **Platform Support:** Additional GPU vendors or operating systems
+- **Features:** New metrics, visualization improvements, or monitoring capabilities
+- **Performance:** Optimization for larger clusters or resource usage
+- **Documentation:** Examples, tutorials, or API documentation
+
+Please submit pull requests or open issues for bugs, feature requests, or questions.
 
 ## License
 
-This project is licensed under the MIT License.
+This project is licensed under the MIT License. See the LICENSE file for details.
+
+## Changelog
+
+### Recent Updates
+
+- **v0.3.0:** Multi-architecture support, optimized space allocation, enhanced UI
+- **v0.2.2:** GPU sorting functionality with hotkeys
+- **v0.2.1:** Help system improvements and code refactoring
+- **v0.2.0:** Remote monitoring and cluster management features
+- **v0.1.0:** Initial release with local GPU monitoring

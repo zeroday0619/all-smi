@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::time::interval;
 
-const DEFAULT_GPU_NAME: &str = "NVIDIA H200 144GB HBM3";
+const DEFAULT_GPU_NAME: &str = "NVIDIA H200 141GB HBM3";
 const NUM_GPUS: usize = 8;
 const UPDATE_INTERVAL_SECS: u64 = 3;
 
@@ -159,7 +159,7 @@ impl MockNode {
     }
 
     fn extract_gpu_memory_gb(gpu_name: &str) -> u64 {
-        // Extract memory size from GPU name (e.g., "NVIDIA H200 144GB HBM3" -> 144)
+        // Extract memory size from GPU name (e.g., "NVIDIA H200 141GB HBM3" -> 141)
         if let Some(gb_pos) = gpu_name.find("GB") {
             let before_gb = &gpu_name[..gb_pos];
             if let Some(space_pos) = before_gb.rfind(' ') {
