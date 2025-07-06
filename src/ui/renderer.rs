@@ -116,54 +116,63 @@ pub fn draw_bar<W: Write>(
 }
 
 pub fn draw_system_view<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
-    // Calculate summary stats
-    let gpu_count = state.gpu_info.len();
-    let total_gpus = gpu_count;
-    let avg_utilization = if gpu_count > 0 {
-        state.gpu_info.iter().map(|gpu| gpu.utilization).sum::<f64>() / gpu_count as f64
+    let box_width = (cols as usize).min(80);
+    
+    // Calculate cluster statistics
+    let total_nodes = state.tabs.len().saturating_sub(1); // Exclude "All" tab
+    let total_gpus = state.gpu_info.len();
+    let total_memory_gb = state.gpu_info.iter().map(|gpu| gpu.total_memory).sum::<u64>() as f64 / (1024.0 * 1024.0 * 1024.0);
+    let total_power_watts = state.gpu_info.iter().map(|gpu| gpu.power_consumption).sum::<f64>();
+    
+    // Calculate averages
+    let avg_utilization = if total_gpus > 0 {
+        state.gpu_info.iter().map(|gpu| gpu.utilization).sum::<f64>() / total_gpus as f64
     } else {
         0.0
     };
-
-    let total_memory: u64 = state.gpu_info.iter().map(|gpu| gpu.total_memory).sum();
-    let used_memory: u64 = state.gpu_info.iter().map(|gpu| gpu.used_memory).sum();
-    let memory_utilization = if total_memory > 0 {
-        (used_memory as f64 / total_memory as f64) * 100.0
+    
+    let used_memory_gb = state.gpu_info.iter().map(|gpu| gpu.used_memory).sum::<u64>() as f64 / (1024.0 * 1024.0 * 1024.0);
+    let memory_percent = if total_memory_gb > 0.0 {
+        (used_memory_gb / total_memory_gb) * 100.0
     } else {
         0.0
     };
-
-    let avg_temperature = if gpu_count > 0 {
-        state
-            .gpu_info
-            .iter()
-            .map(|gpu| gpu.temperature as f64)
-            .sum::<f64>()
-            / gpu_count as f64
+    
+    let avg_temperature = if total_gpus > 0 {
+        state.gpu_info.iter().map(|gpu| gpu.temperature as f64).sum::<f64>() / total_gpus as f64
     } else {
         0.0
     };
-
-    let avg_power = if gpu_count > 0 {
-        state
-            .gpu_info
-            .iter()
-            .map(|gpu| gpu.power_consumption)
-            .sum::<f64>()
-            / gpu_count as f64
+    
+    let avg_power = if total_gpus > 0 {
+        total_power_watts / total_gpus as f64
     } else {
         0.0
     };
-
-    // Display overview
-    queue!(
-        stdout,
-        Print(format!(
-            "GPUs: {} | Avg Util: {:.1}% | Memory: {:.1}% | Avg Temp: {:.0}°C | Avg Power: {:.1}W\r\n",
-            total_gpus, avg_utilization, memory_utilization, avg_temperature, avg_power
-        ))
-    )
-    .unwrap();
+    
+    // First row: | Nodes | - | Total GPU Mem | - | Total Power |
+    print_dashboard_row(stdout, 
+        &[
+            ("Nodes", format!("{}", total_nodes), Color::Yellow),
+            ("-", "-".to_string(), Color::DarkGrey),
+            ("Total GPU Mem", format!("{:.1}GB", total_memory_gb), Color::Green),
+            ("-", "-".to_string(), Color::DarkGrey),
+            ("Total Power", format!("{:.1}W", total_power_watts), Color::Red),
+        ],
+        box_width
+    );
+    
+    // Second row: | GPUs | Avg. Util. | Memory % | Std. Temp | Avg. Power |
+    print_dashboard_row(stdout,
+        &[
+            ("GPUs", format!("{}", total_gpus), Color::Yellow),
+            ("Avg. Util.", format!("{:.1}%", avg_utilization), Color::Green),
+            ("Memory %", format!("{:.1}%", memory_percent), Color::Blue),
+            ("Std. Temp", format!("{:.0}°C", avg_temperature), Color::Magenta),
+            ("Avg. Power", format!("{:.1}W", avg_power), Color::Red),
+        ],
+        box_width
+    );
 }
 
 pub fn draw_dashboard_items<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
@@ -174,6 +183,30 @@ pub fn draw_dashboard_items<W: Write>(stdout: &mut W, state: &AppState, cols: u1
 
     // Node utilization history box
     draw_utilization_history(stdout, state, cols);
+    queue!(stdout, Print("\r\n")).unwrap();
+}
+
+
+fn print_dashboard_row<W: Write>(stdout: &mut W, items: &[(&str, String, Color)], total_width: usize) {
+    let item_count = items.len();
+    let item_width = total_width / item_count;
+    
+    // Print labels row
+    print_colored_text(stdout, "│", Color::DarkGrey, None, None);
+    for (label, _, color) in items {
+        let formatted_label = format!(" {:<width$}", label, width = item_width.saturating_sub(3));
+        print_colored_text(stdout, &formatted_label, *color, None, None);
+        print_colored_text(stdout, "│", Color::DarkGrey, None, None);
+    }
+    queue!(stdout, Print("\r\n")).unwrap();
+    
+    // Print values row
+    print_colored_text(stdout, "│", Color::DarkGrey, None, None);
+    for (_, value, _) in items {
+        let formatted_value = format!(" {:<width$}", value, width = item_width.saturating_sub(3));
+        print_colored_text(stdout, &formatted_value, Color::White, None, None);
+        print_colored_text(stdout, "│", Color::DarkGrey, None, None);
+    }
     queue!(stdout, Print("\r\n")).unwrap();
 }
 
@@ -190,7 +223,7 @@ pub fn draw_utilization_history<W: Write>(stdout: &mut W, state: &AppState, cols
     let avg_temp = state.temperature_history.iter().sum::<f64>() / state.temperature_history.len() as f64;
 
     // Print header
-    print_colored_text(stdout, "Cluster Overview", Color::Cyan, None, None);
+    print_colored_text(stdout, "Live Statistics", Color::Cyan, None, None);
     queue!(stdout, Print("\r\n")).unwrap();
 
     // Split layout: left half for node view, right half for history gauges

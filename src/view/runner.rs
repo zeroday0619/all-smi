@@ -634,7 +634,7 @@ fn render_main_view<W: Write>(
     );
 
     // Write remaining header content to buffer
-    print_colored_text(&mut buffer, "Clusters\r\n", Color::Cyan, None, None);
+    print_colored_text(&mut buffer, "Cluster Overview\r\n", Color::Cyan, None, None);
     draw_system_view(&mut buffer, state, cols);
     draw_dashboard_items(&mut buffer, state, cols);
     draw_tabs(&mut buffer, state, cols);
