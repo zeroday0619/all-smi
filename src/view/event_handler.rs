@@ -1,17 +1,9 @@
-use crossterm::{
-    event::KeyEvent,
-    event::KeyCode,
-    terminal::size,
-};
+use crossterm::{event::KeyCode, event::KeyEvent, terminal::size};
 
 use crate::app_state::{AppState, SortCriteria};
 use crate::cli::ViewArgs;
 
-pub async fn handle_key_event(
-    key_event: KeyEvent,
-    state: &mut AppState,
-    args: &ViewArgs,
-) -> bool {
+pub async fn handle_key_event(key_event: KeyEvent, state: &mut AppState, args: &ViewArgs) -> bool {
     match key_event.code {
         KeyCode::Esc => {
             if state.show_help {
@@ -63,7 +55,7 @@ fn handle_right_arrow(state: &mut AppState) {
         let (cols, _) = size().unwrap();
         let mut available_width = cols.saturating_sub(5);
         let mut last_visible_tab = state.tab_scroll_offset;
-        
+
         for (i, tab) in state
             .tabs
             .iter()
@@ -78,7 +70,7 @@ fn handle_right_arrow(state: &mut AppState) {
             available_width -= tab_width;
             last_visible_tab = i;
         }
-        
+
         if state.current_tab > last_visible_tab {
             state.tab_scroll_offset += 1;
         }

@@ -1,5 +1,5 @@
-use std::io::Write;
 use std::collections::HashMap;
+use std::io::Write;
 
 use crossterm::{
     queue,
@@ -117,74 +117,123 @@ pub fn draw_bar<W: Write>(
 
 pub fn draw_system_view<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
     let box_width = (cols as usize).min(80);
-    
+
     // Calculate cluster statistics
     let total_nodes = state.tabs.len().saturating_sub(1); // Exclude "All" tab
     let total_gpus = state.gpu_info.len();
-    let total_memory_gb = state.gpu_info.iter().map(|gpu| gpu.total_memory).sum::<u64>() as f64 / (1024.0 * 1024.0 * 1024.0);
-    let total_power_watts = state.gpu_info.iter().map(|gpu| gpu.power_consumption).sum::<f64>();
-    
+    let total_memory_gb = state
+        .gpu_info
+        .iter()
+        .map(|gpu| gpu.total_memory)
+        .sum::<u64>() as f64
+        / (1024.0 * 1024.0 * 1024.0);
+    let total_power_watts = state
+        .gpu_info
+        .iter()
+        .map(|gpu| gpu.power_consumption)
+        .sum::<f64>();
+
     // Calculate averages
     let avg_utilization = if total_gpus > 0 {
-        state.gpu_info.iter().map(|gpu| gpu.utilization).sum::<f64>() / total_gpus as f64
+        state
+            .gpu_info
+            .iter()
+            .map(|gpu| gpu.utilization)
+            .sum::<f64>()
+            / total_gpus as f64
     } else {
         0.0
     };
-    
-    let used_memory_gb = state.gpu_info.iter().map(|gpu| gpu.used_memory).sum::<u64>() as f64 / (1024.0 * 1024.0 * 1024.0);
+
+    let used_memory_gb = state
+        .gpu_info
+        .iter()
+        .map(|gpu| gpu.used_memory)
+        .sum::<u64>() as f64
+        / (1024.0 * 1024.0 * 1024.0);
     let memory_percent = if total_memory_gb > 0.0 {
         (used_memory_gb / total_memory_gb) * 100.0
     } else {
         0.0
     };
-    
+
     let avg_temperature = if total_gpus > 0 {
-        state.gpu_info.iter().map(|gpu| gpu.temperature as f64).sum::<f64>() / total_gpus as f64
+        state
+            .gpu_info
+            .iter()
+            .map(|gpu| gpu.temperature as f64)
+            .sum::<f64>()
+            / total_gpus as f64
     } else {
         0.0
     };
-    
+
     // Calculate temperature standard deviation
     let temp_std_dev = if total_gpus > 1 {
-        let temp_variance = state.gpu_info.iter()
+        let temp_variance = state
+            .gpu_info
+            .iter()
             .map(|gpu| {
                 let diff = gpu.temperature as f64 - avg_temperature;
                 diff * diff
             })
-            .sum::<f64>() / (total_gpus - 1) as f64;
+            .sum::<f64>()
+            / (total_gpus - 1) as f64;
         temp_variance.sqrt()
     } else {
         0.0
     };
-    
+
     let avg_power = if total_gpus > 0 {
         total_power_watts / total_gpus as f64
     } else {
         0.0
     };
-    
+
     // First row: | Nodes | - | Total GPU mem | Avg. Temp | Total Power |
-    print_dashboard_row(stdout, 
+    print_dashboard_row(
+        stdout,
         &[
             ("Nodes", format!("{}", total_nodes), Color::Yellow),
             ("-", "-".to_string(), Color::DarkGrey),
-            ("Total GPU mem", format!("{:.1}GB", total_memory_gb), Color::Green),
-            ("Avg. Temp", format!("{:.0}°C", avg_temperature), Color::Magenta),
-            ("Total Power", format!("{:.1}kW", total_power_watts / 1000.0), Color::Red),
+            (
+                "Total GPU mem",
+                format!("{:.1}GB", total_memory_gb),
+                Color::Green,
+            ),
+            (
+                "Avg. Temp",
+                format!("{:.0}°C", avg_temperature),
+                Color::Magenta,
+            ),
+            (
+                "Total Power",
+                format!("{:.1}kW", total_power_watts / 1000.0),
+                Color::Red,
+            ),
         ],
-        box_width
+        box_width,
     );
-    
+
     // Second row: | GPUs | Avg. Util. | Memory % | Temp. Stdev | Avg. Power |
-    print_dashboard_row(stdout,
+    print_dashboard_row(
+        stdout,
         &[
             ("GPUs", format!("{}", total_gpus), Color::Yellow),
-            ("Avg. Util.", format!("{:.1}%", avg_utilization), Color::Green),
+            (
+                "Avg. Util.",
+                format!("{:.1}%", avg_utilization),
+                Color::Green,
+            ),
             ("Memory %", format!("{:.1}%", memory_percent), Color::Blue),
-            ("Temp. Stdev", format!("±{:.1}°C", temp_std_dev), Color::Magenta),
+            (
+                "Temp. Stdev",
+                format!("±{:.1}°C", temp_std_dev),
+                Color::Magenta,
+            ),
             ("Avg. Power", format!("{:.1}W", avg_power), Color::Red),
         ],
-        box_width
+        box_width,
     );
 }
 
@@ -199,11 +248,14 @@ pub fn draw_dashboard_items<W: Write>(stdout: &mut W, state: &AppState, cols: u1
     queue!(stdout, Print("\r\n")).unwrap();
 }
 
-
-fn print_dashboard_row<W: Write>(stdout: &mut W, items: &[(&str, String, Color)], total_width: usize) {
+fn print_dashboard_row<W: Write>(
+    stdout: &mut W,
+    items: &[(&str, String, Color)],
+    total_width: usize,
+) {
     let item_count = items.len();
     let item_width = total_width / item_count;
-    
+
     // Print labels row
     print_colored_text(stdout, "│", Color::DarkGrey, None, None);
     for (label, _, color) in items {
@@ -212,7 +264,7 @@ fn print_dashboard_row<W: Write>(stdout: &mut W, items: &[(&str, String, Color)]
         print_colored_text(stdout, "│", Color::DarkGrey, None, None);
     }
     queue!(stdout, Print("\r\n")).unwrap();
-    
+
     // Print values row
     print_colored_text(stdout, "│", Color::DarkGrey, None, None);
     for (_, value, _) in items {
@@ -225,15 +277,17 @@ fn print_dashboard_row<W: Write>(stdout: &mut W, items: &[(&str, String, Color)]
 
 pub fn draw_utilization_history<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
     let box_width = (cols as usize).min(80);
-    
+
     if state.utilization_history.is_empty() {
         return;
     }
 
     // Calculate averages for display
-    let avg_util = state.utilization_history.iter().sum::<f64>() / state.utilization_history.len() as f64;
+    let avg_util =
+        state.utilization_history.iter().sum::<f64>() / state.utilization_history.len() as f64;
     let avg_mem = state.memory_history.iter().sum::<f64>() / state.memory_history.len() as f64;
-    let avg_temp = state.temperature_history.iter().sum::<f64>() / state.temperature_history.len() as f64;
+    let avg_temp =
+        state.temperature_history.iter().sum::<f64>() / state.temperature_history.len() as f64;
 
     // Print header
     print_colored_text(stdout, "Live Statistics", Color::Cyan, None, None);
@@ -245,7 +299,16 @@ pub fn draw_utilization_history<W: Write>(stdout: &mut W, state: &AppState, cols
     let history_width = right_width.saturating_sub(15); // Leave space for labels
 
     // Print node view and history gauges side by side
-    print_node_view_and_history(stdout, state, left_width, right_width, history_width, avg_util, avg_mem, avg_temp);
+    print_node_view_and_history(
+        stdout,
+        state,
+        left_width,
+        right_width,
+        history_width,
+        avg_util,
+        avg_mem,
+        avg_temp,
+    );
 }
 
 fn print_node_view_and_history<W: Write>(
@@ -260,50 +323,81 @@ fn print_node_view_and_history<W: Write>(
 ) {
     // Get nodes (excluding "All" tab)
     let nodes: Vec<&String> = state.tabs.iter().skip(1).collect();
-    
+
     // Calculate per-node utilization
     let mut node_utils: HashMap<String, f64> = HashMap::new();
     for node in &nodes {
-        let node_gpus: Vec<_> = state.gpu_info.iter().filter(|gpu| &gpu.hostname == *node).collect();
+        let node_gpus: Vec<_> = state
+            .gpu_info
+            .iter()
+            .filter(|gpu| &gpu.hostname == *node)
+            .collect();
         if !node_gpus.is_empty() {
-            let node_util = node_gpus.iter().map(|gpu| gpu.utilization).sum::<f64>() / node_gpus.len() as f64;
+            let node_util =
+                node_gpus.iter().map(|gpu| gpu.utilization).sum::<f64>() / node_gpus.len() as f64;
             node_utils.insert(node.to_string(), node_util);
         }
     }
-    
+
     // Calculate node grid layout
     let nodes_per_row = left_width.saturating_sub(2).max(1);
-    let num_rows = if nodes.is_empty() { 
-        1 
-    } else { 
-        ((nodes.len() - 1) / nodes_per_row) + 1 
+    let num_rows = if nodes.is_empty() {
+        1
+    } else {
+        ((nodes.len() - 1) / nodes_per_row) + 1
     };
     let num_rows = num_rows.min(3); // Limit to 3 rows max
-    
+
     // Print each row of the combined view
     for row in 0..3 {
         if row < num_rows {
             // Print node view for this row
-            print_node_view_row(stdout, &nodes, &node_utils, state.current_tab, left_width, row, nodes_per_row);
+            print_node_view_row(
+                stdout,
+                &nodes,
+                &node_utils,
+                state.current_tab,
+                left_width,
+                row,
+                nodes_per_row,
+            );
         } else {
             // Print empty space for this row
             print_colored_text(stdout, &" ".repeat(left_width), Color::White, None, None);
         }
-        
+
         // Print corresponding history line
         match row {
             0 => {
                 print_colored_text(stdout, "GPU Util: ", Color::Yellow, None, None);
-                print_history_bar_with_value(stdout, &state.utilization_history, history_width, 100.0, format!("{:.1}%", avg_util));
-            },
+                print_history_bar_with_value(
+                    stdout,
+                    &state.utilization_history,
+                    history_width,
+                    100.0,
+                    format!("{:.1}%", avg_util),
+                );
+            }
             1 => {
                 print_colored_text(stdout, "Memory:   ", Color::Yellow, None, None);
-                print_history_bar_with_value(stdout, &state.memory_history, history_width, 100.0, format!("{:.1}%", avg_mem));
-            },
+                print_history_bar_with_value(
+                    stdout,
+                    &state.memory_history,
+                    history_width,
+                    100.0,
+                    format!("{:.1}%", avg_mem),
+                );
+            }
             2 => {
                 print_colored_text(stdout, "Temp:     ", Color::Yellow, None, None);
-                print_history_bar_with_value(stdout, &state.temperature_history, history_width, 100.0, format!("{:.0}°C", avg_temp));
-            },
+                print_history_bar_with_value(
+                    stdout,
+                    &state.temperature_history,
+                    history_width,
+                    100.0,
+                    format!("{:.0}°C", avg_temp),
+                );
+            }
             _ => {}
         }
         queue!(stdout, Print("\r\n")).unwrap();
@@ -322,23 +416,34 @@ fn print_node_view_row<W: Write>(
     let start_index = row * nodes_per_row;
     let end_index = ((row + 1) * nodes_per_row).min(nodes.len());
     let mut node_count = 0;
-    
+
     // Print nodes for this specific row
-    for (i, node) in nodes.iter().enumerate().skip(start_index).take(end_index - start_index) {
+    for (i, node) in nodes
+        .iter()
+        .enumerate()
+        .skip(start_index)
+        .take(end_index - start_index)
+    {
         let utilization = node_utils.get(*node).unwrap_or(&0.0);
         let is_selected = current_tab == i + 1; // +1 because we skip "All" tab
-        
+
         let (char, color) = get_node_char_and_color(*utilization, is_selected);
-        
+
         // Print the character with its color
         print_colored_text(stdout, &char.to_string(), color, None, None);
         node_count += 1;
     }
-    
+
     // Pad the remaining space
     let remaining_space = left_width.saturating_sub(node_count);
     if remaining_space > 0 {
-        print_colored_text(stdout, &" ".repeat(remaining_space), Color::White, None, None);
+        print_colored_text(
+            stdout,
+            &" ".repeat(remaining_space),
+            Color::White,
+            None,
+            None,
+        );
     }
 }
 
@@ -362,7 +467,7 @@ fn get_node_char_and_color(utilization: f64, is_selected: bool) -> (char, Color)
     } else {
         '░'
     };
-    
+
     let color = if is_selected {
         Color::Cyan
     } else if utilization > 80.0 {
@@ -372,7 +477,7 @@ fn get_node_char_and_color(utilization: f64, is_selected: bool) -> (char, Color)
     } else {
         Color::Green
     };
-    
+
     (base_char, color)
 }
 
@@ -384,7 +489,7 @@ fn print_history_bar_with_value<W: Write>(
     value_text: String,
 ) {
     queue!(stdout, Print("[")).unwrap();
-    
+
     let data_points = history.len();
     if data_points == 0 {
         // Empty history
@@ -397,7 +502,7 @@ fn print_history_bar_with_value<W: Write>(
         } else {
             0
         };
-        
+
         for i in 0..width {
             // Check if we should print the value text character
             if i >= text_pos && i < text_pos + text_len {
@@ -407,7 +512,7 @@ fn print_history_bar_with_value<W: Write>(
                     continue;
                 }
             }
-            
+
             let data_index = if data_points >= width {
                 data_points - width + i
             } else {
@@ -418,11 +523,11 @@ fn print_history_bar_with_value<W: Write>(
                     i - (width - data_points)
                 }
             };
-            
+
             if data_index < history.len() {
                 let value = history[data_index];
                 let intensity = (value / max_value).min(1.0);
-                
+
                 let (char, color) = if intensity > 0.875 {
                     ("⣿", Color::Red)
                 } else if intensity > 0.9 {
@@ -442,18 +547,16 @@ fn print_history_bar_with_value<W: Write>(
                 } else {
                     ("⠀", Color::DarkGrey)
                 };
-                
+
                 print_colored_text(stdout, char, color, None, None);
             } else {
                 print_colored_text(stdout, "⠀", Color::DarkGrey, None, None);
             }
         }
     }
-    
+
     queue!(stdout, Print("]")).unwrap();
 }
-
-
 
 pub fn print_gpu_info<W: Write>(
     stdout: &mut W,
@@ -625,13 +728,13 @@ pub fn print_gpu_info<W: Write>(
 
     // Print progress bars on the same line with embedded text to prevent wrapping
     let bar_width = width.saturating_sub(10);
-    
+
     queue!(stdout, Print("     ")).unwrap();
-    
+
     // Calculate bar widths based on available space and number of bars
     let num_bars = if info.ane_utilization > 0.0 { 3 } else { 2 };
     let individual_bar_width = (bar_width - (num_bars * 2)) / num_bars; // Account for spacing
-    
+
     // GPU Utilization bar
     draw_bar(
         stdout,
@@ -706,8 +809,20 @@ pub fn print_storage_info<W: Write>(
     };
 
     // First line: Basic disk information
-    add_label(&mut labels, "DISK ", info.mount_point.clone(), Color::Cyan, 15);
-    add_label(&mut labels, " Host:", info.hostname.clone(), Color::Yellow, 12);
+    add_label(
+        &mut labels,
+        "DISK ",
+        info.mount_point.clone(),
+        Color::Cyan,
+        15,
+    );
+    add_label(
+        &mut labels,
+        " Host:",
+        info.hostname.clone(),
+        Color::Yellow,
+        12,
+    );
 
     // Add usage percentage
     let usage_color = if usage_percent > 90.0 {
@@ -742,10 +857,10 @@ pub fn print_storage_info<W: Write>(
 
     // Second line: Usage bar with capacity information embedded
     queue!(stdout, Print("     ")).unwrap(); // Indent to align with GPU bars
-    
+
     let bar_width = width.saturating_sub(10);
     let capacity_text = format!("{:.1}/{:.1}GB", used_gb, total_gb);
-    
+
     draw_bar(
         stdout,
         "USAGE",
@@ -767,35 +882,44 @@ pub fn print_process_info<W: Write>(
     cols: u16,
 ) {
     queue!(stdout, Print("\r\nProcesses:\r\n")).unwrap();
-    
+
     let width = cols as usize;
-    
+
     // Calculate column widths dynamically based on terminal width
     let min_widths = [6, 12, 8, 6, 8, 8, 8, 10]; // Minimum widths for each column
     let total_min_width: usize = min_widths.iter().sum::<usize>() + 7; // 7 spaces between columns
-    
-    let (pid_w, user_w, name_w, cpu_w, mem_w, gpu_mem_w, state_w, command_w) = if width > total_min_width {
-        let extra_space = width - total_min_width;
-        // Distribute extra space mainly to name and command columns
-        let name_extra = extra_space / 3;
-        let command_extra = extra_space - name_extra;
-        
-        (
-            min_widths[0],                    // PID: 6
-            min_widths[1],                    // USER: 12  
-            min_widths[2] + name_extra,       // NAME: 8 + extra
-            min_widths[3],                    // CPU%: 6
-            min_widths[4],                    // MEM%: 8
-            min_widths[5],                    // GPU MEM: 8
-            min_widths[6],                    // STATE: 8
-            min_widths[7] + command_extra,    // COMMAND: 10 + extra
-        )
-    } else {
-        // Use minimum widths if terminal is too narrow
-        (min_widths[0], min_widths[1], min_widths[2], min_widths[3], 
-         min_widths[4], min_widths[5], min_widths[6], min_widths[7])
-    };
-    
+
+    let (pid_w, user_w, name_w, cpu_w, mem_w, gpu_mem_w, state_w, command_w) =
+        if width > total_min_width {
+            let extra_space = width - total_min_width;
+            // Distribute extra space mainly to name and command columns
+            let name_extra = extra_space / 3;
+            let command_extra = extra_space - name_extra;
+
+            (
+                min_widths[0],                 // PID: 6
+                min_widths[1],                 // USER: 12
+                min_widths[2] + name_extra,    // NAME: 8 + extra
+                min_widths[3],                 // CPU%: 6
+                min_widths[4],                 // MEM%: 8
+                min_widths[5],                 // GPU MEM: 8
+                min_widths[6],                 // STATE: 8
+                min_widths[7] + command_extra, // COMMAND: 10 + extra
+            )
+        } else {
+            // Use minimum widths if terminal is too narrow
+            (
+                min_widths[0],
+                min_widths[1],
+                min_widths[2],
+                min_widths[3],
+                min_widths[4],
+                min_widths[5],
+                min_widths[6],
+                min_widths[7],
+            )
+        };
+
     // Print header with improved spacing and colors
     print_colored_text(
         stdout,
@@ -818,8 +942,13 @@ pub fn print_process_info<W: Write>(
     queue!(stdout, Print("\r\n")).unwrap();
 
     let visible_rows = half_rows.saturating_sub(3) as usize; // Subtract header rows
-    
-    for (i, process) in processes.iter().enumerate().skip(start_index).take(visible_rows) {
+
+    for (i, process) in processes
+        .iter()
+        .enumerate()
+        .skip(start_index)
+        .take(visible_rows)
+    {
         let bg_color = if i == selected_index {
             Some(Color::DarkBlue)
         } else {
@@ -833,7 +962,7 @@ pub fn print_process_info<W: Write>(
         } else {
             format!("{:.0}MB", gpu_memory_mb)
         };
-        
+
         // Format CPU percentage with appropriate color
         let cpu_color = if process.cpu_percent > 80.0 {
             Color::Red
@@ -842,7 +971,7 @@ pub fn print_process_info<W: Write>(
         } else {
             Color::White
         };
-        
+
         // Format memory percentage with appropriate color
         let mem_color = if process.memory_percent > 80.0 {
             Color::Red
@@ -851,12 +980,12 @@ pub fn print_process_info<W: Write>(
         } else {
             Color::White
         };
-        
+
         // Truncate strings to fit column widths
         let truncate_string = |s: &str, max_len: usize| -> String {
             if s.len() > max_len {
                 if max_len > 3 {
-                    format!("{}...", &s[..max_len-3])
+                    format!("{}...", &s[..max_len - 3])
                 } else {
                     s.chars().take(max_len).collect()
                 }
@@ -864,11 +993,11 @@ pub fn print_process_info<W: Write>(
                 s.to_string()
             }
         };
-        
+
         let user_display = truncate_string(&process.user, user_w);
         let name_display = truncate_string(&process.process_name, name_w);
         let command_display = truncate_string(&process.command, command_w);
-        
+
         // Print PID column
         print_colored_text(
             stdout,
@@ -878,7 +1007,7 @@ pub fn print_process_info<W: Write>(
             None,
         );
         queue!(stdout, Print(" ")).unwrap();
-        
+
         // Print USER column
         print_colored_text(
             stdout,
@@ -888,7 +1017,7 @@ pub fn print_process_info<W: Write>(
             None,
         );
         queue!(stdout, Print(" ")).unwrap();
-        
+
         // Print NAME column
         print_colored_text(
             stdout,
@@ -898,7 +1027,7 @@ pub fn print_process_info<W: Write>(
             None,
         );
         queue!(stdout, Print(" ")).unwrap();
-        
+
         // Print CPU% column
         print_colored_text(
             stdout,
@@ -908,7 +1037,7 @@ pub fn print_process_info<W: Write>(
             None,
         );
         queue!(stdout, Print(" ")).unwrap();
-        
+
         // Print MEM% column
         print_colored_text(
             stdout,
@@ -918,7 +1047,7 @@ pub fn print_process_info<W: Write>(
             None,
         );
         queue!(stdout, Print(" ")).unwrap();
-        
+
         // Print GPU MEM column
         print_colored_text(
             stdout,
@@ -928,14 +1057,14 @@ pub fn print_process_info<W: Write>(
             None,
         );
         queue!(stdout, Print(" ")).unwrap();
-        
+
         // Print STATE column
         let state_color = match process.state.as_str() {
-            "R" => Color::Green,   // Running
-            "S" => Color::White,   // Sleeping
-            "D" => Color::Red,     // Uninterruptible sleep
-            "Z" => Color::Red,     // Zombie
-            "T" => Color::Yellow,  // Stopped
+            "R" => Color::Green,  // Running
+            "S" => Color::White,  // Sleeping
+            "D" => Color::Red,    // Uninterruptible sleep
+            "Z" => Color::Red,    // Zombie
+            "T" => Color::Yellow, // Stopped
             _ => Color::White,
         };
         print_colored_text(
@@ -946,7 +1075,7 @@ pub fn print_process_info<W: Write>(
             None,
         );
         queue!(stdout, Print(" ")).unwrap();
-        
+
         // Print COMMAND column
         print_colored_text(
             stdout,
@@ -955,17 +1084,17 @@ pub fn print_process_info<W: Write>(
             bg_color,
             None,
         );
-        
+
         queue!(stdout, Print("\r\n")).unwrap();
     }
 }
 
 pub fn print_function_keys<W: Write>(
-    stdout: &mut W, 
-    cols: u16, 
-    rows: u16, 
-    state: &crate::app_state::AppState, 
-    is_remote: bool
+    stdout: &mut W,
+    cols: u16,
+    rows: u16,
+    state: &crate::app_state::AppState,
+    is_remote: bool,
 ) {
     // Move to bottom of screen
     queue!(stdout, crossterm::cursor::MoveTo(0, rows - 1)).unwrap();
@@ -983,7 +1112,10 @@ pub fn print_function_keys<W: Write>(
 
     let function_keys = if is_remote {
         // Remote mode: only GPU sorting
-        format!("1:Help q:Exit ←→:Tabs ↑↓:Scroll PgUp/PgDn:Page d:Default u:Util g:GPU-Mem [{}]", sort_indicator)
+        format!(
+            "1:Help q:Exit ←→:Tabs ↑↓:Scroll PgUp/PgDn:Page d:Default u:Util g:GPU-Mem [{}]",
+            sort_indicator
+        )
     } else {
         // Local mode: both process and GPU sorting
         format!("1:Help q:Exit ←→:Tabs ↑↓:Scroll PgUp/PgDn:Page p:PID m:Memory d:Default u:Util g:GPU-Mem [{}]", sort_indicator)
@@ -995,7 +1127,13 @@ pub fn print_function_keys<W: Write>(
         &function_keys
     };
 
-    print_colored_text(stdout, truncated_keys, Color::White, Some(Color::DarkBlue), None);
+    print_colored_text(
+        stdout,
+        truncated_keys,
+        Color::White,
+        Some(Color::DarkBlue),
+        None,
+    );
 
     // Fill remaining space with background color
     let remaining = cols as usize - truncated_keys.len();
@@ -1013,4 +1151,3 @@ pub fn print_loading_indicator<W: Write>(stdout: &mut W, cols: u16, rows: u16) {
     queue!(stdout, crossterm::cursor::MoveTo(x, y)).unwrap();
     print_colored_text(stdout, message, Color::Yellow, None, None);
 }
-

@@ -31,13 +31,13 @@ pub enum SortCriteria {
     Pid,
     Memory,
     // GPU sorting (both local and remote modes)
-    Default,        // Hostname then index (current behavior)
-    Utilization,    // GPU utilization
-    GpuMemory,      // GPU memory usage
+    Default,     // Hostname then index (current behavior)
+    Utilization, // GPU utilization
+    GpuMemory,   // GPU memory usage
     #[allow(dead_code)]
-    Power,          // Power consumption
+    Power, // Power consumption
     #[allow(dead_code)]
-    Temperature,    // Temperature
+    Temperature, // Temperature
 }
 
 impl AppState {

@@ -1,4 +1,4 @@
-use crate::gpu::{GpuInfo, GpuReader, ProcessInfo, get_system_process_info};
+use crate::gpu::{get_system_process_info, GpuInfo, GpuReader, ProcessInfo};
 use chrono::Local;
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
@@ -95,20 +95,31 @@ impl GpuReader for AppleSiliconGpuReader {
                         if let Ok(gpu_usage) = gpu_usage_str.parse::<f64>() {
                             if gpu_usage > 0.0 {
                                 // Get additional system process information
-                                let (cpu_percent, memory_percent, memory_rss, memory_vms, user, state, start_time, cpu_time, command, ppid, threads) = 
-                                    get_system_process_info(pid).unwrap_or((
-                                        0.0,  // cpu_percent
-                                        0.0,  // memory_percent
-                                        0,    // memory_rss
-                                        0,    // memory_vms
-                                        "unknown".to_string(),  // user
-                                        "?".to_string(),        // state
-                                        "unknown".to_string(),  // start_time
-                                        0,    // cpu_time
-                                        process_name.clone(),   // command (fallback to process_name)
-                                        0,    // ppid
-                                        1,    // threads
-                                    ));
+                                let (
+                                    cpu_percent,
+                                    memory_percent,
+                                    memory_rss,
+                                    memory_vms,
+                                    user,
+                                    state,
+                                    start_time,
+                                    cpu_time,
+                                    command,
+                                    ppid,
+                                    threads,
+                                ) = get_system_process_info(pid).unwrap_or((
+                                    0.0,                   // cpu_percent
+                                    0.0,                   // memory_percent
+                                    0,                     // memory_rss
+                                    0,                     // memory_vms
+                                    "unknown".to_string(), // user
+                                    "?".to_string(),       // state
+                                    "unknown".to_string(), // start_time
+                                    0,                     // cpu_time
+                                    process_name.clone(),  // command (fallback to process_name)
+                                    0,                     // ppid
+                                    1,                     // threads
+                                ));
 
                                 process_list.push(ProcessInfo {
                                     device_id: 0,

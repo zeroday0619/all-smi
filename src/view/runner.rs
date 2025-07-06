@@ -7,7 +7,7 @@ use std::time::Duration;
 use chrono::Local;
 use crossterm::{
     cursor,
-    event::{self, Event, DisableMouseCapture, EnableMouseCapture},
+    event::{self, DisableMouseCapture, EnableMouseCapture, Event},
     execute, queue,
     style::{Color, Print},
     terminal::{
@@ -24,12 +24,11 @@ use crate::cli::ViewArgs;
 use crate::gpu::{get_gpu_readers, GpuInfo, ProcessInfo};
 use crate::storage::info::StorageInfo;
 use crate::ui::buffer::BufferWriter;
+use crate::ui::help::print_help_popup;
 use crate::ui::renderer::{
     draw_dashboard_items, draw_system_view, print_colored_text, print_function_keys,
-    print_gpu_info, print_loading_indicator, print_process_info,
-    print_storage_info,
+    print_gpu_info, print_loading_indicator, print_process_info, print_storage_info,
 };
-use crate::ui::help::print_help_popup;
 use crate::ui::tabs::draw_tabs;
 use crate::utils::{calculate_adaptive_interval, get_hostname, should_include_disk};
 use crate::view::event_handler::handle_key_event;
@@ -64,10 +63,7 @@ pub async fn run_view_mode(args: &ViewArgs) {
     run_ui_loop(app_state, args).await;
 }
 
-async fn run_local_mode(
-    app_state: Arc<Mutex<AppState>>,
-    args: ViewArgs,
-) {
+async fn run_local_mode(app_state: Arc<Mutex<AppState>>, args: ViewArgs) {
     let gpu_readers = get_gpu_readers();
     loop {
         let all_gpu_info: Vec<GpuInfo> = gpu_readers
@@ -114,7 +110,7 @@ async fn run_local_mode(
         }
         state.process_info = all_processes;
         state.storage_info = all_storage_info;
-        
+
         // Update utilization history
         update_utilization_history(&mut state);
         let mut tabs = vec!["All".to_string()];
@@ -191,7 +187,7 @@ async fn run_remote_mode(
         let mut state = app_state.lock().await;
         state.gpu_info = all_gpu_info;
         state.storage_info = final_storage_info;
-        
+
         // Update utilization history
         update_utilization_history(&mut state);
         let mut tabs = vec!["All".to_string()];
@@ -346,9 +342,7 @@ async fn fetch_remote_data(
     if failed_connections > 0 {
         eprintln!(
             "Connection stats: {} successful, {} failed out of {} total",
-            successful_connections,
-            failed_connections,
-            total_hosts
+            successful_connections, failed_connections, total_hosts
         );
     }
 
@@ -451,27 +445,25 @@ fn parse_metrics(text: &str, host: &str, re: &Regex) -> (Vec<GpuInfo>, Vec<Stora
 
                 match metric_name {
                     "disk_total_bytes" => {
-                        let storage_info = storage_info_map.entry(storage_key).or_insert(
-                            StorageInfo {
+                        let storage_info =
+                            storage_info_map.entry(storage_key).or_insert(StorageInfo {
                                 mount_point: mount_point.clone(),
                                 total_bytes: 0,
                                 available_bytes: 0,
                                 hostname: hostname.clone(),
                                 index,
-                            },
-                        );
+                            });
                         storage_info.total_bytes = value as u64;
                     }
                     "disk_available_bytes" => {
-                        let storage_info = storage_info_map.entry(storage_key).or_insert(
-                            StorageInfo {
+                        let storage_info =
+                            storage_info_map.entry(storage_key).or_insert(StorageInfo {
                                 mount_point: mount_point.clone(),
                                 total_bytes: 0,
                                 available_bytes: 0,
                                 hostname: hostname.clone(),
                                 index,
-                            },
-                        );
+                            });
                         storage_info.available_bytes = value as u64;
                     }
                     _ => {}
@@ -548,7 +540,7 @@ async fn run_ui_loop(app_state: Arc<Mutex<AppState>>, args: &ViewArgs) {
         // Update display
         let mut state = app_state.lock().await;
         state.frame_counter += 1;
-        
+
         // Update scroll offsets for long text
         if state.frame_counter % 2 == 0 {
             update_scroll_offsets(&mut state);
@@ -619,11 +611,11 @@ fn render_help_view<W: Write>(
 ) {
     // Use double buffering to reduce flickering - same approach as main view
     let mut buffer = BufferWriter::new();
-    
+
     // Write help popup to buffer
     let is_remote = args.hosts.is_some() || args.hostfile.is_some();
     print_help_popup(&mut buffer, cols, rows, state, is_remote);
-    
+
     // Output the entire buffer to stdout in one operation with full screen clear
     queue!(stdout, cursor::MoveTo(0, 0)).unwrap();
     queue!(stdout, terminal::Clear(ClearType::All)).unwrap();
@@ -680,17 +672,17 @@ fn render_main_view<W: Write>(
     let available_rows = rows.saturating_sub(content_start_row).saturating_sub(1) as usize;
 
     // Calculate storage display rows
-    let storage_items_count = if is_remote && state.current_tab > 0 && !state.storage_info.is_empty()
-    {
-        let current_hostname = &state.tabs[state.current_tab];
-        state
-            .storage_info
-            .iter()
-            .filter(|info| info.hostname == *current_hostname)
-            .count()
-    } else {
-        0
-    };
+    let storage_items_count =
+        if is_remote && state.current_tab > 0 && !state.storage_info.is_empty() {
+            let current_hostname = &state.tabs[state.current_tab];
+            state
+                .storage_info
+                .iter()
+                .filter(|info| info.hostname == *current_hostname)
+                .count()
+        } else {
+            0
+        };
 
     let storage_display_rows = if storage_items_count > 0 {
         // Each storage item takes 1 line (labels + usage bar on same line)
@@ -802,15 +794,20 @@ fn render_main_view<W: Write>(
 
 fn update_utilization_history(state: &mut AppState) {
     const MAX_HISTORY_SIZE: usize = 60; // Keep last 60 data points
-    
+
     if state.gpu_info.is_empty() {
         return;
     }
-    
+
     // Calculate cluster-wide averages
     let total_gpus = state.gpu_info.len() as f64;
-    let avg_utilization = state.gpu_info.iter().map(|gpu| gpu.utilization).sum::<f64>() / total_gpus;
-    
+    let avg_utilization = state
+        .gpu_info
+        .iter()
+        .map(|gpu| gpu.utilization)
+        .sum::<f64>()
+        / total_gpus;
+
     let total_memory: u64 = state.gpu_info.iter().map(|gpu| gpu.total_memory).sum();
     let used_memory: u64 = state.gpu_info.iter().map(|gpu| gpu.used_memory).sum();
     let memory_percent = if total_memory > 0 {
@@ -818,14 +815,19 @@ fn update_utilization_history(state: &mut AppState) {
     } else {
         0.0
     };
-    
-    let avg_temperature = state.gpu_info.iter().map(|gpu| gpu.temperature as f64).sum::<f64>() / total_gpus;
-    
+
+    let avg_temperature = state
+        .gpu_info
+        .iter()
+        .map(|gpu| gpu.temperature as f64)
+        .sum::<f64>()
+        / total_gpus;
+
     // Add to history
     state.utilization_history.push_back(avg_utilization);
     state.memory_history.push_back(memory_percent);
     state.temperature_history.push_back(avg_temperature);
-    
+
     // Keep history size manageable
     if state.utilization_history.len() > MAX_HISTORY_SIZE {
         state.utilization_history.pop_front();
@@ -864,49 +866,85 @@ impl SortCriteria {
                         .unwrap_or(0);
                     a_index.cmp(&b_index)
                 })
-            },
+            }
             SortCriteria::Utilization => {
                 // Sort by utilization (descending), then by hostname and index
-                b.utilization.partial_cmp(&a.utilization)
+                b.utilization
+                    .partial_cmp(&a.utilization)
                     .unwrap_or(std::cmp::Ordering::Equal)
                     .then_with(|| a.hostname.cmp(&b.hostname))
                     .then_with(|| {
-                        let a_index = a.detail.get("index").and_then(|s| s.parse::<u32>().ok()).unwrap_or(0);
-                        let b_index = b.detail.get("index").and_then(|s| s.parse::<u32>().ok()).unwrap_or(0);
+                        let a_index = a
+                            .detail
+                            .get("index")
+                            .and_then(|s| s.parse::<u32>().ok())
+                            .unwrap_or(0);
+                        let b_index = b
+                            .detail
+                            .get("index")
+                            .and_then(|s| s.parse::<u32>().ok())
+                            .unwrap_or(0);
                         a_index.cmp(&b_index)
                     })
-            },
+            }
             SortCriteria::GpuMemory => {
                 // Sort by memory usage (descending), then by hostname and index
-                b.used_memory.cmp(&a.used_memory)
+                b.used_memory
+                    .cmp(&a.used_memory)
                     .then_with(|| a.hostname.cmp(&b.hostname))
                     .then_with(|| {
-                        let a_index = a.detail.get("index").and_then(|s| s.parse::<u32>().ok()).unwrap_or(0);
-                        let b_index = b.detail.get("index").and_then(|s| s.parse::<u32>().ok()).unwrap_or(0);
+                        let a_index = a
+                            .detail
+                            .get("index")
+                            .and_then(|s| s.parse::<u32>().ok())
+                            .unwrap_or(0);
+                        let b_index = b
+                            .detail
+                            .get("index")
+                            .and_then(|s| s.parse::<u32>().ok())
+                            .unwrap_or(0);
                         a_index.cmp(&b_index)
                     })
-            },
+            }
             SortCriteria::Power => {
                 // Sort by power consumption (descending), then by hostname and index
-                b.power_consumption.partial_cmp(&a.power_consumption)
+                b.power_consumption
+                    .partial_cmp(&a.power_consumption)
                     .unwrap_or(std::cmp::Ordering::Equal)
                     .then_with(|| a.hostname.cmp(&b.hostname))
                     .then_with(|| {
-                        let a_index = a.detail.get("index").and_then(|s| s.parse::<u32>().ok()).unwrap_or(0);
-                        let b_index = b.detail.get("index").and_then(|s| s.parse::<u32>().ok()).unwrap_or(0);
+                        let a_index = a
+                            .detail
+                            .get("index")
+                            .and_then(|s| s.parse::<u32>().ok())
+                            .unwrap_or(0);
+                        let b_index = b
+                            .detail
+                            .get("index")
+                            .and_then(|s| s.parse::<u32>().ok())
+                            .unwrap_or(0);
                         a_index.cmp(&b_index)
                     })
-            },
+            }
             SortCriteria::Temperature => {
                 // Sort by temperature (descending), then by hostname and index
-                b.temperature.cmp(&a.temperature)
+                b.temperature
+                    .cmp(&a.temperature)
                     .then_with(|| a.hostname.cmp(&b.hostname))
                     .then_with(|| {
-                        let a_index = a.detail.get("index").and_then(|s| s.parse::<u32>().ok()).unwrap_or(0);
-                        let b_index = b.detail.get("index").and_then(|s| s.parse::<u32>().ok()).unwrap_or(0);
+                        let a_index = a
+                            .detail
+                            .get("index")
+                            .and_then(|s| s.parse::<u32>().ok())
+                            .unwrap_or(0);
+                        let b_index = b
+                            .detail
+                            .get("index")
+                            .and_then(|s| s.parse::<u32>().ok())
+                            .unwrap_or(0);
                         a_index.cmp(&b_index)
                     })
-            },
+            }
             _ => {
                 // For process sorting criteria, fall back to default GPU sorting
                 self.sort_gpus_default(a, b)
@@ -916,8 +954,16 @@ impl SortCriteria {
 
     fn sort_gpus_default(&self, a: &GpuInfo, b: &GpuInfo) -> std::cmp::Ordering {
         a.hostname.cmp(&b.hostname).then_with(|| {
-            let a_index = a.detail.get("index").and_then(|s| s.parse::<u32>().ok()).unwrap_or(0);
-            let b_index = b.detail.get("index").and_then(|s| s.parse::<u32>().ok()).unwrap_or(0);
+            let a_index = a
+                .detail
+                .get("index")
+                .and_then(|s| s.parse::<u32>().ok())
+                .unwrap_or(0);
+            let b_index = b
+                .detail
+                .get("index")
+                .and_then(|s| s.parse::<u32>().ok())
+                .unwrap_or(0);
             a_index.cmp(&b_index)
         })
     }
@@ -926,19 +972,19 @@ impl SortCriteria {
 fn calculate_header_lines(state: &AppState) -> u16 {
     // Calculate the actual number of lines used by the header content
     let mut lines = 0u16;
-    
+
     // Line 1: "all-smi - {timestamp}"
     lines += 1;
-    
+
     // Line 2: "Cluster Overview"
     lines += 1;
-    
+
     // Lines 3-6: draw_system_view (2 dashboard rows, each takes 2 lines)
     lines += 4;
-    
+
     // Line 7: Separator line in draw_dashboard_items
     lines += 1;
-    
+
     // Lines 8-12: draw_utilization_history
     // This shows live statistics with node view and history gauges
     if !state.utilization_history.is_empty() {
@@ -946,9 +992,9 @@ fn calculate_header_lines(state: &AppState) -> u16 {
     } else {
         lines += 1; // Just header line when no history
     }
-    
+
     // Line N: draw_tabs (tabs line + separator)
     lines += 2;
-    
+
     lines
 }

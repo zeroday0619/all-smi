@@ -1,8 +1,8 @@
-use std::io::Write;
 use crossterm::{
     queue,
     style::{Color, Print},
 };
+use std::io::Write;
 
 use crate::app_state::AppState;
 use crate::ui::renderer::print_colored_text;
@@ -73,13 +73,10 @@ fn render_tab_separator<W: Write>(stdout: &mut W, cols: u16) {
 }
 
 #[allow(dead_code)]
-pub fn calculate_tab_visibility(
-    state: &AppState,
-    cols: u16,
-) -> TabVisibility {
+pub fn calculate_tab_visibility(state: &AppState, cols: u16) -> TabVisibility {
     let mut available_width = cols.saturating_sub(5);
     let mut last_visible_tab = state.tab_scroll_offset;
-    
+
     for (i, tab) in state
         .tabs
         .iter()
@@ -94,7 +91,7 @@ pub fn calculate_tab_visibility(
         available_width -= tab_width;
         last_visible_tab = i;
     }
-    
+
     TabVisibility {
         first_visible: state.tab_scroll_offset + 1, // +1 because we skip "All" tab
         last_visible: last_visible_tab,
@@ -149,7 +146,7 @@ mod tests {
     fn test_tab_visibility_calculation() {
         let state = create_test_state();
         let visibility = calculate_tab_visibility(&state, 80);
-        
+
         assert_eq!(visibility.first_visible, 1);
         assert!(!visibility.has_more_left);
         assert!(!visibility.has_more_right || state.tabs.len() > 4);
@@ -160,7 +157,7 @@ mod tests {
         let mut state = create_test_state();
         state.tab_scroll_offset = 1;
         let visibility = calculate_tab_visibility(&state, 80);
-        
+
         assert_eq!(visibility.first_visible, 2);
         assert!(visibility.has_more_left);
     }

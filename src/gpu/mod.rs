@@ -4,8 +4,8 @@ pub mod nvidia_jetson;
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::process::Command;
 use std::fs;
+use std::process::Command;
 
 pub trait GpuReader: Send {
     fn get_gpu_info(&self) -> Vec<GpuInfo>;
@@ -95,9 +95,23 @@ fn is_apple_silicon() -> bool {
 }
 
 // Helper function to get system process information
-pub fn get_system_process_info(pid: u32) -> Option<(f64, f64, u64, u64, String, String, String, u64, String, u32, u32)> {
+pub fn get_system_process_info(
+    pid: u32,
+) -> Option<(
+    f64,
+    f64,
+    u64,
+    u64,
+    String,
+    String,
+    String,
+    u64,
+    String,
+    u32,
+    u32,
+)> {
     let os_type = std::env::consts::OS;
-    
+
     match os_type {
         "linux" => get_linux_process_info(pid),
         "macos" => get_macos_process_info(pid),
@@ -105,44 +119,89 @@ pub fn get_system_process_info(pid: u32) -> Option<(f64, f64, u64, u64, String, 
     }
 }
 
-fn get_linux_process_info(pid: u32) -> Option<(f64, f64, u64, u64, String, String, String, u64, String, u32, u32)> {
+fn get_linux_process_info(
+    pid: u32,
+) -> Option<(
+    f64,
+    f64,
+    u64,
+    u64,
+    String,
+    String,
+    String,
+    u64,
+    String,
+    u32,
+    u32,
+)> {
     // Read /proc/[pid]/stat for basic process information
     let stat_path = format!("/proc/{}/stat", pid);
     let stat_content = fs::read_to_string(&stat_path).ok()?;
     let stat_fields: Vec<&str> = stat_content.split_whitespace().collect();
-    
+
     if stat_fields.len() < 24 {
         return None;
     }
-    
+
     // Read /proc/[pid]/status for additional information
     let status_path = format!("/proc/{}/status", pid);
     let status_content = fs::read_to_string(&status_path).ok()?;
-    
+
     // Read /proc/[pid]/cmdline for full command
     let cmdline_path = format!("/proc/{}/cmdline", pid);
     let cmdline_content = fs::read_to_string(&cmdline_path).unwrap_or_default();
     let command = cmdline_content.replace('\0', " ").trim().to_string();
     let command = if command.is_empty() {
-        format!("[{}]", stat_fields.get(1).unwrap_or(&"unknown").trim_matches('(').trim_matches(')'))
+        format!(
+            "[{}]",
+            stat_fields
+                .get(1)
+                .unwrap_or(&"unknown")
+                .trim_matches('(')
+                .trim_matches(')')
+        )
     } else {
         command
     };
-    
+
     // Parse stat fields
     let state = stat_fields.get(2).unwrap_or(&"?").to_string();
-    let ppid = stat_fields.get(3).unwrap_or(&"0").parse::<u32>().unwrap_or(0);
-    let utime = stat_fields.get(13).unwrap_or(&"0").parse::<u64>().unwrap_or(0);
-    let stime = stat_fields.get(14).unwrap_or(&"0").parse::<u64>().unwrap_or(0);
+    let ppid = stat_fields
+        .get(3)
+        .unwrap_or(&"0")
+        .parse::<u32>()
+        .unwrap_or(0);
+    let utime = stat_fields
+        .get(13)
+        .unwrap_or(&"0")
+        .parse::<u64>()
+        .unwrap_or(0);
+    let stime = stat_fields
+        .get(14)
+        .unwrap_or(&"0")
+        .parse::<u64>()
+        .unwrap_or(0);
     let cpu_time = (utime + stime) / 100; // Convert from jiffies to seconds (assuming 100 HZ)
-    let vsize = stat_fields.get(22).unwrap_or(&"0").parse::<u64>().unwrap_or(0);
-    let rss_pages = stat_fields.get(23).unwrap_or(&"0").parse::<u64>().unwrap_or(0);
+    let vsize = stat_fields
+        .get(22)
+        .unwrap_or(&"0")
+        .parse::<u64>()
+        .unwrap_or(0);
+    let rss_pages = stat_fields
+        .get(23)
+        .unwrap_or(&"0")
+        .parse::<u64>()
+        .unwrap_or(0);
     let rss_bytes = rss_pages * 4096; // Convert pages to bytes (assuming 4KB pages)
-    let num_threads = stat_fields.get(19).unwrap_or(&"1").parse::<u32>().unwrap_or(1);
-    
+    let num_threads = stat_fields
+        .get(19)
+        .unwrap_or(&"1")
+        .parse::<u32>()
+        .unwrap_or(1);
+
     // Parse status for additional information
     let mut user = "unknown".to_string();
-    
+
     for line in status_content.lines() {
         if line.starts_with("Uid:") {
             if let Some(uid_str) = line.split_whitespace().nth(1) {
@@ -152,73 +211,124 @@ fn get_linux_process_info(pid: u32) -> Option<(f64, f64, u64, u64, String, Strin
             }
         }
     }
-    
+
     // Calculate memory percentage (simplified - would need total system memory)
     let memory_percent = (rss_bytes as f64 / (8.0 * 1024.0 * 1024.0 * 1024.0)) * 100.0; // Assume 8GB system memory
-    
+
     // Get start time
     let start_time = get_process_start_time(pid).unwrap_or_else(|| "unknown".to_string());
-    
+
     // CPU percentage calculation (simplified - would need previous measurements for accurate calculation)
     let cpu_percent = 0.0; // Would need time-based sampling to calculate accurately
-    
-    Some((cpu_percent, memory_percent, rss_bytes, vsize, user, state, start_time, cpu_time, command, ppid, num_threads))
+
+    Some((
+        cpu_percent,
+        memory_percent,
+        rss_bytes,
+        vsize,
+        user,
+        state,
+        start_time,
+        cpu_time,
+        command,
+        ppid,
+        num_threads,
+    ))
 }
 
-fn get_macos_process_info(pid: u32) -> Option<(f64, f64, u64, u64, String, String, String, u64, String, u32, u32)> {
+fn get_macos_process_info(
+    pid: u32,
+) -> Option<(
+    f64,
+    f64,
+    u64,
+    u64,
+    String,
+    String,
+    String,
+    u64,
+    String,
+    u32,
+    u32,
+)> {
     // Use ps command for macOS
     let output = Command::new("ps")
-        .args(&["-o", "pid,ppid,user,pcpu,pmem,rss,vsz,state,lstart,time,comm,args", "-p", &pid.to_string()])
+        .args(&[
+            "-o",
+            "pid,ppid,user,pcpu,pmem,rss,vsz,state,lstart,time,comm,args",
+            "-p",
+            &pid.to_string(),
+        ])
         .output()
         .ok()?;
-    
+
     if !output.status.success() {
         return None;
     }
-    
+
     let output_str = String::from_utf8_lossy(&output.stdout);
     let lines: Vec<&str> = output_str.lines().collect();
-    
+
     if lines.len() < 2 {
         return None;
     }
-    
+
     let data_line = lines[1];
     let fields: Vec<&str> = data_line.split_whitespace().collect();
-    
+
     if fields.len() < 12 {
         return None;
     }
-    
+
     let ppid = fields.get(1).unwrap_or(&"0").parse::<u32>().unwrap_or(0);
     let user = fields.get(2).unwrap_or(&"unknown").to_string();
-    let cpu_percent = fields.get(3).unwrap_or(&"0.0").parse::<f64>().unwrap_or(0.0);
-    let memory_percent = fields.get(4).unwrap_or(&"0.0").parse::<f64>().unwrap_or(0.0);
+    let cpu_percent = fields
+        .get(3)
+        .unwrap_or(&"0.0")
+        .parse::<f64>()
+        .unwrap_or(0.0);
+    let memory_percent = fields
+        .get(4)
+        .unwrap_or(&"0.0")
+        .parse::<f64>()
+        .unwrap_or(0.0);
     let rss_kb = fields.get(5).unwrap_or(&"0").parse::<u64>().unwrap_or(0);
     let vsz_kb = fields.get(6).unwrap_or(&"0").parse::<u64>().unwrap_or(0);
     let state = fields.get(7).unwrap_or(&"?").to_string();
-    
+
     let rss_bytes = rss_kb * 1024;
     let vms_bytes = vsz_kb * 1024;
-    
+
     // Get start time (simplified)
     let start_time = fields.get(8).unwrap_or(&"unknown").to_string();
-    
+
     // CPU time (simplified)
     let cpu_time_str = fields.get(9).unwrap_or(&"0:00");
     let cpu_time = parse_time_to_seconds(cpu_time_str);
-    
+
     // Command (take remaining fields)
     let command = if fields.len() > 11 {
         fields[11..].join(" ")
     } else {
         fields.get(10).unwrap_or(&"unknown").to_string()
     };
-    
+
     // Number of threads (not easily available via ps, use 1 as default)
     let num_threads = 1;
-    
-    Some((cpu_percent, memory_percent, rss_bytes, vms_bytes, user, state, start_time, cpu_time, command, ppid, num_threads))
+
+    Some((
+        cpu_percent,
+        memory_percent,
+        rss_bytes,
+        vms_bytes,
+        user,
+        state,
+        start_time,
+        cpu_time,
+        command,
+        ppid,
+        num_threads,
+    ))
 }
 
 fn get_username_from_uid(uid: u32) -> String {
@@ -242,12 +352,12 @@ fn get_process_start_time(pid: u32) -> Option<String> {
     let stat_path = format!("/proc/{}/stat", pid);
     let stat_content = fs::read_to_string(&stat_path).ok()?;
     let stat_fields: Vec<&str> = stat_content.split_whitespace().collect();
-    
+
     if let Some(starttime_str) = stat_fields.get(21) {
         if let Ok(starttime_jiffies) = starttime_str.parse::<u64>() {
             // Convert jiffies to seconds since boot
             let starttime_seconds = starttime_jiffies / 100; // Assuming 100 HZ
-            
+
             // Get boot time
             if let Ok(uptime_content) = fs::read_to_string("/proc/uptime") {
                 if let Some(uptime_str) = uptime_content.split_whitespace().next() {
@@ -255,11 +365,13 @@ fn get_process_start_time(pid: u32) -> Option<String> {
                         let boot_time = std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH)
                             .unwrap_or_default()
-                            .as_secs() as f64 - uptime_seconds;
-                        
+                            .as_secs() as f64
+                            - uptime_seconds;
+
                         let process_start_time = boot_time + starttime_seconds as f64;
-                        let start_time = std::time::UNIX_EPOCH + std::time::Duration::from_secs(process_start_time as u64);
-                        
+                        let start_time = std::time::UNIX_EPOCH
+                            + std::time::Duration::from_secs(process_start_time as u64);
+
                         if let Ok(datetime) = start_time.duration_since(std::time::UNIX_EPOCH) {
                             return Some(format!("{}", datetime.as_secs()));
                         }
@@ -268,26 +380,36 @@ fn get_process_start_time(pid: u32) -> Option<String> {
             }
         }
     }
-    
+
     None
 }
 
 fn parse_time_to_seconds(time_str: &str) -> u64 {
     // Parse time in format like "0:01.23" or "1:23:45"
     let parts: Vec<&str> = time_str.split(':').collect();
-    
+
     match parts.len() {
         2 => {
             // MM:SS format
             let minutes = parts[0].parse::<u64>().unwrap_or(0);
-            let seconds = parts[1].split('.').next().unwrap_or("0").parse::<u64>().unwrap_or(0);
+            let seconds = parts[1]
+                .split('.')
+                .next()
+                .unwrap_or("0")
+                .parse::<u64>()
+                .unwrap_or(0);
             minutes * 60 + seconds
         }
         3 => {
             // HH:MM:SS format
             let hours = parts[0].parse::<u64>().unwrap_or(0);
             let minutes = parts[1].parse::<u64>().unwrap_or(0);
-            let seconds = parts[2].split('.').next().unwrap_or("0").parse::<u64>().unwrap_or(0);
+            let seconds = parts[2]
+                .split('.')
+                .next()
+                .unwrap_or("0")
+                .parse::<u64>()
+                .unwrap_or(0);
             hours * 3600 + minutes * 60 + seconds
         }
         _ => 0,
