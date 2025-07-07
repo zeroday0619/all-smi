@@ -8,12 +8,22 @@ use nvml_wrapper::Nvml;
 use std::collections::HashMap;
 use std::process::Command;
 use std::str::FromStr;
-use std::sync::OnceLock;
+use std::sync::{atomic::AtomicBool, atomic::Ordering, OnceLock};
 
 pub struct NvidiaGpuReader;
 
 // Singleton Nvml instance - initialized once and reused
 static NVML_INSTANCE: OnceLock<Result<Nvml, NvmlError>> = OnceLock::new();
+
+// Flag to track if we've already warned about NVML fallback
+static NVML_FALLBACK_WARNED: AtomicBool = AtomicBool::new(false);
+
+// Helper function to warn about NVML fallback only once
+fn warn_nvml_fallback_once() {
+    if !NVML_FALLBACK_WARNED.swap(true, Ordering::Relaxed) {
+        eprintln!("NVML library not available, using nvidia-smi fallback");
+    }
+}
 
 // Initialize NVML instance only once
 fn get_nvml_instance() -> Result<&'static Nvml, &'static NvmlError> {
@@ -35,7 +45,7 @@ impl GpuReader for NvidiaGpuReader {
         match self.get_gpu_info_nvml() {
             Ok(gpu_info) if !gpu_info.is_empty() => gpu_info,
             Ok(_) | Err(_) => {
-                eprintln!("NVML failed, falling back to nvidia-smi");
+                warn_nvml_fallback_once();
                 self.get_gpu_info_nvidia_smi()
             }
         }
@@ -46,7 +56,7 @@ impl GpuReader for NvidiaGpuReader {
         match self.get_process_info_nvml() {
             Ok(process_info) => process_info,
             Err(_) => {
-                eprintln!("NVML failed for process info, falling back to nvidia-smi");
+                warn_nvml_fallback_once();
                 self.get_process_info_nvidia_smi()
             }
         }
