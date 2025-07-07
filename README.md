@@ -346,6 +346,7 @@ This project is licensed under the MIT License. See the LICENSE file for details
 ## Changelog
 
 ### Recent Updates
+- **v0.3.4:** Improved Apple Silicon memory calculation, redesigned help screen, resolved screen flickering issues
 - **v0.3.3:** CPU, Memory, and ANE support, and UI fixes
 - **v0.3.2:** Cargo.toml for publishing and release process
 - **v0.3.1:** GitHub actions and Dockerfile, and UI fixes
