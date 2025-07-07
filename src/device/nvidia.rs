@@ -15,14 +15,29 @@ pub struct NvidiaGpuReader;
 // Singleton Nvml instance - initialized once and reused
 static NVML_INSTANCE: OnceLock<Result<Nvml, NvmlError>> = OnceLock::new();
 
-// Flag to track if we've already warned about NVML fallback
+// Flag to track if NVML is available and if we've warned
+static NVML_AVAILABILITY_CHECKED: AtomicBool = AtomicBool::new(false);
+static NVML_IS_AVAILABLE: AtomicBool = AtomicBool::new(false);
 static NVML_FALLBACK_WARNED: AtomicBool = AtomicBool::new(false);
 
-// Helper function to warn about NVML fallback only once
-fn warn_nvml_fallback_once() {
-    if !NVML_FALLBACK_WARNED.swap(true, Ordering::Relaxed) {
+// Check NVML availability once and cache the result
+fn is_nvml_available() -> bool {
+    if NVML_AVAILABILITY_CHECKED.load(Ordering::Relaxed) {
+        return NVML_IS_AVAILABLE.load(Ordering::Relaxed);
+    }
+
+    // Check if NVML can be initialized
+    let available = get_nvml_instance().is_ok();
+
+    NVML_IS_AVAILABLE.store(available, Ordering::Relaxed);
+    NVML_AVAILABILITY_CHECKED.store(true, Ordering::Relaxed);
+
+    // Warn only once if NVML is not available
+    if !available && !NVML_FALLBACK_WARNED.swap(true, Ordering::Relaxed) {
         eprintln!("NVML library not available, using nvidia-smi fallback");
     }
+
+    available
 }
 
 // Initialize NVML instance only once
@@ -41,24 +56,26 @@ fn get_gpu_utilization(device: &nvml_wrapper::Device) -> f64 {
 
 impl GpuReader for NvidiaGpuReader {
     fn get_gpu_info(&self) -> Vec<GpuInfo> {
-        // Try NVML first, fallback to nvidia-smi if NVML fails
-        match self.get_gpu_info_nvml() {
-            Ok(gpu_info) if !gpu_info.is_empty() => gpu_info,
-            Ok(_) | Err(_) => {
-                warn_nvml_fallback_once();
-                self.get_gpu_info_nvidia_smi()
+        // Check NVML availability once and use appropriate method
+        if is_nvml_available() {
+            match self.get_gpu_info_nvml() {
+                Ok(gpu_info) if !gpu_info.is_empty() => gpu_info,
+                Ok(_) | Err(_) => self.get_gpu_info_nvidia_smi(),
             }
+        } else {
+            self.get_gpu_info_nvidia_smi()
         }
     }
 
     fn get_process_info(&self) -> Vec<ProcessInfo> {
-        // Try NVML first, fallback to nvidia-smi if NVML fails
-        match self.get_process_info_nvml() {
-            Ok(process_info) => process_info,
-            Err(_) => {
-                warn_nvml_fallback_once();
-                self.get_process_info_nvidia_smi()
+        // Check NVML availability once and use appropriate method
+        if is_nvml_available() {
+            match self.get_process_info_nvml() {
+                Ok(process_info) => process_info,
+                Err(_) => self.get_process_info_nvidia_smi(),
             }
+        } else {
+            self.get_process_info_nvidia_smi()
         }
     }
 }
