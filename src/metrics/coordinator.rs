@@ -10,10 +10,12 @@ use crate::metrics::aggregator::{
 };
 
 /// Coordinates metrics collection, aggregation, and history management
+#[allow(dead_code)] // Future metrics coordination architecture
 pub struct MetricsCoordinator {
     app_state: Arc<Mutex<AppState>>,
 }
 
+#[allow(dead_code)] // Future metrics coordination architecture
 impl MetricsCoordinator {
     pub fn new(app_state: Arc<Mutex<AppState>>) -> Self {
         Self { app_state }
@@ -237,6 +239,7 @@ impl MetricsCoordinator {
 
 /// Trend analysis results
 #[derive(Debug)]
+#[allow(dead_code)] // Future metrics coordination architecture
 pub struct TrendAnalysis {
     pub utilization_trend: Trend,
     pub memory_trend: Trend,
@@ -246,6 +249,7 @@ pub struct TrendAnalysis {
 
 /// Trend direction
 #[derive(Debug, PartialEq)]
+#[allow(dead_code)] // Future metrics coordination architecture
 pub enum Trend {
     Increasing,
     Decreasing,
@@ -255,6 +259,7 @@ pub enum Trend {
 
 /// Cluster health status
 #[derive(Debug)]
+#[allow(dead_code)] // Future metrics coordination architecture
 pub enum ClusterHealth {
     Healthy,
     Warning(Vec<String>),
@@ -264,6 +269,7 @@ pub enum ClusterHealth {
 
 /// Performance baseline information
 #[derive(Debug)]
+#[allow(dead_code)] // Future metrics coordination architecture
 pub struct PerformanceBaselines {
     pub utilization_baseline: Baseline,
     pub memory_baseline: Baseline,
@@ -273,6 +279,7 @@ pub struct PerformanceBaselines {
 
 /// Statistical baseline
 #[derive(Debug)]
+#[allow(dead_code)] // Future metrics coordination architecture
 pub enum Baseline {
     Available {
         mean: f64,

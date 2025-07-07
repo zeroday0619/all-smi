@@ -6,8 +6,10 @@ use crate::common::config::{AppConfig, ThemeConfig};
 use crate::ui::text::print_colored_text;
 
 /// Enhanced progress bar with consistent styling and configuration
+#[allow(dead_code)] // Future progress bar architecture
 pub struct ProgressBar;
 
+#[allow(dead_code)] // Future progress bar architecture
 impl ProgressBar {
     /// Draw a progress bar with configurable styling
     pub fn draw<W: Write>(
@@ -23,7 +25,7 @@ impl ProgressBar {
             AppConfig::PROGRESS_BAR_LABEL_WIDTH + AppConfig::PROGRESS_BAR_BRACKET_WIDTH + 1,
         );
 
-        let fill_ratio = (value / max_value).min(1.0).max(0.0);
+        let fill_ratio = (value / max_value).clamp(0.0, 1.0);
         let filled_width = (available_bar_width as f64 * fill_ratio) as usize;
 
         let color = options
@@ -129,6 +131,7 @@ impl ProgressBar {
 
 /// Configuration options for progress bars
 #[derive(Default)]
+#[allow(dead_code)] // Future progress bar architecture
 pub struct ProgressBarOptions {
     pub show_text: Option<String>,
     pub color: Option<Color>,
@@ -136,6 +139,7 @@ pub struct ProgressBarOptions {
     pub show_percentage: bool,
 }
 
+#[allow(dead_code)] // Future progress bar architecture
 impl ProgressBarOptions {
     pub fn new() -> Self {
         Self::default()
@@ -164,6 +168,7 @@ impl ProgressBarOptions {
 
 /// Different progress bar visual styles
 #[derive(Default)]
+#[allow(dead_code)] // Future progress bar architecture
 pub enum ProgressBarStyle {
     #[default]
     Filled, // ▬▬▬▬──
@@ -173,8 +178,10 @@ pub enum ProgressBarStyle {
 }
 
 /// Specialized progress bars for different use cases
+#[allow(dead_code)] // Future progress bar architecture
 pub struct SpecializedBars;
 
+#[allow(dead_code)] // Future progress bar architecture
 impl SpecializedBars {
     /// GPU utilization bar with appropriate colors
     pub fn gpu_utilization<W: Write>(stdout: &mut W, utilization: f64, width: usize) {

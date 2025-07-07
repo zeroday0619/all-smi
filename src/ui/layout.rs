@@ -94,6 +94,7 @@ impl LayoutCalculator {
     }
 
     /// Calculate progress bar layout
+    #[allow(dead_code)] // Future progress bar layout
     pub fn calculate_progress_bar_layout(
         width: usize,
         num_bars: usize,
@@ -119,6 +120,7 @@ impl LayoutCalculator {
     }
 
     /// Calculate dynamic column widths for tables
+    #[allow(dead_code)] // Future table layout
     pub fn calculate_table_columns(
         available_width: usize,
         column_specs: &[ColumnSpec],
@@ -170,9 +172,13 @@ impl LayoutCalculator {
 /// Content area dimensions
 #[derive(Debug, Clone)]
 pub struct ContentArea {
+    #[allow(dead_code)] // Future layout calculations
     pub x: u16,
+    #[allow(dead_code)] // Future layout calculations
     pub y: u16,
+    #[allow(dead_code)] // Future layout calculations
     pub width: u16,
+    #[allow(dead_code)] // Future layout calculations
     pub height: u16,
     pub available_rows: usize,
 }
@@ -180,15 +186,20 @@ pub struct ContentArea {
 /// GPU display parameters
 #[derive(Debug, Clone)]
 pub struct GpuDisplayParams {
+    #[allow(dead_code)] // Future layout calculations
     pub display_rows: usize,
+    #[allow(dead_code)] // Future layout calculations
     pub lines_per_gpu: usize,
-    pub max_items: usize,
+    pub max_items: usize, // Used in ui_loop.rs
+    #[allow(dead_code)] // Future layout calculations
     pub start_index: usize,
+    #[allow(dead_code)] // Future layout calculations
     pub storage_rows: usize,
 }
 
 /// Progress bar layout configuration
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // Future progress bar layout architecture
 pub struct ProgressBarLayout {
     pub bar_width: usize,
     pub left_padding: usize,
@@ -199,12 +210,14 @@ pub struct ProgressBarLayout {
 
 /// Table column specification
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // Future table layout architecture
 pub struct ColumnSpec {
     pub name: &'static str,
     pub min_width: usize,
     pub weight: f32, // Relative weight for extra space distribution
 }
 
+#[allow(dead_code)] // Future table layout architecture
 impl ColumnSpec {
     pub fn new(name: &'static str, min_width: usize, weight: f32) -> Self {
         Self {
@@ -216,8 +229,10 @@ impl ColumnSpec {
 }
 
 /// Predefined column specifications for common tables
+#[allow(dead_code)] // Future table layout architecture
 pub struct StandardColumns;
 
+#[allow(dead_code)] // Future table layout architecture
 impl StandardColumns {
     pub fn process_table() -> Vec<ColumnSpec> {
         vec![

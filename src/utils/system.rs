@@ -8,6 +8,7 @@ pub fn get_hostname() -> String {
     String::from_utf8_lossy(&output.stdout).trim().to_string()
 }
 
+#[allow(dead_code)] // Used in runner_old.rs (backup file)
 pub fn calculate_adaptive_interval(node_count: usize) -> u64 {
     // Adaptive interval based on node count to prevent overwhelming the network
     // For 1-10 nodes: 2 seconds

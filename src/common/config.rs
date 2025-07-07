@@ -19,6 +19,7 @@ impl AppConfig {
     pub const RETRY_BASE_DELAY_MS: u64 = 50;
 
     // Data Collection
+    #[allow(dead_code)] // Future configuration option
     pub const DEFAULT_UPDATE_INTERVAL_SECS: u64 = 2;
     pub const HISTORY_MAX_ENTRIES: usize = 100;
     pub const CONNECTION_STAGGER_BASE_MS: u64 = 500;
@@ -27,13 +28,17 @@ impl AppConfig {
     pub const PROGRESS_BAR_LABEL_WIDTH: usize = 5;
     pub const PROGRESS_BAR_BRACKET_WIDTH: usize = 4; // ": [" + "]"
     pub const PROGRESS_BAR_TEXT_WIDTH: usize = 8;
+    #[allow(dead_code)] // Future UI configuration
     pub const DASHBOARD_ITEM_WIDTH: usize = 15;
     pub const DEFAULT_TERMINAL_WIDTH: u16 = 80;
     pub const DEFAULT_TERMINAL_HEIGHT: u16 = 24;
 
     // Memory and Performance
+    #[allow(dead_code)] // Future Linux-specific calculations
     pub const LINUX_PAGE_SIZE_BYTES: u64 = 4096;
+    #[allow(dead_code)] // Future Linux-specific calculations
     pub const LINUX_JIFFIES_PER_SECOND: u64 = 100;
+    #[allow(dead_code)] // Future notification system
     pub const NOTIFICATION_DURATION_SECS: u64 = 5;
 
     // Color Thresholds
@@ -58,6 +63,7 @@ impl EnvConfig {
         }
     }
 
+    #[allow(dead_code)] // Future connection management
     pub fn max_concurrent_connections(total_hosts: usize) -> usize {
         std::cmp::min(total_hosts, AppConfig::MAX_CONCURRENT_CONNECTIONS)
     }

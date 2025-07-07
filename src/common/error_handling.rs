@@ -2,6 +2,8 @@ use std::fmt;
 
 /// Common error types used throughout the application
 #[derive(Debug)]
+#[allow(dead_code)] // Future error handling architecture
+#[allow(clippy::enum_variant_names)] // Clear naming convention
 pub enum AppError {
     TerminalError(String),
     NetworkError(String),
@@ -25,11 +27,14 @@ impl fmt::Display for AppError {
 impl std::error::Error for AppError {}
 
 /// Result type with common error
+#[allow(dead_code)] // Future error handling architecture
 pub type AppResult<T> = Result<T, AppError>;
 
 /// Error handling utilities
+#[allow(dead_code)] // Future error handling architecture
 pub struct ErrorHandler;
 
+#[allow(dead_code)] // Future error handling architecture
 impl ErrorHandler {
     /// Log error and return default value
     pub fn log_and_default<T: Default>(error: impl std::error::Error, context: &str) -> T {

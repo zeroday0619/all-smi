@@ -39,6 +39,7 @@ impl TerminalManager {
         Ok(())
     }
 
+    #[allow(dead_code)] // Future terminal management architecture
     pub fn is_initialized(&self) -> bool {
         self.initialized
     }

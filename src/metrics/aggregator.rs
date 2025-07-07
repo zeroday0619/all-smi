@@ -3,8 +3,10 @@ use std::collections::HashMap;
 use crate::device::{CpuInfo, GpuInfo, MemoryInfo};
 
 /// Metrics aggregation utilities for cluster-wide statistics
+#[allow(dead_code)] // Used in coordinator.rs (metrics infrastructure)
 pub struct MetricsAggregator;
 
+#[allow(dead_code)] // Used in coordinator.rs (metrics infrastructure)
 impl MetricsAggregator {
     /// Calculate cluster-wide GPU statistics
     pub fn aggregate_gpu_metrics(gpu_info: &[GpuInfo]) -> GpuClusterMetrics {
@@ -189,6 +191,7 @@ impl MetricsAggregator {
 }
 
 /// Trait for items that have a hostname
+#[allow(dead_code)] // Used in coordinator.rs (metrics infrastructure)
 pub trait HasHostname {
     fn hostname(&self) -> &str;
 }
@@ -213,6 +216,7 @@ impl HasHostname for MemoryInfo {
 
 /// Aggregated GPU metrics for the cluster
 #[derive(Debug, Default)]
+#[allow(dead_code)] // Used in coordinator.rs (metrics infrastructure)
 pub struct GpuClusterMetrics {
     pub total_gpus: usize,
     pub total_memory_gb: f64,
@@ -226,6 +230,7 @@ pub struct GpuClusterMetrics {
 
 /// Aggregated CPU metrics for the cluster
 #[derive(Debug, Default)]
+#[allow(dead_code)] // Used in coordinator.rs (metrics infrastructure)
 pub struct CpuClusterMetrics {
     pub total_cores: u32,
     pub avg_utilization: f64,
@@ -235,6 +240,7 @@ pub struct CpuClusterMetrics {
 
 /// Aggregated memory metrics for the cluster
 #[derive(Debug, Default)]
+#[allow(dead_code)] // Used in coordinator.rs (metrics infrastructure)
 pub struct MemoryClusterMetrics {
     pub total_gb: f64,
     pub used_gb: f64,
@@ -244,6 +250,7 @@ pub struct MemoryClusterMetrics {
 
 /// Combined metrics for a single host
 #[derive(Debug)]
+#[allow(dead_code)] // Used in coordinator.rs (metrics infrastructure)
 pub struct HostMetrics {
     pub hostname: String,
     pub gpu_metrics: GpuClusterMetrics,

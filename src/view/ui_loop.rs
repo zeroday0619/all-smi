@@ -58,15 +58,13 @@ impl UiLoop {
                 event::poll(Duration::from_millis(AppConfig::EVENT_POLL_TIMEOUT_MS))
             {
                 if has_event {
-                    if let Ok(event) = event::read() {
-                        if let Event::Key(key_event) = event {
-                            let mut state = self.app_state.lock().await;
-                            let should_break = handle_key_event(key_event, &mut state, args).await;
-                            if should_break {
-                                break;
-                            }
-                            drop(state);
+                    if let Ok(Event::Key(key_event)) = event::read() {
+                        let mut state = self.app_state.lock().await;
+                        let should_break = handle_key_event(key_event, &mut state, args).await;
+                        if should_break {
+                            break;
                         }
+                        drop(state);
                         // Ignore other event types (mouse, resize, focus, paste)
                     }
                 }
