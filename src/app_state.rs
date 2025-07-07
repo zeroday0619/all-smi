@@ -1,6 +1,7 @@
 use crate::device::{CpuInfo, GpuInfo, MemoryInfo, ProcessInfo};
 use crate::storage::info::StorageInfo;
 use crate::ui::notification::NotificationManager;
+use std::cmp::Ordering;
 use std::collections::{HashMap, VecDeque};
 
 #[derive(Clone)]
@@ -76,6 +77,123 @@ impl AppState {
             temperature_history: VecDeque::new(),
             notifications: NotificationManager::new(),
             nvml_notification_shown: false,
+        }
+    }
+}
+
+impl SortCriteria {
+    pub fn sort_gpus(&self, a: &GpuInfo, b: &GpuInfo) -> Ordering {
+        match self {
+            SortCriteria::Default => {
+                // Sort by hostname first, then by index (original behavior)
+                a.hostname.cmp(&b.hostname).then_with(|| {
+                    let a_index = a
+                        .detail
+                        .get("index")
+                        .and_then(|s| s.parse::<u32>().ok())
+                        .unwrap_or(0);
+                    let b_index = b
+                        .detail
+                        .get("index")
+                        .and_then(|s| s.parse::<u32>().ok())
+                        .unwrap_or(0);
+                    a_index.cmp(&b_index)
+                })
+            }
+            SortCriteria::Utilization => {
+                // Sort by utilization (descending), then by hostname and index
+                b.utilization
+                    .partial_cmp(&a.utilization)
+                    .unwrap_or(Ordering::Equal)
+                    .then_with(|| a.hostname.cmp(&b.hostname))
+                    .then_with(|| {
+                        let a_index = a
+                            .detail
+                            .get("index")
+                            .and_then(|s| s.parse::<u32>().ok())
+                            .unwrap_or(0);
+                        let b_index = b
+                            .detail
+                            .get("index")
+                            .and_then(|s| s.parse::<u32>().ok())
+                            .unwrap_or(0);
+                        a_index.cmp(&b_index)
+                    })
+            }
+            SortCriteria::GpuMemory => {
+                // Sort by memory usage (descending), then by hostname and index
+                b.used_memory
+                    .cmp(&a.used_memory)
+                    .then_with(|| a.hostname.cmp(&b.hostname))
+                    .then_with(|| {
+                        let a_index = a
+                            .detail
+                            .get("index")
+                            .and_then(|s| s.parse::<u32>().ok())
+                            .unwrap_or(0);
+                        let b_index = b
+                            .detail
+                            .get("index")
+                            .and_then(|s| s.parse::<u32>().ok())
+                            .unwrap_or(0);
+                        a_index.cmp(&b_index)
+                    })
+            }
+            SortCriteria::Power => {
+                // Sort by power consumption (descending), then by hostname and index
+                b.power_consumption
+                    .partial_cmp(&a.power_consumption)
+                    .unwrap_or(Ordering::Equal)
+                    .then_with(|| a.hostname.cmp(&b.hostname))
+                    .then_with(|| {
+                        let a_index = a
+                            .detail
+                            .get("index")
+                            .and_then(|s| s.parse::<u32>().ok())
+                            .unwrap_or(0);
+                        let b_index = b
+                            .detail
+                            .get("index")
+                            .and_then(|s| s.parse::<u32>().ok())
+                            .unwrap_or(0);
+                        a_index.cmp(&b_index)
+                    })
+            }
+            SortCriteria::Temperature => {
+                // Sort by temperature (descending), then by hostname and index
+                b.temperature
+                    .cmp(&a.temperature)
+                    .then_with(|| a.hostname.cmp(&b.hostname))
+                    .then_with(|| {
+                        let a_index = a
+                            .detail
+                            .get("index")
+                            .and_then(|s| s.parse::<u32>().ok())
+                            .unwrap_or(0);
+                        let b_index = b
+                            .detail
+                            .get("index")
+                            .and_then(|s| s.parse::<u32>().ok())
+                            .unwrap_or(0);
+                        a_index.cmp(&b_index)
+                    })
+            }
+            _ => {
+                // For process sorting criteria, fall back to default GPU sorting
+                a.hostname.cmp(&b.hostname).then_with(|| {
+                    let a_index = a
+                        .detail
+                        .get("index")
+                        .and_then(|s| s.parse::<u32>().ok())
+                        .unwrap_or(0);
+                    let b_index = b
+                        .detail
+                        .get("index")
+                        .and_then(|s| s.parse::<u32>().ok())
+                        .unwrap_or(0);
+                    a_index.cmp(&b_index)
+                })
+            }
         }
     }
 }
