@@ -4,6 +4,7 @@ use std::io::Write;
 use crossterm::{queue, style::Color, style::Print};
 
 use crate::app_state::AppState;
+use crate::common::config::ThemeConfig;
 use crate::ui::text::{format_ram_value, print_colored_text};
 
 pub fn draw_system_view<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
@@ -395,15 +396,7 @@ fn print_node_view_row<W: Write>(
 }
 
 fn get_node_char_and_color(utilization: f64, is_selected: bool) -> (char, Color) {
-    let base_color = if utilization > 80.0 {
-        Color::Red
-    } else if utilization > 50.0 {
-        Color::Yellow
-    } else if utilization > 20.0 {
-        Color::Green
-    } else {
-        Color::DarkGrey
-    };
+    let base_color = ThemeConfig::utilization_color(utilization);
 
     let char = if is_selected { '●' } else { '○' };
     (char, base_color)
@@ -441,15 +434,7 @@ fn print_history_bar_with_value<W: Write>(
     // Print the bar
     for &value in &sampled_data {
         let normalized = (value / max_value).min(1.0);
-        let color = if normalized > 0.8 {
-            Color::Red
-        } else if normalized > 0.6 {
-            Color::Yellow
-        } else if normalized > 0.3 {
-            Color::Green
-        } else {
-            Color::DarkGrey
-        };
+        let color = ThemeConfig::progress_bar_color(normalized);
 
         let bar_char = if normalized > 0.875 {
             '⣿' // All 8 dots filled

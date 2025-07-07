@@ -1,4 +1,5 @@
 /// Application configuration constants
+#[allow(dead_code)] // Many constants used across modules but clippy may not detect cross-module usage
 pub struct AppConfig;
 
 impl AppConfig {
@@ -43,6 +44,7 @@ impl AppConfig {
 }
 
 /// Environment-specific configuration
+#[allow(dead_code)] // Functions used across modules but clippy may not detect cross-module usage
 pub struct EnvConfig;
 
 impl EnvConfig {

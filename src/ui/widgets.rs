@@ -2,6 +2,7 @@ use std::io::Write;
 
 use crossterm::style::Color;
 
+use crate::common::config::ThemeConfig;
 use crate::ui::text::print_colored_text;
 
 pub fn draw_bar<W: Write>(
@@ -26,18 +27,8 @@ pub fn draw_bar<W: Write>(
     let fill_ratio = (value / max_value).min(1.0);
     let filled_width = (available_bar_width as f64 * fill_ratio) as usize;
 
-    // Choose color based on usage
-    let color = if fill_ratio > 0.8 {
-        Color::Red
-    } else if fill_ratio > 0.70 {
-        Color::Yellow
-    } else if fill_ratio > 0.25 {
-        Color::Green
-    } else if fill_ratio > 0.05 {
-        Color::DarkGreen
-    } else {
-        Color::DarkGrey
-    };
+    // Choose color based on usage using ThemeConfig
+    let color = ThemeConfig::progress_bar_color(fill_ratio);
 
     // Prepare text to display inside the bar with fixed width
     let display_text = if let Some(text) = show_text {

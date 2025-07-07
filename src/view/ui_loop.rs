@@ -18,6 +18,7 @@ use crate::cli::ViewArgs;
 use crate::common::config::AppConfig;
 use crate::ui::buffer::{BufferWriter, DifferentialRenderer};
 use crate::ui::dashboard::{draw_dashboard_items, draw_system_view};
+use crate::ui::layout::LayoutCalculator;
 use crate::ui::renderer::{
     print_cpu_info, print_function_keys, print_gpu_info, print_loading_indicator,
     print_memory_info, print_process_info, print_storage_info,
@@ -272,15 +273,15 @@ impl UiLoop {
         gpu_info_to_display.sort_by(|a, b| state.sort_criteria.sort_gpus(a, b));
 
         // Calculate available space and render GPUs
-        let header_lines = self.calculate_header_lines(state);
+        let header_lines = LayoutCalculator::calculate_header_lines(state);
         let content_start_row = header_lines;
-        let available_rows = rows.saturating_sub(content_start_row).saturating_sub(1) as usize;
+        let _available_rows = rows.saturating_sub(content_start_row).saturating_sub(1) as usize;
 
-        // Determine GPU display parameters
-        let (gpu_display_rows, _storage_display_rows) =
-            self.calculate_display_rows(state, args, available_rows);
-        let lines_per_gpu = 2;
-        let max_gpu_items = gpu_display_rows / lines_per_gpu;
+        // Calculate content area and GPU display parameters
+        let content_area = LayoutCalculator::calculate_content_area(state, cols, rows);
+        let gpu_display_params =
+            LayoutCalculator::calculate_gpu_display_params(state, args, &content_area);
+        let max_gpu_items = gpu_display_params.max_items;
 
         // Display GPUs with scrolling
         let start_gpu_index = state.gpu_scroll_offset;
@@ -404,66 +405,5 @@ impl UiLoop {
                 cols,
             );
         }
-    }
-
-    fn calculate_header_lines(&self, state: &AppState) -> u16 {
-        // Calculate dynamic header size based on content
-        let base_header_lines = 8; // Basic header content
-        let dashboard_lines = 4; // System overview dashboard
-        let history_lines = if !state.utilization_history.is_empty() {
-            5
-        } else {
-            0
-        };
-
-        base_header_lines + dashboard_lines + history_lines
-    }
-
-    fn calculate_display_rows(
-        &self,
-        state: &AppState,
-        args: &ViewArgs,
-        available_rows: usize,
-    ) -> (usize, usize) {
-        let is_remote = args.hosts.is_some() || args.hostfile.is_some();
-
-        let storage_items_count = if !state.storage_info.is_empty() {
-            if is_remote {
-                if state.current_tab < state.tabs.len() && state.tabs[state.current_tab] != "All" {
-                    let current_hostname = &state.tabs[state.current_tab];
-                    state
-                        .storage_info
-                        .iter()
-                        .filter(|info| info.hostname == *current_hostname)
-                        .count()
-                } else {
-                    0
-                }
-            } else {
-                state.storage_info.len()
-            }
-        } else {
-            0
-        };
-
-        let storage_display_rows = if storage_items_count > 0 {
-            storage_items_count + 2 // Extra 2 for headers/padding
-        } else {
-            0
-        };
-
-        let gpu_display_rows = if is_remote {
-            if state.current_tab < state.tabs.len() && state.tabs[state.current_tab] == "All" {
-                available_rows // "All" tab: no storage display, use full available space
-            } else {
-                available_rows.saturating_sub(storage_display_rows) // Specific host tab
-            }
-        } else if state.process_info.is_empty() {
-            available_rows.saturating_sub(storage_display_rows)
-        } else {
-            (available_rows.saturating_sub(storage_display_rows)) / 2
-        };
-
-        (gpu_display_rows, storage_display_rows)
     }
 }

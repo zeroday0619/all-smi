@@ -103,7 +103,7 @@ enum PlatformType {
     Apple,
     Jetson,
     Intel,
-    AMD,
+    Amd,
 }
 
 // High-performance template-based mock node
@@ -556,8 +556,8 @@ impl MockNode {
         ];
 
         for (metric_name, help_text) in gpu_metrics {
-            template.push_str(&format!("# HELP {} {}\n", metric_name, help_text));
-            template.push_str(&format!("# TYPE {} gauge\n", metric_name));
+            template.push_str(&format!("# HELP {metric_name} {help_text}\n"));
+            template.push_str(&format!("# TYPE {metric_name} gauge\n"));
 
             for (i, gpu) in gpus.iter().enumerate() {
                 let labels = format!(
@@ -566,16 +566,16 @@ impl MockNode {
                 );
 
                 let placeholder = match metric_name {
-                    "all_smi_gpu_utilization" => format!("{{{{UTIL_{}}}}}", i),
-                    "all_smi_gpu_memory_used_bytes" => format!("{{{{MEM_USED_{}}}}}", i),
-                    "all_smi_gpu_memory_total_bytes" => format!("{{{{MEM_TOTAL_{}}}}}", i),
-                    "all_smi_gpu_temperature_celsius" => format!("{{{{TEMP_{}}}}}", i),
-                    "all_smi_gpu_power_consumption_watts" => format!("{{{{POWER_{}}}}}", i),
-                    "all_smi_gpu_frequency_mhz" => format!("{{{{FREQ_{}}}}}", i),
+                    "all_smi_gpu_utilization" => format!("{{{{UTIL_{i}}}}}"),
+                    "all_smi_gpu_memory_used_bytes" => format!("{{{{MEM_USED_{i}}}}}"),
+                    "all_smi_gpu_memory_total_bytes" => format!("{{{{MEM_TOTAL_{i}}}}}"),
+                    "all_smi_gpu_temperature_celsius" => format!("{{{{TEMP_{i}}}}}"),
+                    "all_smi_gpu_power_consumption_watts" => format!("{{{{POWER_{i}}}}}"),
+                    "all_smi_gpu_frequency_mhz" => format!("{{{{FREQ_{i}}}}}"),
                     _ => "0".to_string(),
                 };
 
-                template.push_str(&format!("{}{{{}}} {}\n", metric_name, labels, placeholder));
+                template.push_str(&format!("{metric_name}{{{labels}}} {placeholder}\n"));
             }
         }
 
@@ -589,10 +589,9 @@ impl MockNode {
                     "gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"",
                     gpu_name, instance_name, gpu.uuid, i
                 );
-                let placeholder = format!("{{{{ANE_{}}}}}", i);
+                let placeholder = format!("{{{{ANE_{i}}}}}");
                 template.push_str(&format!(
-                    "all_smi_ane_utilization{{{}}} {}\n",
-                    labels, placeholder
+                    "all_smi_ane_utilization{{{labels}}} {placeholder}\n"
                 ));
             }
         }
@@ -607,36 +606,35 @@ impl MockNode {
         template.push_str("# HELP all_smi_cpu_utilization CPU utilization percentage\n");
         template.push_str("# TYPE all_smi_cpu_utilization gauge\n");
         template.push_str(&format!(
-            "all_smi_cpu_utilization{{{}}} {}\n",
-            cpu_labels, PLACEHOLDER_CPU_UTIL
+            "all_smi_cpu_utilization{{{cpu_labels}}} {PLACEHOLDER_CPU_UTIL}\n"
         ));
 
         template.push_str("# HELP all_smi_cpu_socket_count Number of CPU sockets\n");
         template.push_str("# TYPE all_smi_cpu_socket_count gauge\n");
         template.push_str(&format!(
-            "all_smi_cpu_socket_count{{{}}} {}\n",
-            cpu_labels, cpu.socket_count
+            "all_smi_cpu_socket_count{{{cpu_labels}}} {}\n",
+            cpu.socket_count
         ));
 
         template.push_str("# HELP all_smi_cpu_core_count Total number of CPU cores\n");
         template.push_str("# TYPE all_smi_cpu_core_count gauge\n");
         template.push_str(&format!(
-            "all_smi_cpu_core_count{{{}}} {}\n",
-            cpu_labels, cpu.core_count
+            "all_smi_cpu_core_count{{{cpu_labels}}} {}\n",
+            cpu.core_count
         ));
 
         template.push_str("# HELP all_smi_cpu_thread_count Total number of CPU threads\n");
         template.push_str("# TYPE all_smi_cpu_thread_count gauge\n");
         template.push_str(&format!(
-            "all_smi_cpu_thread_count{{{}}} {}\n",
-            cpu_labels, cpu.thread_count
+            "all_smi_cpu_thread_count{{{cpu_labels}}} {}\n",
+            cpu.thread_count
         ));
 
         template.push_str("# HELP all_smi_cpu_frequency_mhz CPU frequency in MHz\n");
         template.push_str("# TYPE all_smi_cpu_frequency_mhz gauge\n");
         template.push_str(&format!(
-            "all_smi_cpu_frequency_mhz{{{}}} {}\n",
-            cpu_labels, cpu.frequency_mhz
+            "all_smi_cpu_frequency_mhz{{{cpu_labels}}} {}\n",
+            cpu.frequency_mhz
         ));
 
         // Optional CPU metrics (temperature and power)
@@ -645,8 +643,7 @@ impl MockNode {
                 .push_str("# HELP all_smi_cpu_temperature_celsius CPU temperature in celsius\n");
             template.push_str("# TYPE all_smi_cpu_temperature_celsius gauge\n");
             template.push_str(&format!(
-                "all_smi_cpu_temperature_celsius{{{}}} {}\n",
-                cpu_labels, PLACEHOLDER_CPU_TEMP
+                "all_smi_cpu_temperature_celsius{{{cpu_labels}}} {PLACEHOLDER_CPU_TEMP}\n"
             ));
         }
 
@@ -656,8 +653,7 @@ impl MockNode {
             );
             template.push_str("# TYPE all_smi_cpu_power_consumption_watts gauge\n");
             template.push_str(&format!(
-                "all_smi_cpu_power_consumption_watts{{{}}} {}\n",
-                cpu_labels, PLACEHOLDER_CPU_POWER
+                "all_smi_cpu_power_consumption_watts{{{cpu_labels}}} {PLACEHOLDER_CPU_POWER}\n"
             ));
         }
 
@@ -679,8 +675,7 @@ impl MockNode {
                     PLACEHOLDER_CPU_SOCKET1_UTIL
                 };
                 template.push_str(&format!(
-                    "all_smi_cpu_socket_utilization{{{}}} {}\n",
-                    socket_labels, placeholder
+                    "all_smi_cpu_socket_utilization{{{socket_labels}}} {placeholder}\n"
                 ));
             }
         }
@@ -693,81 +688,70 @@ impl MockNode {
                 template.push_str("# HELP all_smi_cpu_p_core_count Apple Silicon P-core count\n");
                 template.push_str("# TYPE all_smi_cpu_p_core_count gauge\n");
                 template.push_str(&format!(
-                    "all_smi_cpu_p_core_count{{{}}} {}\n",
-                    cpu_labels, p_count
+                    "all_smi_cpu_p_core_count{{{cpu_labels}}} {p_count}\n"
                 ));
 
                 template.push_str("# HELP all_smi_cpu_e_core_count Apple Silicon E-core count\n");
                 template.push_str("# TYPE all_smi_cpu_e_core_count gauge\n");
                 template.push_str(&format!(
-                    "all_smi_cpu_e_core_count{{{}}} {}\n",
-                    cpu_labels, e_count
+                    "all_smi_cpu_e_core_count{{{cpu_labels}}} {e_count}\n"
                 ));
 
                 template
                     .push_str("# HELP all_smi_cpu_gpu_core_count Apple Silicon GPU core count\n");
                 template.push_str("# TYPE all_smi_cpu_gpu_core_count gauge\n");
                 template.push_str(&format!(
-                    "all_smi_cpu_gpu_core_count{{{}}} {}\n",
-                    cpu_labels, gpu_count
+                    "all_smi_cpu_gpu_core_count{{{cpu_labels}}} {gpu_count}\n"
                 ));
 
                 template.push_str("# HELP all_smi_cpu_p_core_utilization Apple Silicon P-core utilization percentage\n");
                 template.push_str("# TYPE all_smi_cpu_p_core_utilization gauge\n");
                 template.push_str(&format!(
-                    "all_smi_cpu_p_core_utilization{{{}}} {}\n",
-                    cpu_labels, PLACEHOLDER_CPU_P_CORE_UTIL
+                    "all_smi_cpu_p_core_utilization{{{cpu_labels}}} {PLACEHOLDER_CPU_P_CORE_UTIL}\n"
                 ));
 
                 template.push_str("# HELP all_smi_cpu_e_core_utilization Apple Silicon E-core utilization percentage\n");
                 template.push_str("# TYPE all_smi_cpu_e_core_utilization gauge\n");
                 template.push_str(&format!(
-                    "all_smi_cpu_e_core_utilization{{{}}} {}\n",
-                    cpu_labels, PLACEHOLDER_CPU_E_CORE_UTIL
+                    "all_smi_cpu_e_core_utilization{{{cpu_labels}}} {PLACEHOLDER_CPU_E_CORE_UTIL}\n"
                 ));
             }
         }
 
         // Memory metrics
-        let memory_labels = format!(
-            "instance=\"{}\", hostname=\"{}\", index=\"0\"",
-            instance_name, instance_name
-        );
+        let memory_labels =
+            format!("instance=\"{instance_name}\", hostname=\"{instance_name}\", index=\"0\"");
 
         template.push_str("# HELP all_smi_memory_total_bytes Total system memory in bytes\n");
         template.push_str("# TYPE all_smi_memory_total_bytes gauge\n");
         template.push_str(&format!(
-            "all_smi_memory_total_bytes{{{}}} {}\n",
-            memory_labels, memory.total_bytes
+            "all_smi_memory_total_bytes{{{memory_labels}}} {}\n",
+            memory.total_bytes
         ));
 
         template.push_str("# HELP all_smi_memory_used_bytes Used system memory in bytes\n");
         template.push_str("# TYPE all_smi_memory_used_bytes gauge\n");
         template.push_str(&format!(
-            "all_smi_memory_used_bytes{{{}}} {}\n",
-            memory_labels, PLACEHOLDER_SYS_MEMORY_USED
+            "all_smi_memory_used_bytes{{{memory_labels}}} {PLACEHOLDER_SYS_MEMORY_USED}\n"
         ));
 
         template
             .push_str("# HELP all_smi_memory_available_bytes Available system memory in bytes\n");
         template.push_str("# TYPE all_smi_memory_available_bytes gauge\n");
         template.push_str(&format!(
-            "all_smi_memory_available_bytes{{{}}} {}\n",
-            memory_labels, PLACEHOLDER_SYS_MEMORY_AVAILABLE
+            "all_smi_memory_available_bytes{{{memory_labels}}} {PLACEHOLDER_SYS_MEMORY_AVAILABLE}\n"
         ));
 
         template.push_str("# HELP all_smi_memory_free_bytes Free system memory in bytes\n");
         template.push_str("# TYPE all_smi_memory_free_bytes gauge\n");
         template.push_str(&format!(
-            "all_smi_memory_free_bytes{{{}}} {}\n",
-            memory_labels, PLACEHOLDER_SYS_MEMORY_FREE
+            "all_smi_memory_free_bytes{{{memory_labels}}} {PLACEHOLDER_SYS_MEMORY_FREE}\n"
         ));
 
         template.push_str("# HELP all_smi_memory_utilization Memory utilization percentage\n");
         template.push_str("# TYPE all_smi_memory_utilization gauge\n");
         template.push_str(&format!(
-            "all_smi_memory_utilization{{{}}} {}\n",
-            memory_labels, PLACEHOLDER_SYS_MEMORY_UTIL
+            "all_smi_memory_utilization{{{memory_labels}}} {PLACEHOLDER_SYS_MEMORY_UTIL}\n"
         ));
 
         // Swap metrics if available
@@ -775,22 +759,20 @@ impl MockNode {
             template.push_str("# HELP all_smi_swap_total_bytes Total swap space in bytes\n");
             template.push_str("# TYPE all_smi_swap_total_bytes gauge\n");
             template.push_str(&format!(
-                "all_smi_swap_total_bytes{{{}}} {}\n",
-                memory_labels, memory.swap_total_bytes
+                "all_smi_swap_total_bytes{{{memory_labels}}} {}\n",
+                memory.swap_total_bytes
             ));
 
             template.push_str("# HELP all_smi_swap_used_bytes Used swap space in bytes\n");
             template.push_str("# TYPE all_smi_swap_used_bytes gauge\n");
             template.push_str(&format!(
-                "all_smi_swap_used_bytes{{{}}} {}\n",
-                memory_labels, PLACEHOLDER_SYS_SWAP_USED
+                "all_smi_swap_used_bytes{{{memory_labels}}} {PLACEHOLDER_SYS_SWAP_USED}\n"
             ));
 
             template.push_str("# HELP all_smi_swap_free_bytes Free swap space in bytes\n");
             template.push_str("# TYPE all_smi_swap_free_bytes gauge\n");
             template.push_str(&format!(
-                "all_smi_swap_free_bytes{{{}}} {}\n",
-                memory_labels, PLACEHOLDER_SYS_SWAP_FREE
+                "all_smi_swap_free_bytes{{{memory_labels}}} {PLACEHOLDER_SYS_SWAP_FREE}\n"
             ));
         }
 
@@ -800,8 +782,7 @@ impl MockNode {
                 .push_str("# HELP all_smi_memory_buffers_bytes Memory used for buffers in bytes\n");
             template.push_str("# TYPE all_smi_memory_buffers_bytes gauge\n");
             template.push_str(&format!(
-                "all_smi_memory_buffers_bytes{{{}}} {}\n",
-                memory_labels, PLACEHOLDER_SYS_MEMORY_BUFFERS
+                "all_smi_memory_buffers_bytes{{{memory_labels}}} {PLACEHOLDER_SYS_MEMORY_BUFFERS}\n"
             ));
         }
 
@@ -810,28 +791,22 @@ impl MockNode {
                 .push_str("# HELP all_smi_memory_cached_bytes Memory used for cache in bytes\n");
             template.push_str("# TYPE all_smi_memory_cached_bytes gauge\n");
             template.push_str(&format!(
-                "all_smi_memory_cached_bytes{{{}}} {}\n",
-                memory_labels, PLACEHOLDER_SYS_MEMORY_CACHED
+                "all_smi_memory_cached_bytes{{{memory_labels}}} {PLACEHOLDER_SYS_MEMORY_CACHED}\n"
             ));
         }
 
         // Disk metrics
         template.push_str("# HELP all_smi_disk_total_bytes Total disk space in bytes\n");
         template.push_str("# TYPE all_smi_disk_total_bytes gauge\n");
-        let disk_labels = format!(
-            "instance=\"{}\", mount_point=\"/\", index=\"0\"",
-            instance_name
-        );
+        let disk_labels = format!("instance=\"{instance_name}\", mount_point=\"/\", index=\"0\"");
         template.push_str(&format!(
-            "all_smi_disk_total_bytes{{{}}} {}\n",
-            disk_labels, PLACEHOLDER_DISK_TOTAL
+            "all_smi_disk_total_bytes{{{disk_labels}}} {PLACEHOLDER_DISK_TOTAL}\n"
         ));
 
         template.push_str("# HELP all_smi_disk_available_bytes Available disk space in bytes\n");
         template.push_str("# TYPE all_smi_disk_available_bytes gauge\n");
         template.push_str(&format!(
-            "all_smi_disk_available_bytes{{{}}} {}\n",
-            disk_labels, PLACEHOLDER_DISK_AVAIL
+            "all_smi_disk_available_bytes{{{disk_labels}}} {PLACEHOLDER_DISK_AVAIL}\n"
         ));
 
         template
@@ -845,34 +820,31 @@ impl MockNode {
         for (i, gpu) in self.gpus.iter().enumerate() {
             response = response
                 .replace(
-                    &format!("{{{{UTIL_{}}}}}", i),
+                    &format!("{{{{UTIL_{i}}}}}"),
                     &format!("{:.2}", gpu.utilization),
                 )
                 .replace(
-                    &format!("{{{{MEM_USED_{}}}}}", i),
+                    &format!("{{{{MEM_USED_{i}}}}}"),
                     &gpu.memory_used_bytes.to_string(),
                 )
                 .replace(
-                    &format!("{{{{MEM_TOTAL_{}}}}}", i),
+                    &format!("{{{{MEM_TOTAL_{i}}}}}"),
                     &gpu.memory_total_bytes.to_string(),
                 )
                 .replace(
-                    &format!("{{{{TEMP_{}}}}}", i),
+                    &format!("{{{{TEMP_{i}}}}}"),
                     &gpu.temperature_celsius.to_string(),
                 )
                 .replace(
-                    &format!("{{{{POWER_{}}}}}", i),
+                    &format!("{{{{POWER_{i}}}}}"),
                     &format!("{:.3}", gpu.power_consumption_watts),
                 )
-                .replace(
-                    &format!("{{{{FREQ_{}}}}}", i),
-                    &gpu.frequency_mhz.to_string(),
-                );
+                .replace(&format!("{{{{FREQ_{i}}}}}"), &gpu.frequency_mhz.to_string());
 
             // Replace ANE metrics for Apple Silicon
             if let PlatformType::Apple = self.platform_type {
                 response = response.replace(
-                    &format!("{{{{ANE_{}}}}}", i),
+                    &format!("{{{{ANE_{i}}}}}"),
                     &format!("{:.3}", gpu.ane_utilization_watts),
                 );
             }
@@ -888,7 +860,7 @@ impl MockNode {
                 PLACEHOLDER_CPU_SOCKET0_UTIL,
                 &format!(
                     "{:.2}",
-                    self.cpu.socket_utilizations.get(0).copied().unwrap_or(0.0)
+                    self.cpu.socket_utilizations.first().copied().unwrap_or(0.0)
                 ),
             )
             .replace(
@@ -904,7 +876,7 @@ impl MockNode {
         }
 
         if let Some(power) = self.cpu.power_consumption_watts {
-            response = response.replace(PLACEHOLDER_CPU_POWER, &format!("{:.3}", power));
+            response = response.replace(PLACEHOLDER_CPU_POWER, &format!("{power:.3}"));
         }
 
         // Apple Silicon specific replacements
@@ -913,8 +885,8 @@ impl MockNode {
                 (self.cpu.p_core_utilization, self.cpu.e_core_utilization)
             {
                 response = response
-                    .replace(PLACEHOLDER_CPU_P_CORE_UTIL, &format!("{:.2}", p_util))
-                    .replace(PLACEHOLDER_CPU_E_CORE_UTIL, &format!("{:.2}", e_util));
+                    .replace(PLACEHOLDER_CPU_P_CORE_UTIL, &format!("{p_util:.2}"))
+                    .replace(PLACEHOLDER_CPU_E_CORE_UTIL, &format!("{e_util:.2}"));
             }
         }
 
@@ -1203,7 +1175,7 @@ fn parse_platform_type(platform_str: &str) -> PlatformType {
         "intel" => PlatformType::Intel,
         "amd" => PlatformType::AMD,
         _ => {
-            eprintln!("Unknown platform '{}', defaulting to nvidia", platform_str);
+            eprintln!("Unknown platform '{platform_str}', defaulting to nvidia");
             PlatformType::Nvidia
         }
     }
@@ -1224,10 +1196,10 @@ async fn main() -> Result<()> {
     let mut instance_counter = 1;
 
     for port in port_range.clone() {
-        let instance_name = format!("node-{:04}", instance_counter);
+        let instance_name = format!("node-{instance_counter:04}");
         let node = MockNode::new(instance_name, args.gpu_name.clone(), platform_type.clone());
         nodes.lock().unwrap().insert(port, node);
-        writeln!(file, "localhost:{}", port).unwrap();
+        writeln!(file, "localhost:{port}").unwrap();
         instance_counter += 1;
     }
 
@@ -1251,7 +1223,7 @@ async fn main() -> Result<()> {
         let nodes_clone = Arc::clone(&nodes);
         let addr = SocketAddr::from(([127, 0, 0, 1], port));
         let listener = TcpListener::bind(addr).await?;
-        println!("Listening on http://{}", addr);
+        println!("Listening on http://{addr}");
 
         let server = tokio::spawn(async move {
             loop {
@@ -1267,7 +1239,7 @@ async fn main() -> Result<()> {
                     let conn = builder.serve_connection(io, service);
 
                     if let Err(err) = conn.await {
-                        eprintln!("Connection failed: {:?}", err);
+                        eprintln!("Connection failed: {err:?}");
                     }
                 });
             }
