@@ -5,6 +5,7 @@ use std::cell::RefCell;
 use std::process::Command;
 
 type CpuHardwareParseResult = Result<(String, u32, u32, u32, u32, u32), Box<dyn std::error::Error>>;
+type IntelCpuInfo = (String, u32, u32, u32, u32, u32);
 
 pub struct MacOsCpuReader {
     is_apple_silicon: bool,
@@ -14,7 +15,7 @@ pub struct MacOsCpuReader {
     cached_e_core_count: RefCell<Option<u32>>,
     cached_gpu_core_count: RefCell<Option<u32>>,
     // Cached hardware info for Intel
-    cached_intel_info: RefCell<Option<(String, u32, u32, u32, u32, u32)>>,
+    cached_intel_info: RefCell<Option<IntelCpuInfo>>,
 }
 
 impl MacOsCpuReader {
@@ -36,15 +37,6 @@ impl MacOsCpuReader {
             return architecture.trim() == "arm64";
         }
         false
-    }
-
-    /// Clear cached hardware information (useful for reconnection scenarios)
-    pub fn clear_cache(&self) {
-        *self.cached_cpu_model.borrow_mut() = None;
-        *self.cached_p_core_count.borrow_mut() = None;
-        *self.cached_e_core_count.borrow_mut() = None;
-        *self.cached_gpu_core_count.borrow_mut() = None;
-        *self.cached_intel_info.borrow_mut() = None;
     }
 
     fn get_cpu_info_from_system(&self) -> Result<CpuInfo, Box<dyn std::error::Error>> {
