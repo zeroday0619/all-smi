@@ -1002,17 +1002,22 @@ fn render_main_view<W: Write>(
     let available_rows = rows.saturating_sub(content_start_row).saturating_sub(1) as usize;
 
     // Calculate storage display rows
-    let storage_items_count = if is_remote
-        && state.current_tab < state.tabs.len()
-        && state.tabs[state.current_tab] != "All"
-        && !state.storage_info.is_empty()
-    {
-        let current_hostname = &state.tabs[state.current_tab];
-        state
-            .storage_info
-            .iter()
-            .filter(|info| info.hostname == *current_hostname)
-            .count()
+    let storage_items_count = if !state.storage_info.is_empty() {
+        if is_remote {
+            if state.current_tab < state.tabs.len() && state.tabs[state.current_tab] != "All" {
+                let current_hostname = &state.tabs[state.current_tab];
+                state
+                    .storage_info
+                    .iter()
+                    .filter(|info| info.hostname == *current_hostname)
+                    .count()
+            } else {
+                0
+            }
+        } else {
+            // Local mode: show all storage info
+            state.storage_info.len()
+        }
     } else {
         0
     };
@@ -1034,11 +1039,11 @@ fn render_main_view<W: Write>(
             available_rows.saturating_sub(storage_display_rows)
         }
     } else {
-        // In local mode, use full space if no processes, otherwise split in half
+        // In local mode, reserve space for storage if available, then split remaining for GPU/processes
         if state.process_info.is_empty() {
-            available_rows
+            available_rows.saturating_sub(storage_display_rows)
         } else {
-            available_rows / 2
+            (available_rows.saturating_sub(storage_display_rows)) / 2
         }
     };
 
@@ -1073,18 +1078,81 @@ fn render_main_view<W: Write>(
         );
     }
 
-    // Display storage information for node-specific tabs in remote mode
-    if is_remote
-        && state.current_tab < state.tabs.len()
-        && state.tabs[state.current_tab] != "All"
-        && !state.storage_info.is_empty()
-    {
-        let current_hostname = &state.tabs[state.current_tab];
-        let storage_info_to_display: Vec<_> = state
-            .storage_info
-            .iter()
-            .filter(|info| info.hostname == *current_hostname)
-            .collect();
+    // Display CPU information for remote mode (node-specific tabs) and local mode
+    if !state.cpu_info.is_empty() {
+        let cpu_info_to_display: Vec<_> = if is_remote {
+            if state.current_tab < state.tabs.len() && state.tabs[state.current_tab] != "All" {
+                let current_hostname = &state.tabs[state.current_tab];
+                state
+                    .cpu_info
+                    .iter()
+                    .filter(|info| info.hostname == *current_hostname)
+                    .collect()
+            } else {
+                Vec::new()
+            }
+        } else {
+            // Local mode: show all CPU info
+            state.cpu_info.iter().collect()
+        };
+
+        if !cpu_info_to_display.is_empty() {
+            queue!(buffer, Print("\r\n")).unwrap();
+            for (index, info) in cpu_info_to_display.iter().enumerate() {
+                print_cpu_info(&mut buffer, index, info, width);
+                if index < cpu_info_to_display.len() - 1 {
+                    queue!(buffer, Print("\r\n")).unwrap();
+                }
+            }
+        }
+    }
+
+    // Display memory information for remote mode (node-specific tabs) and local mode
+    if !state.memory_info.is_empty() {
+        let memory_info_to_display: Vec<_> = if is_remote {
+            if state.current_tab < state.tabs.len() && state.tabs[state.current_tab] != "All" {
+                let current_hostname = &state.tabs[state.current_tab];
+                state
+                    .memory_info
+                    .iter()
+                    .filter(|info| info.hostname == *current_hostname)
+                    .collect()
+            } else {
+                Vec::new()
+            }
+        } else {
+            // Local mode: show all memory info
+            state.memory_info.iter().collect()
+        };
+
+        if !memory_info_to_display.is_empty() {
+            queue!(buffer, Print("\r\n")).unwrap();
+            for (index, info) in memory_info_to_display.iter().enumerate() {
+                print_memory_info(&mut buffer, index, info, width);
+                if index < memory_info_to_display.len() - 1 {
+                    queue!(buffer, Print("\r\n")).unwrap();
+                }
+            }
+        }
+    }
+
+    // Display storage information for remote mode (node-specific tabs) and local mode
+    if !state.storage_info.is_empty() {
+        let storage_info_to_display: Vec<_> = if is_remote {
+            if state.current_tab < state.tabs.len() && state.tabs[state.current_tab] != "All" {
+                let current_hostname = &state.tabs[state.current_tab];
+                state
+                    .storage_info
+                    .iter()
+                    .filter(|info| info.hostname == *current_hostname)
+                    .collect()
+            } else {
+                Vec::new()
+            }
+        } else {
+            // Local mode: show all storage info
+            state.storage_info.iter().collect()
+        };
 
         if !storage_info_to_display.is_empty() {
             queue!(buffer, Print("\r\n")).unwrap();
@@ -1111,46 +1179,6 @@ fn render_main_view<W: Write>(
         }
     }
 
-    // Display CPU information for node-specific tabs
-    if state.current_tab < state.tabs.len()
-        && state.tabs[state.current_tab] != "All"
-        && !state.cpu_info.is_empty()
-    {
-        let current_hostname = &state.tabs[state.current_tab];
-        let cpu_info_to_display: Vec<_> = state
-            .cpu_info
-            .iter()
-            .filter(|info| info.hostname == *current_hostname)
-            .collect();
-
-        if !cpu_info_to_display.is_empty() {
-            queue!(buffer, Print("\r\n")).unwrap();
-            for (index, info) in cpu_info_to_display.iter().enumerate() {
-                print_cpu_info(&mut buffer, index, info, width);
-                if index < cpu_info_to_display.len() - 1 {
-                    queue!(buffer, Print("\r\n")).unwrap();
-                }
-            }
-        }
-
-        // Display memory info for node-specific tabs
-        let memory_info_to_display: Vec<&MemoryInfo> = state
-            .memory_info
-            .iter()
-            .filter(|info| info.hostname == *current_hostname)
-            .collect();
-
-        if !memory_info_to_display.is_empty() {
-            queue!(buffer, Print("\r\n")).unwrap();
-            for (index, info) in memory_info_to_display.iter().enumerate() {
-                print_memory_info(&mut buffer, index, info, width);
-                if index < memory_info_to_display.len() - 1 {
-                    queue!(buffer, Print("\r\n")).unwrap();
-                }
-            }
-        }
-    }
-
     // Calculate actual rows used by other sections to determine remaining space for processes
     let mut used_rows = 0;
     
@@ -1161,46 +1189,60 @@ fn render_main_view<W: Write>(
     );
     used_rows += actual_gpu_items * lines_per_gpu;
     
-    // Storage section rows (if displayed)
-    if is_remote
-        && state.current_tab < state.tabs.len()
-        && state.tabs[state.current_tab] != "All"
-        && !state.storage_info.is_empty()
-    {
-        used_rows += storage_display_rows;
-        used_rows += 1; // Extra line for spacing between sections
-    }
-    
-    // CPU section rows (if displayed)
-    if state.current_tab < state.tabs.len()
-        && state.tabs[state.current_tab] != "All"
-        && !state.cpu_info.is_empty()
-    {
-        let current_hostname = &state.tabs[state.current_tab];
-        let cpu_info_to_display: Vec<_> = state
-            .cpu_info
-            .iter()
-            .filter(|info| info.hostname == *current_hostname)
-            .collect();
-        if !cpu_info_to_display.is_empty() {
-            used_rows += cpu_info_to_display.len() * 2; // Each CPU takes 2 lines (labels + gauges)
+    // CPU section rows (if displayed in remote mode or local mode)
+    if !state.cpu_info.is_empty() {
+        if is_remote {
+            if state.current_tab < state.tabs.len() && state.tabs[state.current_tab] != "All" {
+                let current_hostname = &state.tabs[state.current_tab];
+                let cpu_info_to_display: Vec<_> = state
+                    .cpu_info
+                    .iter()
+                    .filter(|info| info.hostname == *current_hostname)
+                    .collect();
+                if !cpu_info_to_display.is_empty() {
+                    used_rows += cpu_info_to_display.len() * 2; // Each CPU takes 2 lines (labels + gauges)
+                    used_rows += 1; // Extra line for spacing between sections
+                }
+            }
+        } else {
+            // Local mode: count all CPU rows
+            used_rows += state.cpu_info.len() * 2; // Each CPU takes 2 lines
             used_rows += 1; // Extra line for spacing between sections
         }
     }
     
-    // Memory section rows (if displayed)
-    if state.current_tab < state.tabs.len()
-        && state.tabs[state.current_tab] != "All"
-        && !state.memory_info.is_empty()
-    {
-        let current_hostname = &state.tabs[state.current_tab];
-        let memory_info_to_display: Vec<_> = state
-            .memory_info
-            .iter()
-            .filter(|info| info.hostname == *current_hostname)
-            .collect();
-        if !memory_info_to_display.is_empty() {
-            used_rows += memory_info_to_display.len() * 2; // Each memory section takes 2 lines
+    // Memory section rows (if displayed in remote mode or local mode)
+    if !state.memory_info.is_empty() {
+        if is_remote {
+            if state.current_tab < state.tabs.len() && state.tabs[state.current_tab] != "All" {
+                let current_hostname = &state.tabs[state.current_tab];
+                let memory_info_to_display: Vec<_> = state
+                    .memory_info
+                    .iter()
+                    .filter(|info| info.hostname == *current_hostname)
+                    .collect();
+                if !memory_info_to_display.is_empty() {
+                    used_rows += memory_info_to_display.len() * 2; // Each memory section takes 2 lines
+                    used_rows += 1; // Extra line for spacing between sections
+                }
+            }
+        } else {
+            // Local mode: count all memory rows
+            used_rows += state.memory_info.len() * 2; // Each memory section takes 2 lines
+            used_rows += 1; // Extra line for spacing between sections
+        }
+    }
+    
+    // Storage section rows (if displayed in remote mode or local mode)
+    if !state.storage_info.is_empty() {
+        if is_remote {
+            if state.current_tab < state.tabs.len() && state.tabs[state.current_tab] != "All" {
+                used_rows += storage_display_rows;
+                used_rows += 1; // Extra line for spacing between sections
+            }
+        } else {
+            // Local mode: always count storage rows if storage info exists
+            used_rows += storage_display_rows;
             used_rows += 1; // Extra line for spacing between sections
         }
     }
