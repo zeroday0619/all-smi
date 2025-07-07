@@ -14,23 +14,23 @@ edition = "2021"
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 chrono = "0.4"
-crossterm = "0.28.1"
+crossterm = "0.29.0"
 clap = { version = "4.5.4", features = ["derive"] }
-axum = "0.7.5"
-tower-http = { version = "0.5.2", features = ["cors", "trace"] }
+axum = "0.8.4"
+tower-http = { version = "0.6.6", features = ["cors", "trace"] }
 serde = { version = "1.0", features = ["derive"] }
 reqwest = { version = "0.12", features = ["json"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 regex = "1"
-sysinfo = "0.30.12"
+sysinfo = "0.35.2"
 anyhow = "1.0.86"
-hyper = { version = "0.14.29", features = ["full"] }
+hyper = { version = "1.6.0", features = ["full"] }
 rand = "0.8.5"
 futures-util = "0.3.30"
 
 [target.'cfg(target_os = "macos")'.dependencies]
-metal = "0.29"
+metal = "0.32.0"
 objc = "0.2"
 
 [features]
