@@ -54,10 +54,11 @@ impl MemoryReader for MacOsMemoryReader {
 
                 // Get total memory from sysctl (correct approach)
                 let total_bytes = get_total_memory_from_sysctl();
-                
+
                 // Calculate used memory with macOS formula: used = total - free - inactive - speculative
-                let used_bytes = total_bytes.saturating_sub(free_bytes + inactive_bytes + speculative_bytes);
-                
+                let used_bytes =
+                    total_bytes.saturating_sub(free_bytes + inactive_bytes + speculative_bytes);
+
                 // Available memory = free + inactive + speculative (can be reclaimed)
                 let available_bytes = free_bytes + inactive_bytes + speculative_bytes;
 

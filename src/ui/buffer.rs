@@ -1,4 +1,9 @@
-use std::io::Write;
+use crossterm::{
+    cursor, queue,
+    style::Print,
+    terminal::{size, ClearType},
+};
+use std::io::{stdout, Write};
 
 pub struct BufferWriter {
     buffer: String,
@@ -25,6 +30,102 @@ impl Write for BufferWriter {
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// Differential renderer that only updates changed lines to eliminate flickering
+pub struct DifferentialRenderer {
+    previous_lines: Vec<String>,
+    screen_height: usize,
+    screen_width: usize,
+}
+
+impl DifferentialRenderer {
+    pub fn new() -> std::io::Result<Self> {
+        let (width, height) = size().unwrap_or((80, 24));
+        Ok(Self {
+            previous_lines: Vec::new(),
+            screen_height: height as usize,
+            screen_width: width as usize,
+        })
+    }
+
+    /// Render content with differential updates - only changed lines are updated
+    pub fn render_differential(&mut self, content: &str) -> std::io::Result<()> {
+        // Split content into lines - no padding to avoid truncation issues
+        let current_lines: Vec<String> = content.lines().map(|line| line.to_string()).collect();
+
+        // Initialize previous_lines on first run
+        if self.previous_lines.is_empty() {
+            self.previous_lines = vec![String::new(); self.screen_height];
+        }
+
+        // Adjust buffer size if screen dimensions changed
+        let (width, height) = size().unwrap_or((80, 24));
+        if width as usize != self.screen_width || height as usize != self.screen_height {
+            self.screen_width = width as usize;
+            self.screen_height = height as usize;
+            self.previous_lines
+                .resize(self.screen_height, String::new());
+        }
+
+        // Find changed lines and update only those
+        let mut stdout = stdout();
+        let max_lines = std::cmp::min(current_lines.len(), self.screen_height);
+
+        for (line_num, current_line) in current_lines.iter().enumerate().take(max_lines) {
+            // Check if this line has changed
+            if line_num >= self.previous_lines.len()
+                || &self.previous_lines[line_num] != current_line
+            {
+                // Update this line
+                queue!(
+                    stdout,
+                    cursor::MoveTo(0, line_num as u16),
+                    Print(current_line)
+                )?;
+            }
+        }
+
+        // Clear any remaining lines if the new content is shorter
+        if self.previous_lines.len() > current_lines.len() {
+            for line_num in
+                current_lines.len()..std::cmp::min(self.previous_lines.len(), self.screen_height)
+            {
+                if !self.previous_lines[line_num].is_empty() {
+                    queue!(
+                        stdout,
+                        cursor::MoveTo(0, line_num as u16),
+                        crossterm::terminal::Clear(ClearType::CurrentLine)
+                    )?;
+                }
+            }
+        }
+
+        // Flush all queued updates at once
+        stdout.flush()?;
+
+        // Update previous_lines for next comparison
+        self.previous_lines.clear();
+        self.previous_lines.extend(current_lines);
+        self.previous_lines
+            .resize(self.screen_height, String::new());
+
+        Ok(())
+    }
+
+    /// Force clear the entire screen (use sparingly, e.g., on startup or resize)
+    pub fn force_clear(&mut self) -> std::io::Result<()> {
+        let mut stdout = stdout();
+        queue!(stdout, crossterm::terminal::Clear(ClearType::All))?;
+        stdout.flush()?;
+
+        // Reset previous state
+        self.previous_lines.clear();
+        self.previous_lines
+            .resize(self.screen_height, String::new());
+
         Ok(())
     }
 }

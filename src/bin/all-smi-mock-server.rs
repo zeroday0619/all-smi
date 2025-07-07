@@ -5,7 +5,6 @@ use hyper::service::service_fn;
 use hyper::{Request, Response};
 use hyper_util::rt::TokioIo;
 use hyper_util::server::conn::auto::Builder;
-use tokio::net::TcpListener;
 use rand::Rng;
 use std::collections::HashMap;
 use std::convert::Infallible;
@@ -15,6 +14,7 @@ use std::net::SocketAddr;
 use std::ops::RangeInclusive;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use tokio::net::TcpListener;
 use tokio::time::interval;
 
 const DEFAULT_GPU_NAME: &str = "NVIDIA H200 141GB HBM3";
@@ -1252,21 +1252,20 @@ async fn main() -> Result<()> {
         let addr = SocketAddr::from(([127, 0, 0, 1], port));
         let listener = TcpListener::bind(addr).await?;
         println!("Listening on http://{}", addr);
-        
+
         let server = tokio::spawn(async move {
             loop {
                 let (tcp, _) = listener.accept().await.unwrap();
                 let io = TokioIo::new(tcp);
                 let nodes_clone = Arc::clone(&nodes_clone);
-                
-                let service = service_fn(move |req| {
-                    handle_request(req, Arc::clone(&nodes_clone), port)
-                });
-                
+
+                let service =
+                    service_fn(move |req| handle_request(req, Arc::clone(&nodes_clone), port));
+
                 tokio::spawn(async move {
                     let builder = Builder::new(hyper_util::rt::TokioExecutor::new());
                     let conn = builder.serve_connection(io, service);
-                    
+
                     if let Err(err) = conn.await {
                         eprintln!("Connection failed: {:?}", err);
                     }

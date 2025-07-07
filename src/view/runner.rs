@@ -25,8 +25,8 @@ use crate::gpu::{
     get_cpu_readers, get_gpu_readers, get_memory_readers, CpuInfo, GpuInfo, MemoryInfo, ProcessInfo,
 };
 use crate::storage::info::StorageInfo;
-use crate::ui::buffer::BufferWriter;
-use crate::ui::help::print_help_popup;
+use crate::ui::buffer::{BufferWriter, DifferentialRenderer};
+// use crate::ui::help::print_help_popup; // Not needed with differential rendering
 use crate::ui::renderer::{
     draw_dashboard_items, draw_system_view, print_colored_text, print_cpu_info,
     print_function_keys, print_gpu_info, print_loading_indicator, print_memory_info,
@@ -821,6 +821,21 @@ async fn run_ui_loop(app_state: Arc<Mutex<AppState>>, args: &ViewArgs) {
         return;
     }
 
+    // Create differential renderer to eliminate flickering
+    let mut differential_renderer = match DifferentialRenderer::new() {
+        Ok(renderer) => renderer,
+        Err(_) => {
+            eprintln!("Failed to create differential renderer");
+            let _ = disable_raw_mode();
+            return;
+        }
+    };
+
+    // Track previous display mode to force clear when switching
+    let mut previous_show_help = false;
+    let mut previous_loading = false;
+    let mut previous_tab = 0;
+
     loop {
         if let Ok(has_event) = event::poll(Duration::from_millis(50)) {
             if has_event {
@@ -867,19 +882,40 @@ async fn run_ui_loop(app_state: Arc<Mutex<AppState>>, args: &ViewArgs) {
                 break;
             }
         };
-        if let Err(_) = queue!(stdout, cursor::Hide, cursor::MoveTo(0, 0)) {
+        if let Err(_) = queue!(stdout, cursor::Hide) {
             break;
         }
 
-        if state.show_help {
-            render_help_view(&mut stdout, &state, args, cols, rows);
+        // Check if we need to force clear due to mode change or tab change
+        let force_clear = state.show_help != previous_show_help
+            || state.loading != previous_loading
+            || state.current_tab != previous_tab;
+
+        if force_clear {
+            if let Err(_) = differential_renderer.force_clear() {
+                break;
+            }
+        }
+
+        // Create content using buffer, then render differentially
+        let content = if state.show_help {
+            render_help_popup_content(&state, args, cols, rows)
         } else if state.loading {
             let is_remote = args.hosts.is_some() || args.hostfile.is_some();
-            print_function_keys(&mut stdout, cols, rows, &state, is_remote);
-            print_loading_indicator(&mut stdout, cols, rows);
+            render_loading_content(&state, is_remote, cols, rows)
         } else {
-            render_main_view(&mut stdout, &state, args, cols, rows);
+            render_main_content(&state, args, cols, rows)
+        };
+
+        // Use differential rendering to update only changed lines
+        if let Err(_) = differential_renderer.render_differential(&content) {
+            break;
         }
+
+        // Update previous state
+        previous_show_help = state.show_help;
+        previous_loading = state.loading;
+        previous_tab = state.current_tab;
 
         if let Err(_) = queue!(stdout, cursor::Show) {
             break;
@@ -916,36 +952,19 @@ fn update_scroll_offsets(state: &mut AppState) {
     state.hostname_scroll_offsets = new_hostname_scroll_offsets;
 }
 
-fn render_help_view<W: Write>(
-    stdout: &mut W,
-    state: &AppState,
-    args: &ViewArgs,
-    cols: u16,
-    rows: u16,
-) {
-    // Use double buffering to reduce flickering - same approach as main view
-    let mut buffer = BufferWriter::new();
-
-    // Write help popup to buffer
+fn render_help_popup_content(state: &AppState, args: &ViewArgs, cols: u16, rows: u16) -> String {
     let is_remote = args.hosts.is_some() || args.hostfile.is_some();
-    print_help_popup(&mut buffer, cols, rows, state, is_remote);
-
-    // Output the entire buffer to stdout in one operation with full screen clear
-    queue!(stdout, cursor::MoveTo(0, 0)).unwrap();
-    queue!(stdout, terminal::Clear(ClearType::All)).unwrap();
-    queue!(stdout, Print(buffer.get_buffer())).unwrap();
-    
-    // Ensure all queued output is flushed atomically
-    stdout.flush().unwrap();
+    crate::ui::help::generate_help_popup_content(cols, rows, state, is_remote)
 }
 
-fn render_main_view<W: Write>(
-    stdout: &mut W,
-    state: &AppState,
-    args: &ViewArgs,
-    cols: u16,
-    rows: u16,
-) {
+fn render_loading_content(state: &AppState, is_remote: bool, cols: u16, rows: u16) -> String {
+    let mut buffer = BufferWriter::new();
+    print_function_keys(&mut buffer, cols, rows, state, is_remote);
+    print_loading_indicator(&mut buffer, cols, rows);
+    buffer.get_buffer().to_string()
+}
+
+fn render_main_content(state: &AppState, args: &ViewArgs, cols: u16, rows: u16) -> String {
     let width = cols as usize;
 
     // Use double buffering to reduce flickering
@@ -1181,14 +1200,16 @@ fn render_main_view<W: Write>(
 
     // Calculate actual rows used by other sections to determine remaining space for processes
     let mut used_rows = 0;
-    
+
     // GPU section rows
     let actual_gpu_items = std::cmp::min(
-        gpu_info_to_display.len().saturating_sub(state.gpu_scroll_offset),
-        max_gpu_items
+        gpu_info_to_display
+            .len()
+            .saturating_sub(state.gpu_scroll_offset),
+        max_gpu_items,
     );
     used_rows += actual_gpu_items * lines_per_gpu;
-    
+
     // CPU section rows (if displayed in remote mode or local mode)
     if !state.cpu_info.is_empty() {
         if is_remote {
@@ -1210,7 +1231,7 @@ fn render_main_view<W: Write>(
             used_rows += 1; // Extra line for spacing between sections
         }
     }
-    
+
     // Memory section rows (if displayed in remote mode or local mode)
     if !state.memory_info.is_empty() {
         if is_remote {
@@ -1232,7 +1253,7 @@ fn render_main_view<W: Write>(
             used_rows += 1; // Extra line for spacing between sections
         }
     }
-    
+
     // Storage section rows (if displayed in remote mode or local mode)
     if !state.storage_info.is_empty() {
         if is_remote {
@@ -1266,15 +1287,11 @@ fn render_main_view<W: Write>(
         );
     }
 
-    // Output the entire buffer to stdout in one operation
-    queue!(stdout, cursor::MoveTo(0, 0)).unwrap();
-    queue!(stdout, terminal::Clear(ClearType::FromCursorDown)).unwrap();
-    queue!(stdout, Print(buffer.get_buffer())).unwrap();
+    // Add function keys to buffer
+    print_function_keys(&mut buffer, cols, rows, state, is_remote);
 
-    print_function_keys(stdout, cols, rows, state, is_remote);
-    
-    // Ensure all queued output is flushed atomically
-    stdout.flush().unwrap();
+    // Return the complete buffer content for differential rendering
+    buffer.get_buffer().to_string()
 }
 
 fn update_utilization_history(state: &mut AppState) {
