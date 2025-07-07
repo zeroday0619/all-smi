@@ -849,6 +849,10 @@ async fn run_ui_loop(app_state: Arc<Mutex<AppState>>, args: &ViewArgs) {
     let mut previous_loading = false;
     let mut previous_tab = 0;
 
+    // Add render throttling to prevent excessive rendering during rapid key events
+    let mut last_render_time = std::time::Instant::now();
+    const MIN_RENDER_INTERVAL_MS: u64 = 33; // Minimum 33ms between renders (~30 FPS)
+
     loop {
         if let Ok(has_event) = event::poll(Duration::from_millis(50)) {
             if has_event {
@@ -881,6 +885,23 @@ async fn run_ui_loop(app_state: Arc<Mutex<AppState>>, args: &ViewArgs) {
 
         // Update display
         let mut state = app_state.lock().await;
+
+        // Check if we need to force clear due to mode change or tab change
+        let force_clear = state.show_help != previous_show_help
+            || state.loading != previous_loading
+            || state.current_tab != previous_tab;
+
+        // Check if enough time has passed for rendering (throttle to prevent visual artifacts)
+        let now = std::time::Instant::now();
+        let should_render = force_clear
+            || now.duration_since(last_render_time).as_millis() >= MIN_RENDER_INTERVAL_MS as u128;
+
+        if !should_render {
+            drop(state);
+            continue; // Skip this iteration if not enough time has passed
+        }
+
+        last_render_time = now;
         state.frame_counter += 1;
 
         // Update scroll offsets for long text
@@ -898,11 +919,6 @@ async fn run_ui_loop(app_state: Arc<Mutex<AppState>>, args: &ViewArgs) {
         if queue!(stdout, cursor::Hide).is_err() {
             break;
         }
-
-        // Check if we need to force clear due to mode change or tab change
-        let force_clear = state.show_help != previous_show_help
-            || state.loading != previous_loading
-            || state.current_tab != previous_tab;
 
         if force_clear && differential_renderer.force_clear().is_err() {
             break;
