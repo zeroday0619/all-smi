@@ -129,9 +129,16 @@ async fn run_local_mode(app_state: Arc<Mutex<AppState>>, args: ViewArgs) {
         state.process_info = all_processes;
         state.storage_info = all_storage_info;
 
-        // Check for NVML status message
-        if state.status_message.is_none() {
-            state.status_message = get_nvml_status_message();
+        // Update notifications (remove expired ones)
+        state.notifications.update();
+
+        // Check for NVML status message and show as notification once
+        if let Some(nvml_message) = get_nvml_status_message() {
+            // Only show notification if we don't already have one and it's the first time
+            if !state.notifications.has_notification() {
+                // Show for 4 seconds as a warning
+                state.notifications.warning(nvml_message);
+            }
         }
 
         // Update utilization history
