@@ -21,9 +21,9 @@ impl MemoryReader for MacOsMemoryReader {
             if output.status.success() {
                 let output_str = String::from_utf8_lossy(&output.stdout);
                 let mut page_size = 4096; // Default page size
-                let mut pages_active = 0;
+                let mut pages_free = 0;
                 let mut pages_inactive = 0;
-                let mut pages_wired = 0;
+                let mut pages_speculative = 0;
 
                 for line in output_str.lines() {
                     if line.contains("page size of") {
@@ -32,40 +32,38 @@ impl MemoryReader for MacOsMemoryReader {
                         {
                             page_size = size_str.parse::<u64>().unwrap_or(4096);
                         }
-                    } else if line.contains("Pages active:") {
+                    } else if line.contains("Pages free:") {
                         if let Some(value) = extract_number_from_line(line) {
-                            pages_active = value;
+                            pages_free = value;
                         }
                     } else if line.contains("Pages inactive:") {
                         if let Some(value) = extract_number_from_line(line) {
                             pages_inactive = value;
                         }
-                    } else if line.contains("Pages wired down:") {
+                    } else if line.contains("Pages speculative:") {
                         if let Some(value) = extract_number_from_line(line) {
-                            pages_wired = value;
+                            pages_speculative = value;
                         }
                     }
                 }
 
                 // Calculate memory values in bytes
-                let active_bytes = pages_active * page_size;
+                let free_bytes = pages_free * page_size;
                 let inactive_bytes = pages_inactive * page_size;
-                let wired_bytes = pages_wired * page_size;
+                let speculative_bytes = pages_speculative * page_size;
 
                 // Get total memory from sysctl (correct approach)
                 let total_bytes = get_total_memory_from_sysctl();
                 
-                // Calculate used memory excluding compressed pages (they don't use full physical space)
-                let used_bytes = active_bytes + inactive_bytes + wired_bytes;
+                // Calculate used memory with macOS formula: used = total - free - inactive - speculative
+                let used_bytes = total_bytes.saturating_sub(free_bytes + inactive_bytes + speculative_bytes);
                 
-                // Use saturating_sub to prevent overflow and ensure used_bytes doesn't exceed total
-                let clamped_used_bytes = std::cmp::min(used_bytes, total_bytes);
-                let available_bytes = total_bytes.saturating_sub(clamped_used_bytes);
-                let free_bytes = available_bytes; // Free bytes = available bytes
+                // Available memory = free + inactive + speculative (can be reclaimed)
+                let available_bytes = free_bytes + inactive_bytes + speculative_bytes;
 
-                // Calculate utilization percentage (use clamped value to prevent >100%)
+                // Calculate utilization percentage
                 let utilization = if total_bytes > 0 {
-                    (clamped_used_bytes as f64 / total_bytes as f64) * 100.0
+                    (used_bytes as f64 / total_bytes as f64) * 100.0
                 } else {
                     0.0
                 };
@@ -80,7 +78,7 @@ impl MemoryReader for MacOsMemoryReader {
                     hostname: hostname.clone(),
                     instance: hostname,
                     total_bytes,
-                    used_bytes: clamped_used_bytes,
+                    used_bytes,
                     available_bytes,
                     free_bytes,
                     buffers_bytes: 0,             // Not applicable on macOS
