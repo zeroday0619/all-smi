@@ -1032,7 +1032,12 @@ fn render_main_view<W: Write>(
             available_rows.saturating_sub(storage_display_rows)
         }
     } else {
-        available_rows / 2
+        // In local mode, use full space if no processes, otherwise split in half
+        if state.process_info.is_empty() {
+            available_rows
+        } else {
+            available_rows / 2
+        }
     };
 
     // Each GPU takes 2 lines (labels + progress bars on same line)

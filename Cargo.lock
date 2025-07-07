@@ -37,6 +37,7 @@ dependencies = [
  "crossterm",
  "futures-util",
  "hyper",
+ "hyper-util",
  "metal",
  "objc",
  "rand",

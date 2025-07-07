@@ -1,8 +1,11 @@
 use anyhow::Result;
 use clap::Parser;
 use futures_util::future::join_all;
-use hyper::service::{make_service_fn, service_fn};
-use hyper::{Body, Request, Response, Server};
+use hyper::service::service_fn;
+use hyper::{Request, Response};
+use hyper_util::rt::TokioIo;
+use hyper_util::server::conn::auto::Builder;
+use tokio::net::TcpListener;
 use rand::Rng;
 use std::collections::HashMap;
 use std::convert::Infallible;
@@ -1167,10 +1170,10 @@ fn parse_port_range(range_str: &str) -> Result<RangeInclusive<u16>> {
 }
 
 async fn handle_request(
-    _req: Request<Body>,
+    _req: Request<hyper::body::Incoming>,
     nodes: Arc<Mutex<HashMap<u16, MockNode>>>,
     port: u16,
-) -> Result<Response<Body>, Infallible> {
+) -> Result<Response<String>, Infallible> {
     // Copy response data to own it (avoiding lifetime issues)
     let metrics = {
         let nodes_guard = nodes.lock().unwrap();
@@ -1186,7 +1189,7 @@ async fn handle_request(
         .header("Connection", "keep-alive") // Enable connection reuse
         .header("Keep-Alive", "timeout=60, max=1000") // Keep connections alive
         .header("Content-Length", metrics.len().to_string()) // Explicit content length
-        .body(Body::from(metrics))
+        .body(metrics)
         .unwrap();
 
     Ok(response)
@@ -1246,19 +1249,31 @@ async fn main() -> Result<()> {
     let mut servers = vec![];
     for port in port_range {
         let nodes_clone = Arc::clone(&nodes);
-        let make_svc = make_service_fn(move |_conn| {
-            let nodes_clone = Arc::clone(&nodes_clone);
-            async move {
-                Ok::<_, Infallible>(service_fn(move |req| {
+        let addr = SocketAddr::from(([127, 0, 0, 1], port));
+        let listener = TcpListener::bind(addr).await?;
+        println!("Listening on http://{}", addr);
+        
+        let server = tokio::spawn(async move {
+            loop {
+                let (tcp, _) = listener.accept().await.unwrap();
+                let io = TokioIo::new(tcp);
+                let nodes_clone = Arc::clone(&nodes_clone);
+                
+                let service = service_fn(move |req| {
                     handle_request(req, Arc::clone(&nodes_clone), port)
-                }))
+                });
+                
+                tokio::spawn(async move {
+                    let builder = Builder::new(hyper_util::rt::TokioExecutor::new());
+                    let conn = builder.serve_connection(io, service);
+                    
+                    if let Err(err) = conn.await {
+                        eprintln!("Connection failed: {:?}", err);
+                    }
+                });
             }
         });
-
-        let addr = SocketAddr::from(([127, 0, 0, 1], port));
-        let server = Server::bind(&addr).serve(make_svc);
-        println!("Listening on http://{}", addr);
-        servers.push(tokio::spawn(server));
+        servers.push(server);
     }
 
     println!(

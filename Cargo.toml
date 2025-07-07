@@ -26,6 +26,7 @@ regex = "1"
 sysinfo = "0.35.2"
 anyhow = "1.0.86"
 hyper = { version = "1.6.0", features = ["full"] }
+hyper-util = { version = "0.1", features = ["full"] }
 rand = "0.8.5"
 futures-util = "0.3.30"
 
