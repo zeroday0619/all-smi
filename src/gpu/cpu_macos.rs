@@ -170,82 +170,79 @@ impl MacOsCpuReader {
         hardware_info: &str,
     ) -> Result<(String, u32, u32, u32), Box<dyn std::error::Error>> {
         let mut cpu_model = String::new();
-        let mut p_core_count = 0u32;
-        let mut e_core_count = 0u32;
-        let mut gpu_core_count = 0u32;
 
+        // Extract CPU model from system_profiler output
         for line in hardware_info.lines() {
             let line = line.trim();
             if line.starts_with("Chip:") {
                 cpu_model = line.split(':').nth(1).unwrap_or("").trim().to_string();
+                break;
+            }
+        }
 
-                // Parse core information from chip name (e.g., "Apple M2 Pro")
-                if cpu_model.contains("M1")
-                    && !cpu_model.contains("Pro")
-                    && !cpu_model.contains("Max")
-                {
-                    p_core_count = 4;
-                    e_core_count = 4;
-                    gpu_core_count = 8;
-                } else if cpu_model.contains("M1 Pro") {
-                    p_core_count = 8;
-                    e_core_count = 2;
-                    gpu_core_count = 16;
-                } else if cpu_model.contains("M1 Max") {
-                    p_core_count = 8;
-                    e_core_count = 2;
-                    gpu_core_count = 32;
-                } else if cpu_model.contains("M2")
-                    && !cpu_model.contains("Pro")
-                    && !cpu_model.contains("Max")
-                {
-                    p_core_count = 4;
-                    e_core_count = 4;
-                    gpu_core_count = 10;
-                } else if cpu_model.contains("M2 Pro") {
-                    p_core_count = 8;
-                    e_core_count = 4;
-                    gpu_core_count = 19;
-                } else if cpu_model.contains("M2 Max") {
-                    p_core_count = 8;
-                    e_core_count = 4;
-                    gpu_core_count = 38;
-                } else if cpu_model.contains("M3")
-                    && !cpu_model.contains("Pro")
-                    && !cpu_model.contains("Max")
-                {
-                    p_core_count = 4;
-                    e_core_count = 4;
-                    gpu_core_count = 10;
-                } else if cpu_model.contains("M3 Pro") {
-                    p_core_count = 6;
-                    e_core_count = 6;
-                    gpu_core_count = 18;
-                } else if cpu_model.contains("M3 Max") {
-                    p_core_count = 8;
-                    e_core_count = 8;
-                    gpu_core_count = 40;
-                } else {
-                    // Default fallback
-                    p_core_count = 4;
-                    e_core_count = 4;
-                    gpu_core_count = 8;
-                }
-            } else if line.starts_with("Total Number of Cores:") {
-                if let Some(cores_str) = line.split(':').nth(1) {
-                    let cores_str = cores_str.trim();
-                    if let Ok(total_cores) = cores_str.parse::<u32>() {
-                        // If we couldn't parse from chip name, use this as fallback
-                        if p_core_count == 0 && e_core_count == 0 {
-                            p_core_count = total_cores / 2;
-                            e_core_count = total_cores / 2;
+        // Get actual core counts from system calls
+        let p_core_count = self.get_p_core_count()?;
+        let e_core_count = self.get_e_core_count()?;
+        let gpu_core_count = self.get_gpu_core_count()?;
+
+        Ok((cpu_model, p_core_count, e_core_count, gpu_core_count))
+    }
+
+    fn get_p_core_count(&self) -> Result<u32, Box<dyn std::error::Error>> {
+        let output = Command::new("sysctl")
+            .arg("hw.perflevel0.physicalcpu")
+            .output()?;
+        
+        let output_str = String::from_utf8_lossy(&output.stdout);
+        if let Some(value_str) = output_str.split(':').nth(1) {
+            let count = value_str.trim().parse::<u32>()?;
+            Ok(count)
+        } else {
+            Err("Failed to parse P-core count".into())
+        }
+    }
+
+    fn get_e_core_count(&self) -> Result<u32, Box<dyn std::error::Error>> {
+        let output = Command::new("sysctl")
+            .arg("hw.perflevel1.physicalcpu")
+            .output()?;
+        
+        let output_str = String::from_utf8_lossy(&output.stdout);
+        if let Some(value_str) = output_str.split(':').nth(1) {
+            let count = value_str.trim().parse::<u32>()?;
+            Ok(count)
+        } else {
+            Err("Failed to parse E-core count".into())
+        }
+    }
+
+    fn get_gpu_core_count(&self) -> Result<u32, Box<dyn std::error::Error>> {
+        let output = Command::new("system_profiler")
+            .arg("SPDisplaysDataType")
+            .arg("-json")
+            .output()?;
+        
+        let output_str = String::from_utf8_lossy(&output.stdout);
+        
+        // Parse JSON to find GPU core count
+        // Look for "sppci_cores" field in the JSON output
+        for line in output_str.lines() {
+            if line.contains("sppci_cores") {
+                // Extract the value between quotes after the colon
+                if let Some(value_part) = line.split(':').nth(1) {
+                    if let Some(start_quote) = value_part.find('"') {
+                        if let Some(end_quote) = value_part[start_quote + 1..].find('"') {
+                            let core_str = &value_part[start_quote + 1..start_quote + 1 + end_quote];
+                            if let Ok(count) = core_str.parse::<u32>() {
+                                return Ok(count);
+                            }
                         }
                     }
                 }
             }
         }
-
-        Ok((cpu_model, p_core_count, e_core_count, gpu_core_count))
+        
+        Err("Failed to parse GPU core count".into())
     }
 
     fn parse_intel_mac_hardware_info(&self, hardware_info: &str) -> CpuHardwareParseResult {
