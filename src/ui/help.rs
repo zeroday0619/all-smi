@@ -100,7 +100,7 @@ fn render_title_section<W: Write>(
         "██║  ██║███████╗███████╗     ███████║██║ ╚═╝ ██║██║",
         "╚═╝  ╚═╝╚══════╝╚══════╝     ╚══════╝╚═╝     ╚═╝╚═╝",
         "",
-        "              GPU Monitoring and Management Tool",
+        "        GPU Monitoring and Management Tool.        ",
     ];
 
     for line in &title_lines {
