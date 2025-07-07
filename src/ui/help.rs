@@ -54,7 +54,7 @@ fn pad_content_to_width(content: String, target_width: usize) -> String {
 fn calculate_display_width(text: &str) -> usize {
     // First strip ANSI escape codes
     let clean_text = strip_ansi_codes(text);
-    
+
     // Count display width of each character
     let mut width = 0;
     for ch in clean_text.chars() {
@@ -66,15 +66,15 @@ fn calculate_display_width(text: &str) -> usize {
 fn char_display_width(ch: char) -> usize {
     match ch {
         // Box drawing characters (ALL-SMI logo)
-        '█' | '╔' | '╗' | '╚' | '╝' | '║' | '═' | '╭' | '╮' | '╰' | '╯' | '│' | '─' |
-        '┌' | '┐' | '└' | '┘' | '├' | '┤' | '┬' | '┴' | '┼' => 1,
-        
+        '█' | '╔' | '╗' | '╚' | '╝' | '║' | '═' | '╭' | '╮' | '╰' | '╯' | '│' | '─' | '┌' | '┐'
+        | '└' | '┘' | '├' | '┤' | '┬' | '┴' | '┼' => 1,
+
         // Arrow characters
         '←' | '→' | '↑' | '↓' => 1,
-        
+
         // Regular ASCII characters
         c if c.is_ascii() => 1,
-        
+
         // Most other Unicode characters (default to width 1 for terminal safety)
         _ => 1,
     }
@@ -274,7 +274,10 @@ fn format_terminal_line(cmd: &str, desc: &str, style: &str, width: usize) -> Str
                 let formatted_cmd = format!("  {:<35}", cmd.white().bold().to_string());
                 let formatted_seperator = "#".with(Color::DarkGrey).to_string();
                 let formatted_desc = desc.blue().to_string();
-                format!("{} {} {}", formatted_cmd, formatted_seperator, formatted_desc)
+                format!(
+                    "{} {} {}",
+                    formatted_cmd, formatted_seperator, formatted_desc
+                )
             }
         }
         _ => String::new(),
