@@ -1,6 +1,27 @@
 use chrono::{DateTime, Local};
 use std::time::Duration;
 
+#[derive(Debug)]
+pub enum NotificationError {
+    InvalidDuration,
+    MessageTooLong(usize),
+    SystemTimeError,
+}
+
+impl std::fmt::Display for NotificationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            NotificationError::InvalidDuration => write!(f, "Invalid notification duration"),
+            NotificationError::MessageTooLong(len) => {
+                write!(f, "Message too long: {len} characters")
+            }
+            NotificationError::SystemTimeError => write!(f, "System time error"),
+        }
+    }
+}
+
+impl std::error::Error for NotificationError {}
+
 #[derive(Clone, Debug)]
 pub struct Notification {
     pub message: String,
@@ -11,51 +32,64 @@ pub struct Notification {
 
 #[derive(Clone, Debug)]
 pub enum NotificationType {
+    #[allow(dead_code)]
     Info,
     Warning,
+    #[allow(dead_code)]
     Error,
+    #[allow(dead_code)]
     Status,
 }
 
 impl Notification {
-    pub fn new(message: String, notification_type: NotificationType) -> Self {
-        Self {
-            message,
-            created_at: Local::now(),
-            duration_seconds: 4, // Default 4 seconds
-            notification_type,
-        }
+    pub fn new(
+        message: String,
+        notification_type: NotificationType,
+    ) -> Result<Self, NotificationError> {
+        Self::with_duration(message, notification_type, 4)
     }
 
     pub fn with_duration(
         message: String,
         notification_type: NotificationType,
         duration_seconds: u64,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, NotificationError> {
+        const MAX_MESSAGE_LENGTH: usize = 200;
+
+        if message.len() > MAX_MESSAGE_LENGTH {
+            return Err(NotificationError::MessageTooLong(message.len()));
+        }
+
+        if duration_seconds == 0 {
+            return Err(NotificationError::InvalidDuration);
+        }
+
+        Ok(Self {
             message,
             created_at: Local::now(),
             duration_seconds,
             notification_type,
-        }
+        })
     }
 
     pub fn is_expired(&self) -> bool {
-        let elapsed = Local::now()
-            .signed_duration_since(self.created_at)
-            .to_std()
-            .unwrap_or(Duration::from_secs(0));
-
-        elapsed >= Duration::from_secs(self.duration_seconds)
+        match self.get_elapsed_time() {
+            Ok(elapsed) => elapsed >= Duration::from_secs(self.duration_seconds),
+            Err(_) => true, // If we can't get time, consider it expired for safety
+        }
     }
 
-    pub fn remaining_time(&self) -> Duration {
-        let elapsed = Local::now()
+    #[allow(dead_code)]
+    pub fn remaining_time(&self) -> Result<Duration, NotificationError> {
+        let elapsed = self.get_elapsed_time()?;
+        Ok(Duration::from_secs(self.duration_seconds).saturating_sub(elapsed))
+    }
+
+    fn get_elapsed_time(&self) -> Result<Duration, NotificationError> {
+        Local::now()
             .signed_duration_since(self.created_at)
             .to_std()
-            .unwrap_or(Duration::from_secs(0));
-
-        Duration::from_secs(self.duration_seconds).saturating_sub(elapsed)
+            .map_err(|_| NotificationError::SystemTimeError)
     }
 }
 
@@ -71,23 +105,30 @@ impl NotificationManager {
         }
     }
 
-    pub fn show(&mut self, message: String, notification_type: NotificationType) {
-        self.current_notification = Some(Notification::new(message, notification_type));
+    pub fn show(
+        &mut self,
+        message: String,
+        notification_type: NotificationType,
+    ) -> Result<(), NotificationError> {
+        let notification = Notification::new(message, notification_type)?;
+        self.current_notification = Some(notification);
+        Ok(())
     }
 
+    #[allow(dead_code)]
     pub fn show_with_duration(
         &mut self,
         message: String,
         notification_type: NotificationType,
         duration_seconds: u64,
-    ) {
-        self.current_notification = Some(Notification::with_duration(
-            message,
-            notification_type,
-            duration_seconds,
-        ));
+    ) -> Result<(), NotificationError> {
+        let notification =
+            Notification::with_duration(message, notification_type, duration_seconds)?;
+        self.current_notification = Some(notification);
+        Ok(())
     }
 
+    #[allow(dead_code)]
     pub fn clear(&mut self) {
         self.current_notification = None;
     }
@@ -110,6 +151,7 @@ impl NotificationManager {
         self.current_notification.as_ref()
     }
 
+    #[allow(dead_code)]
     pub fn has_notification(&self) -> bool {
         self.current_notification.is_some()
     }
@@ -117,23 +159,71 @@ impl NotificationManager {
 
 // Helper functions for common notification types
 impl NotificationManager {
-    pub fn info(&mut self, message: String) {
-        self.show(message, NotificationType::Info);
+    #[allow(dead_code)]
+    pub fn info(&mut self, message: String) -> Result<(), NotificationError> {
+        self.show(message, NotificationType::Info)
     }
 
-    pub fn warning(&mut self, message: String) {
-        self.show(message, NotificationType::Warning);
+    pub fn warning(&mut self, message: String) -> Result<(), NotificationError> {
+        self.show(message, NotificationType::Warning)
     }
 
-    pub fn error(&mut self, message: String) {
-        self.show(message, NotificationType::Error);
+    #[allow(dead_code)]
+    pub fn error(&mut self, message: String) -> Result<(), NotificationError> {
+        self.show(message, NotificationType::Error)
     }
 
-    pub fn status(&mut self, message: String) {
-        self.show(message, NotificationType::Status);
+    #[allow(dead_code)]
+    pub fn status(&mut self, message: String) -> Result<(), NotificationError> {
+        self.show(message, NotificationType::Status)
     }
 
-    pub fn persistent_status(&mut self, message: String) {
-        self.show_with_duration(message, NotificationType::Status, u64::MAX); // Never expires
+    #[allow(dead_code)]
+    pub fn persistent_status(&mut self, message: String) -> Result<(), NotificationError> {
+        // Use a very long duration instead of u64::MAX to avoid overflow issues
+        const PERSISTENT_DURATION: u64 = 365 * 24 * 60 * 60; // 1 year in seconds
+        self.show_with_duration(message, NotificationType::Status, PERSISTENT_DURATION)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_all_notification_types() {
+        let mut manager = NotificationManager::new();
+
+        // Test all notification types to ensure they work
+        assert!(manager.info("Test info".to_string()).is_ok());
+        assert!(manager.warning("Test warning".to_string()).is_ok());
+        assert!(manager.error("Test error".to_string()).is_ok());
+        assert!(manager.status("Test status".to_string()).is_ok());
+        assert!(manager
+            .persistent_status("Test persistent".to_string())
+            .is_ok());
+    }
+
+    #[test]
+    fn test_notification_with_duration() {
+        let mut manager = NotificationManager::new();
+        assert!(manager
+            .show_with_duration("Test".to_string(), NotificationType::Info, 10)
+            .is_ok());
+    }
+
+    #[test]
+    fn test_notification_remaining_time() {
+        let notification = Notification::new("Test".to_string(), NotificationType::Info).unwrap();
+        assert!(notification.remaining_time().is_ok());
+    }
+
+    #[test]
+    fn test_clear_notification() {
+        let mut manager = NotificationManager::new();
+        manager.info("Test".to_string()).unwrap();
+        assert!(manager.has_notification());
+        manager.clear();
+        assert!(!manager.has_notification());
     }
 }

@@ -136,7 +136,9 @@ async fn run_local_mode(app_state: Arc<Mutex<AppState>>, args: ViewArgs) {
         if let Some(nvml_message) = get_nvml_status_message() {
             // Only show notification if we haven't shown it before
             if !state.nvml_notification_shown {
-                state.notifications.warning(nvml_message);
+                if let Err(e) = state.notifications.warning(nvml_message) {
+                    eprintln!("Failed to show NVML notification: {e}");
+                }
                 state.nvml_notification_shown = true;
             }
         }

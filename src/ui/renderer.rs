@@ -10,6 +10,39 @@ use crate::app_state::AppState;
 use crate::device::{CpuInfo, GpuInfo, MemoryInfo, ProcessInfo};
 use crate::storage::info::StorageInfo;
 
+// Helper function to get display width of a single character
+fn char_display_width(c: char) -> usize {
+    match c {
+        // Arrow characters that display as 1 character width
+        '←' | '→' | '↑' | '↓' => 1,
+        // Most other characters display as their char count
+        _ => 1,
+    }
+}
+
+// Helper function to calculate display width of a string, accounting for Unicode characters
+fn display_width(s: &str) -> usize {
+    s.chars().map(char_display_width).sum()
+}
+
+// Helper function to truncate a string to fit within a given display width
+fn truncate_to_width(s: &str, max_width: usize) -> String {
+    let mut result = String::new();
+    let mut current_width = 0;
+
+    for c in s.chars() {
+        let char_width = char_display_width(c);
+        if current_width + char_width <= max_width {
+            result.push(c);
+            current_width += char_width;
+        } else {
+            break;
+        }
+    }
+
+    result
+}
+
 // Helper function to format RAM values with appropriate units
 fn format_ram_value(gb_value: f64) -> String {
     if gb_value >= 1024.0 {
@@ -1478,15 +1511,15 @@ pub fn print_function_keys<W: Write>(
         format!("h:Help q:Exit ←→:Tabs ↑↓:Scroll PgUp/PgDn:Page p:PID m:Memory d:Default u:Util g:GPU-Mem [{sort_indicator}]")
     };
 
-    let truncated_keys = if function_keys.len() > cols as usize {
-        &function_keys[..cols as usize]
+    let truncated_keys = if display_width(&function_keys) > cols as usize {
+        truncate_to_width(&function_keys, cols as usize)
     } else {
-        &function_keys
+        function_keys
     };
 
     // Check if there's a notification to display
     let notification_msg = state.notifications.get_current_message().unwrap_or("");
-    let notification_len = notification_msg.len();
+    let notification_len = display_width(notification_msg);
 
     // Calculate space available for function keys (reserve space for notification)
     let available_space = if notification_len > 0 {
@@ -1495,23 +1528,23 @@ pub fn print_function_keys<W: Write>(
         cols
     } as usize;
 
-    // Truncate function keys if needed to make room for status
-    let final_keys = if truncated_keys.len() > available_space {
-        &truncated_keys[..available_space]
+    // Truncate function keys if needed to make room for notification
+    let final_keys = if display_width(&truncated_keys) > available_space {
+        truncate_to_width(&truncated_keys, available_space)
     } else {
         truncated_keys
     };
 
     print_colored_text(
         stdout,
-        final_keys,
+        &final_keys,
         Color::White,
         Some(Color::DarkBlue),
         None,
     );
 
     // Calculate remaining space between function keys and notification
-    let used_space = final_keys.len() + notification_len;
+    let used_space = display_width(&final_keys) + notification_len;
     let remaining = cols as usize - used_space;
 
     if remaining > 0 {
