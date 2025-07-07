@@ -312,6 +312,7 @@ fn print_node_view_and_history<W: Write>(stdout: &mut W, state: &AppState, param
         match row {
             0 => {
                 print_colored_text(stdout, "GPU Util.", Color::Yellow, None, None);
+                // Show as time series in both local and remote modes
                 print_history_bar_with_value(
                     stdout,
                     &state.utilization_history,
@@ -322,6 +323,7 @@ fn print_node_view_and_history<W: Write>(stdout: &mut W, state: &AppState, param
             }
             1 => {
                 print_colored_text(stdout, "GPU Mem. ", Color::Yellow, None, None);
+                // Show as time series in both local and remote modes
                 print_history_bar_with_value(
                     stdout,
                     &state.memory_history,
@@ -332,6 +334,7 @@ fn print_node_view_and_history<W: Write>(stdout: &mut W, state: &AppState, param
             }
             2 => {
                 print_colored_text(stdout, "Temp     ", Color::Yellow, None, None);
+                // Show as time series in both local and remote modes
                 print_history_bar_with_value(
                     stdout,
                     &state.temperature_history,
@@ -363,28 +366,31 @@ fn print_node_view_row<W: Write>(
         .copied()
         .collect();
 
-    let mut row_text = String::new();
+    let mut row_chars = Vec::new();
     for (col, node) in row_nodes.iter().enumerate() {
         let util = node_utils.get(*node).unwrap_or(&0.0);
-        let (char, _color) = get_node_char_and_color(*util, current_tab == col + 1 + start_idx);
-        row_text.push(char);
+        let (char, color) = get_node_char_and_color(*util, current_tab == col + 1 + start_idx);
+        row_chars.push((char, color));
     }
 
-    // Pad to left_width
-    if row_text.len() < left_width {
-        row_text.push_str(&" ".repeat(left_width - row_text.len()));
-    }
+    // Calculate actual display width (Unicode chars like ● take 2 display columns)
+    let actual_width = row_chars.len(); // Each node character takes 1 position, regardless of Unicode width
+    let padding_needed = left_width.saturating_sub(actual_width);
 
     // Print each character with its color
-    for (i, ch) in row_text.chars().enumerate() {
-        if i < row_nodes.len() {
-            let node = row_nodes[i];
-            let util = node_utils.get(node).unwrap_or(&0.0);
-            let (_, color) = get_node_char_and_color(*util, current_tab == i + 1 + start_idx);
-            print_colored_text(stdout, &ch.to_string(), color, None, None);
-        } else {
-            print_colored_text(stdout, &ch.to_string(), Color::White, None, None);
-        }
+    for (char, color) in row_chars {
+        print_colored_text(stdout, &char.to_string(), color, None, None);
+    }
+
+    // Add padding spaces
+    if padding_needed > 0 {
+        print_colored_text(
+            stdout,
+            &" ".repeat(padding_needed),
+            Color::White,
+            None,
+            None,
+        );
     }
 }
 
@@ -421,12 +427,15 @@ fn print_history_bar_with_value<W: Write>(
         1
     };
 
-    // Sample the history based on available width
+    // Sample the history based on available width and reverse for right-to-left display
     let sampled_data: Vec<f64> = history
         .iter()
         .step_by(step.max(1))
         .take(available_width)
         .copied()
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
         .collect();
 
     // Print the bar
@@ -442,27 +451,34 @@ fn print_history_bar_with_value<W: Write>(
             Color::DarkGrey
         };
 
-        let bar_char = if normalized > 0.8 {
-            '█'
-        } else if normalized > 0.6 {
-            '▇'
-        } else if normalized > 0.4 {
-            '▅'
-        } else if normalized > 0.2 {
-            '▃'
+        let bar_char = if normalized > 0.875 {
+            '⣿' // All 8 dots filled
+        } else if normalized > 0.75 {
+            '⣾' // 7 dots filled
+        } else if normalized > 0.625 {
+            '⣶' // 6 dots filled
+        } else if normalized > 0.5 {
+            '⣦' // 5 dots filled
+        } else if normalized > 0.375 {
+            '⣤' // 4 dots filled
+        } else if normalized > 0.25 {
+            '⣠' // 3 dots filled
+        } else if normalized > 0.125 {
+            '⣀' // 2 dots filled (bottom)
         } else if normalized > 0.0 {
-            '▁'
+            '⡀' // 1 dot filled (bottom)
         } else {
-            '─'
+            '⠀' // Empty Braille character for zero values
         };
 
         print_colored_text(stdout, &bar_char.to_string(), color, None, None);
     }
 
-    // Print remaining space as dashes
+    // Print remaining space as empty Braille characters (but limit to reasonable amount)
     let remaining = available_width.saturating_sub(sampled_data.len());
-    if remaining > 0 {
-        print_colored_text(stdout, &"─".repeat(remaining), Color::DarkGrey, None, None);
+    if remaining > 0 && remaining < 50 {
+        // Limit to prevent long horizontal lines
+        print_colored_text(stdout, &"⠀".repeat(remaining), Color::DarkGrey, None, None);
     }
 
     // Print value

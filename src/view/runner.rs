@@ -7,7 +7,7 @@ use std::time::Duration;
 use chrono::Local;
 use crossterm::{
     cursor,
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event},
+    event::{self, Event},
     execute, queue,
     style::{Color, Print},
     terminal::{
@@ -28,9 +28,10 @@ use crate::device::{
 use crate::storage::info::StorageInfo;
 use crate::ui::buffer::{BufferWriter, DifferentialRenderer};
 // use crate::ui::help::print_help_popup; // Not needed with differential rendering
+use crate::ui::dashboard::{draw_dashboard_items, draw_system_view};
 use crate::ui::renderer::{
-    draw_dashboard_items, draw_system_view, print_cpu_info, print_function_keys, print_gpu_info,
-    print_loading_indicator, print_memory_info, print_process_info, print_storage_info,
+    print_cpu_info, print_function_keys, print_gpu_info, print_loading_indicator,
+    print_memory_info, print_process_info, print_storage_info,
 };
 use crate::ui::tabs::draw_tabs;
 use crate::ui::text::print_colored_text;
@@ -824,7 +825,6 @@ async fn run_ui_loop(app_state: Arc<Mutex<AppState>>, args: &ViewArgs) {
     if execute!(
         stdout,
         EnterAlternateScreen,
-        EnableMouseCapture,
         terminal::Clear(ClearType::All)
     )
     .is_err()
@@ -863,7 +863,7 @@ async fn run_ui_loop(app_state: Arc<Mutex<AppState>>, args: &ViewArgs) {
                             drop(state);
                         }
                         Event::Mouse(_) => {
-                            // Ignore mouse events to prevent interference
+                            // Mouse events won't occur since mouse capture is disabled
                         }
                         Event::Resize(_, _) => {
                             // Ignore resize events - the display will adjust automatically
@@ -936,7 +936,7 @@ async fn run_ui_loop(app_state: Arc<Mutex<AppState>>, args: &ViewArgs) {
         }
     }
 
-    let _ = execute!(stdout, LeaveAlternateScreen, DisableMouseCapture);
+    let _ = execute!(stdout, LeaveAlternateScreen);
     let _ = disable_raw_mode();
 }
 
@@ -1007,6 +1007,7 @@ fn render_main_content(state: &AppState, args: &ViewArgs, cols: u16, rows: u16) 
     // Write remaining header content to buffer
     print_colored_text(&mut buffer, "Cluster Overview\r\n", Color::Cyan, None, None);
     draw_system_view(&mut buffer, state, cols);
+
     draw_dashboard_items(&mut buffer, state, cols);
     draw_tabs(&mut buffer, state, cols);
 

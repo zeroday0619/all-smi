@@ -39,11 +39,16 @@ pub fn draw_bar<W: Write>(
         Color::DarkGrey
     };
 
-    // Prepare text to display inside the bar
+    // Prepare text to display inside the bar with fixed width
     let display_text = if let Some(text) = show_text {
-        text
+        // Ensure consistent width for value text (8 characters)
+        if text.len() > 8 {
+            text[..8].to_string()
+        } else {
+            format!("{text:>8}") // Right-align in 8-character field
+        }
     } else {
-        format!("{:.1}%", fill_ratio * 100.0)
+        format!("{:>7.1}%", fill_ratio * 100.0) // Right-align percentage in 8-character field
     };
 
     // Print label

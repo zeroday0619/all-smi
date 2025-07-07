@@ -62,7 +62,7 @@ pub fn print_gpu_info<W: Write>(
     print_colored_text(stdout, " Util:", Color::Yellow, None, None);
     print_colored_text(
         stdout,
-        &format!("{:.1}%", info.utilization),
+        &format!("{:>5.1}%", info.utilization),
         Color::White,
         None,
         None,
@@ -70,7 +70,7 @@ pub fn print_gpu_info<W: Write>(
     print_colored_text(stdout, " Mem:", Color::Blue, None, None);
     print_colored_text(
         stdout,
-        &format!("{memory_gb:.1}/{total_memory_gb:.0}GB"),
+        &format!("{:>11}", format!("{memory_gb:.1}/{total_memory_gb:.0}GB")),
         Color::White,
         None,
         None,
@@ -78,7 +78,7 @@ pub fn print_gpu_info<W: Write>(
     print_colored_text(stdout, " Temp:", Color::Magenta, None, None);
     print_colored_text(
         stdout,
-        &format!("{}°C", info.temperature),
+        &format!("{:>4}°C", info.temperature),
         Color::White,
         None,
         None,
@@ -86,7 +86,7 @@ pub fn print_gpu_info<W: Write>(
     print_colored_text(stdout, " Pwr:", Color::Red, None, None);
     print_colored_text(
         stdout,
-        &format!("{:.1}W", info.power_consumption),
+        &format!("{:>6.1}W", info.power_consumption),
         Color::White,
         None,
         None,
@@ -95,7 +95,8 @@ pub fn print_gpu_info<W: Write>(
 
     // Calculate gauge widths with 5 char padding on each side and 2 space separation
     let available_width = width.saturating_sub(10); // 5 padding each side
-    let num_gauges = 3; // Util, Mem, Power
+    let is_apple_silicon = info.name.contains("Apple") || info.name.contains("Metal");
+    let num_gauges = if is_apple_silicon { 3 } else { 2 }; // Util, Mem, (ANE for Apple Silicon only)
     let gauge_width = (available_width - (num_gauges - 1) * 2) / num_gauges; // 2 spaces between gauges
 
     // Print gauges on one line with proper spacing
@@ -121,17 +122,19 @@ pub fn print_gpu_info<W: Write>(
         gauge_width,
         Some(format!("{memory_gb:.1}GB")),
     );
-    print_colored_text(stdout, "  ", Color::White, None, None); // 2 space separator
 
-    // Power gauge
-    draw_bar(
-        stdout,
-        "Power",
-        info.power_consumption,
-        400.0,
-        gauge_width,
-        Some(format!("{:.1}W", info.power_consumption)),
-    );
+    // ANE gauge only for Apple Silicon
+    if is_apple_silicon {
+        print_colored_text(stdout, "  ", Color::White, None, None); // 2 space separator
+        draw_bar(
+            stdout,
+            "ANE",
+            info.ane_utilization,
+            100.0,
+            gauge_width,
+            Some(format!("{:.1}%", info.ane_utilization)),
+        );
+    }
 
     print_colored_text(stdout, "     ", Color::White, None, None); // 5 char right padding
     queue!(stdout, Print("\r\n")).unwrap();
@@ -154,26 +157,34 @@ pub fn print_cpu_info<W: Write>(stdout: &mut W, _index: usize, info: &CpuInfo, w
     print_colored_text(stdout, " Sockets:", Color::Yellow, None, None);
     print_colored_text(
         stdout,
-        &format!("{}", info.socket_count),
+        &format!("{:>2}", info.socket_count),
         Color::White,
         None,
         None,
     );
-    print_colored_text(stdout, " Cores:", Color::Green, None, None);
-
     // Show P-Core/E-Core counts for Apple Silicon, regular core count for others
     if let Some(apple_info) = &info.apple_silicon_info {
+        print_colored_text(stdout, " P-Cores:", Color::Green, None, None);
         print_colored_text(
             stdout,
-            &format!("{}", apple_info.p_core_count + apple_info.e_core_count),
+            &format!("{:>2}", apple_info.p_core_count),
+            Color::White,
+            None,
+            None,
+        );
+        print_colored_text(stdout, " E-Cores:", Color::Green, None, None);
+        print_colored_text(
+            stdout,
+            &format!("{:>2}", apple_info.e_core_count),
             Color::White,
             None,
             None,
         );
     } else {
+        print_colored_text(stdout, " Cores:", Color::Green, None, None);
         print_colored_text(
             stdout,
-            &format!("{}", info.total_cores),
+            &format!("{:>2}", info.total_cores),
             Color::White,
             None,
             None,
@@ -184,7 +195,7 @@ pub fn print_cpu_info<W: Write>(stdout: &mut W, _index: usize, info: &CpuInfo, w
     print_colored_text(stdout, " Freq:", Color::Magenta, None, None);
     print_colored_text(
         stdout,
-        &format!("{freq_ghz:.1}GHz"),
+        &format!("{freq_ghz:>6.1}GHz"),
         Color::White,
         None,
         None,
@@ -192,7 +203,7 @@ pub fn print_cpu_info<W: Write>(stdout: &mut W, _index: usize, info: &CpuInfo, w
     print_colored_text(stdout, " Cache:", Color::Red, None, None);
     print_colored_text(
         stdout,
-        &format!("{}MB", info.cache_size_mb),
+        &format!("{:>5}MB", info.cache_size_mb),
         Color::White,
         None,
         None,
@@ -211,7 +222,7 @@ pub fn print_cpu_info<W: Write>(stdout: &mut W, _index: usize, info: &CpuInfo, w
         // P-Core gauge
         draw_bar(
             stdout,
-            "P-Cor",
+            "P-CPU",
             apple_info.p_core_utilization,
             100.0,
             gauge_width,
@@ -222,7 +233,7 @@ pub fn print_cpu_info<W: Write>(stdout: &mut W, _index: usize, info: &CpuInfo, w
         // E-Core gauge
         draw_bar(
             stdout,
-            "E-Cor",
+            "E-CPU",
             apple_info.e_core_utilization,
             100.0,
             gauge_width,
@@ -257,17 +268,23 @@ pub fn print_memory_info<W: Write>(stdout: &mut W, _index: usize, info: &MemoryI
     print_colored_text(stdout, " Total:", Color::Blue, None, None);
     print_colored_text(
         stdout,
-        &format!("{total_gb:.0}GB"),
+        &format!("{total_gb:>6.0}GB"),
         Color::White,
         None,
         None,
     );
     print_colored_text(stdout, " Used:", Color::Yellow, None, None);
-    print_colored_text(stdout, &format!("{used_gb:.1}GB"), Color::White, None, None);
+    print_colored_text(
+        stdout,
+        &format!("{used_gb:>6.1}GB"),
+        Color::White,
+        None,
+        None,
+    );
     print_colored_text(stdout, " Avail:", Color::Green, None, None);
     print_colored_text(
         stdout,
-        &format!("{available_gb:.1}GB"),
+        &format!("{available_gb:>6.1}GB"),
         Color::White,
         None,
         None,
@@ -275,7 +292,7 @@ pub fn print_memory_info<W: Write>(stdout: &mut W, _index: usize, info: &MemoryI
     print_colored_text(stdout, " Util:", Color::Red, None, None);
     print_colored_text(
         stdout,
-        &format!("{:.1}%", info.utilization),
+        &format!("{:>5.1}%", info.utilization),
         Color::White,
         None,
         None,
@@ -376,15 +393,33 @@ pub fn print_storage_info<W: Write>(
     print_colored_text(stdout, " Mount:", Color::Blue, None, None);
     print_colored_text(stdout, &info.mount_point, Color::White, None, None);
     print_colored_text(stdout, " #:", Color::Yellow, None, None);
-    print_colored_text(stdout, &format!("{}", info.index), Color::White, None, None);
+    print_colored_text(
+        stdout,
+        &format!("{:>2}", info.index),
+        Color::White,
+        None,
+        None,
+    );
     print_colored_text(stdout, " Total:", Color::Green, None, None);
-    print_colored_text(stdout, &format_size(total_gb), Color::White, None, None);
+    print_colored_text(
+        stdout,
+        &format!("{:>8}", format_size(total_gb)),
+        Color::White,
+        None,
+        None,
+    );
     print_colored_text(stdout, " Used:", Color::Red, None, None);
-    print_colored_text(stdout, &format_size(used_gb), Color::White, None, None);
+    print_colored_text(
+        stdout,
+        &format!("{:>8}", format_size(used_gb)),
+        Color::White,
+        None,
+        None,
+    );
     print_colored_text(stdout, " Util:", Color::Magenta, None, None);
     print_colored_text(
         stdout,
-        &format!("{usage_percent:.1}%"),
+        &format!("{usage_percent:>5.1}%"),
         Color::White,
         None,
         None,
