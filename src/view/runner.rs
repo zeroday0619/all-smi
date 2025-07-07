@@ -944,7 +944,6 @@ fn render_main_view<W: Write>(
     rows: u16,
 ) {
     let width = cols as usize;
-    let half_rows = rows / 2;
 
     // Use double buffering to reduce flickering
     let mut buffer = BufferWriter::new();
@@ -1149,17 +1148,75 @@ fn render_main_view<W: Write>(
         }
     }
 
+    // Calculate actual rows used by other sections to determine remaining space for processes
+    let mut used_rows = 0;
+    
+    // GPU section rows
+    let actual_gpu_items = std::cmp::min(
+        gpu_info_to_display.len().saturating_sub(state.gpu_scroll_offset),
+        max_gpu_items
+    );
+    used_rows += actual_gpu_items * lines_per_gpu;
+    
+    // Storage section rows (if displayed)
+    if is_remote
+        && state.current_tab < state.tabs.len()
+        && state.tabs[state.current_tab] != "All"
+        && !state.storage_info.is_empty()
+    {
+        used_rows += storage_display_rows;
+        used_rows += 1; // Extra line for spacing between sections
+    }
+    
+    // CPU section rows (if displayed)
+    if state.current_tab < state.tabs.len()
+        && state.tabs[state.current_tab] != "All"
+        && !state.cpu_info.is_empty()
+    {
+        let current_hostname = &state.tabs[state.current_tab];
+        let cpu_info_to_display: Vec<_> = state
+            .cpu_info
+            .iter()
+            .filter(|info| info.hostname == *current_hostname)
+            .collect();
+        if !cpu_info_to_display.is_empty() {
+            used_rows += cpu_info_to_display.len() * 2; // Each CPU takes 2 lines (labels + gauges)
+            used_rows += 1; // Extra line for spacing between sections
+        }
+    }
+    
+    // Memory section rows (if displayed)
+    if state.current_tab < state.tabs.len()
+        && state.tabs[state.current_tab] != "All"
+        && !state.memory_info.is_empty()
+    {
+        let current_hostname = &state.tabs[state.current_tab];
+        let memory_info_to_display: Vec<_> = state
+            .memory_info
+            .iter()
+            .filter(|info| info.hostname == *current_hostname)
+            .collect();
+        if !memory_info_to_display.is_empty() {
+            used_rows += memory_info_to_display.len() * 2; // Each memory section takes 2 lines
+            used_rows += 1; // Extra line for spacing between sections
+        }
+    }
+
     // Display process info for local mode
     if !state.process_info.is_empty() && !is_remote {
         let mut sorted_process_info = state.process_info.clone();
         sorted_process_info.sort_by(|a, b| state.sort_criteria.sort_processes(a, b));
+
+        // Calculate remaining available rows for processes
+        let remaining_rows = available_rows.saturating_sub(used_rows);
+        let process_rows = std::cmp::max(remaining_rows, 10) as u16; // Minimum 10 rows for processes
 
         print_process_info(
             &mut buffer,
             &sorted_process_info,
             state.selected_process_index,
             state.start_index,
-            half_rows,
+            process_rows,
             cols,
         );
     }
