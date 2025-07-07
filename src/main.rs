@@ -10,7 +10,7 @@ mod view;
 use api::run_api_mode;
 use clap::Parser;
 use cli::{Cli, Commands};
-use utils::ensure_sudo_permissions;
+use utils::{ensure_sudo_permissions, ensure_sudo_permissions_with_fallback};
 
 #[tokio::main]
 async fn main() {
@@ -28,13 +28,17 @@ async fn main() {
             view::run_view_mode(&args).await;
         }
         None => {
-            ensure_sudo_permissions();
-            view::run_view_mode(&cli::ViewArgs {
-                hosts: None,
-                hostfile: None,
-                interval: None,
-            })
-            .await;
+            let has_sudo = ensure_sudo_permissions_with_fallback();
+            if has_sudo {
+                view::run_view_mode(&cli::ViewArgs {
+                    hosts: None,
+                    hostfile: None,
+                    interval: None,
+                })
+                .await;
+            }
+            // If user declined sudo and chose remote monitoring,
+            // they were given instructions and the function exits
         }
     }
 }
