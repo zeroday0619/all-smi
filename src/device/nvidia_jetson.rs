@@ -1,4 +1,4 @@
-use crate::gpu::{GpuInfo, GpuReader, ProcessInfo};
+use crate::device::{GpuInfo, GpuReader, ProcessInfo};
 use chrono::Local;
 use std::collections::HashMap;
 use std::fs;

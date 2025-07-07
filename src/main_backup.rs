@@ -29,7 +29,7 @@ use tokio::sync::{Mutex, RwLock};
 use tower_http::cors::{Any, CorsLayer};
 use sysinfo::Disks;
 
-use crate::gpu::{get_gpu_readers, GpuInfo, ProcessInfo};
+use crate::device::{get_gpu_readers, GpuInfo, ProcessInfo};
 
 // Buffer writer for double buffering to reduce flickering
 struct BufferWriter {

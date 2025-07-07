@@ -9,7 +9,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use crate::api::handlers::{metrics_handler, SharedState};
 use crate::app_state::AppState;
 use crate::cli::ApiArgs;
-use crate::gpu::{get_cpu_readers, get_gpu_readers, get_memory_readers};
+use crate::device::{get_cpu_readers, get_gpu_readers, get_memory_readers};
 
 pub async fn run_api_mode(args: &ApiArgs) {
     tracing_subscriber::registry()

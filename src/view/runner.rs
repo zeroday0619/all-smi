@@ -21,7 +21,7 @@ use tokio::sync::Mutex;
 
 use crate::app_state::{AppState, SortCriteria};
 use crate::cli::ViewArgs;
-use crate::gpu::{
+use crate::device::{
     get_cpu_readers, get_gpu_readers, get_memory_readers, CpuInfo, GpuInfo, MemoryInfo, ProcessInfo,
 };
 use crate::storage::info::StorageInfo;
@@ -423,7 +423,7 @@ fn parse_metrics(
     Vec<MemoryInfo>,
     Vec<StorageInfo>,
 ) {
-    use crate::gpu::{AppleSiliconCpuInfo, CpuPlatformType, CpuSocketInfo};
+    use crate::device::{AppleSiliconCpuInfo, CpuPlatformType, CpuSocketInfo};
 
     let mut gpu_info_map: HashMap<String, GpuInfo> = HashMap::new();
     let mut cpu_info_map: HashMap<String, CpuInfo> = HashMap::new();

@@ -1,4 +1,4 @@
-use crate::gpu::{AppleSiliconCpuInfo, CpuInfo, CpuPlatformType, CpuReader, CpuSocketInfo};
+use crate::device::{AppleSiliconCpuInfo, CpuInfo, CpuPlatformType, CpuReader, CpuSocketInfo};
 use crate::utils::system::get_hostname;
 use chrono::Local;
 use std::cell::RefCell;

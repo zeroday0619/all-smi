@@ -1,7 +1,7 @@
 use chrono::Local;
 use std::process::Command;
 
-use crate::gpu::{MemoryInfo, MemoryReader};
+use crate::device::{MemoryInfo, MemoryReader};
 use crate::utils::get_hostname;
 
 pub struct MacOsMemoryReader;

@@ -7,7 +7,7 @@ use crossterm::{
 };
 
 use crate::app_state::AppState;
-use crate::gpu::{CpuInfo, GpuInfo, MemoryInfo, ProcessInfo};
+use crate::device::{CpuInfo, GpuInfo, MemoryInfo, ProcessInfo};
 use crate::storage::info::StorageInfo;
 
 // Helper function to format RAM values with appropriate units

@@ -1,4 +1,4 @@
-use crate::gpu::{CpuInfo, GpuInfo, MemoryInfo, ProcessInfo};
+use crate::device::{CpuInfo, GpuInfo, MemoryInfo, ProcessInfo};
 use crate::storage::info::StorageInfo;
 use std::collections::{HashMap, VecDeque};
 

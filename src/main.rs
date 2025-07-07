@@ -1,7 +1,7 @@
 mod api;
 mod app_state;
 mod cli;
-mod gpu;
+mod device;
 mod storage;
 mod ui;
 mod utils;

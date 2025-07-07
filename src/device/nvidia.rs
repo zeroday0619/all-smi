@@ -1,4 +1,4 @@
-use crate::gpu::{get_system_process_info, GpuInfo, GpuReader, ProcessInfo};
+use crate::device::{get_system_process_info, GpuInfo, GpuReader, ProcessInfo};
 use chrono::Local;
 use std::collections::HashMap;
 use std::process::Command;

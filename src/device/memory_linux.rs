@@ -1,7 +1,7 @@
 use chrono::Local;
 use std::fs;
 
-use crate::gpu::{MemoryInfo, MemoryReader};
+use crate::device::{MemoryInfo, MemoryReader};
 use crate::utils::get_hostname;
 
 pub struct LinuxMemoryReader;

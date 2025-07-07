@@ -1,4 +1,4 @@
-use crate::gpu::{CpuInfo, CpuPlatformType, CpuReader, CpuSocketInfo};
+use crate::device::{CpuInfo, CpuPlatformType, CpuReader, CpuSocketInfo};
 use crate::utils::system::get_hostname;
 use chrono::Local;
 use std::fs;
