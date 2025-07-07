@@ -126,6 +126,8 @@ mod tests {
             utilization_history: VecDeque::new(),
             memory_history: VecDeque::new(),
             temperature_history: VecDeque::new(),
+            notifications: crate::ui::notification::NotificationManager::new(),
+            nvml_notification_shown: false,
         }
     }
 
