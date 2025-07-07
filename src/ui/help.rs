@@ -331,21 +331,3 @@ fn get_current_sort_status(sort_criteria: &crate::app_state::SortCriteria) -> St
     }
     .to_string()
 }
-
-// Keep this function for compatibility, but it's much simpler now
-pub fn center_text(text: &str, width: usize) -> String {
-    let text_len = text.len();
-    if text_len >= width {
-        text.to_string()
-    } else {
-        let total_padding = width - text_len;
-        let left_padding = total_padding / 2;
-        let right_padding = total_padding - left_padding;
-        format!(
-            "{}{}{}",
-            " ".repeat(left_padding),
-            text,
-            " ".repeat(right_padding)
-        )
-    }
-}

@@ -3,6 +3,21 @@ use crate::utils::system::get_hostname;
 use chrono::Local;
 use std::fs;
 
+type CpuInfoParseResult = Result<
+    (
+        String,
+        String,
+        CpuPlatformType,
+        u32,
+        u32,
+        u32,
+        u32,
+        u32,
+        u32,
+    ),
+    Box<dyn std::error::Error>,
+>;
+
 pub struct LinuxCpuReader;
 
 impl LinuxCpuReader {
@@ -61,23 +76,7 @@ impl LinuxCpuReader {
         })
     }
 
-    fn parse_cpuinfo(
-        &self,
-        content: &str,
-    ) -> Result<
-        (
-            String,
-            String,
-            CpuPlatformType,
-            u32,
-            u32,
-            u32,
-            u32,
-            u32,
-            u32,
-        ),
-        Box<dyn std::error::Error>,
-    > {
+    fn parse_cpuinfo(&self, content: &str) -> CpuInfoParseResult {
         let mut cpu_model = String::new();
         let mut architecture = String::new();
         let mut platform_type = CpuPlatformType::Other("Unknown".to_string());
@@ -98,9 +97,9 @@ impl LinuxCpuReader {
                     if cpu_model.to_lowercase().contains("intel") {
                         platform_type = CpuPlatformType::Intel;
                     } else if cpu_model.to_lowercase().contains("amd") {
-                        platform_type = CpuPlatformType::AMD;
+                        platform_type = CpuPlatformType::Amd;
                     } else if cpu_model.to_lowercase().contains("arm") {
-                        platform_type = CpuPlatformType::ARM;
+                        platform_type = CpuPlatformType::Arm;
                     }
                 }
             } else if line.starts_with("processor") {

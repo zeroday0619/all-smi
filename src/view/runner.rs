@@ -524,7 +524,7 @@ fn parse_metrics(
                     } else if cpu_model.contains("Intel") {
                         CpuPlatformType::Intel
                     } else if cpu_model.contains("AMD") {
-                        CpuPlatformType::AMD
+                        CpuPlatformType::Amd
                     } else {
                         CpuPlatformType::Other("Unknown".to_string())
                     };

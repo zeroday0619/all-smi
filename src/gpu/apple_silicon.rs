@@ -181,53 +181,51 @@ fn get_gpu_metrics() -> GpuMetrics {
     let mut power_consumption: Option<f64> = None;
     let mut thermal_pressure: Option<u32> = None;
 
-    for line in reader.lines() {
-        if let Ok(line) = line {
-            if line.contains("GPU HW active residency:") {
-                if let Some(usage_str) = line.split(':').nth(1) {
-                    utilization = usage_str
-                        .split_whitespace()
-                        .next()
-                        .unwrap_or("0")
-                        .trim_end_matches('%')
-                        .parse::<f64>()
-                        .ok();
+    for line in reader.lines().map_while(Result::ok) {
+        if line.contains("GPU HW active residency:") {
+            if let Some(usage_str) = line.split(':').nth(1) {
+                utilization = usage_str
+                    .split_whitespace()
+                    .next()
+                    .unwrap_or("0")
+                    .trim_end_matches('%')
+                    .parse::<f64>()
+                    .ok();
+            }
+        } else if line.contains("ANE Power:") {
+            if let Some(power_str) = line.split(':').nth(1) {
+                ane_utilization = power_str
+                    .split_whitespace()
+                    .next()
+                    .unwrap_or("0")
+                    .parse::<f64>()
+                    .ok();
+            }
+        } else if line.contains("GPU HW active frequency:") {
+            if let Some(freq_str) = line.split(':').nth(1) {
+                frequency = freq_str
+                    .split_whitespace()
+                    .next()
+                    .unwrap_or("0")
+                    .parse::<u32>()
+                    .ok();
+            }
+        } else if line.contains("GPU Power:") {
+            if let Some(power_str) = line.split(':').nth(1) {
+                power_consumption = power_str
+                    .split_whitespace()
+                    .next()
+                    .unwrap_or("0")
+                    .parse::<f64>()
+                    .ok();
+                // Convert power from mW to W
+                if let Some(p) = power_consumption {
+                    power_consumption = Some(p / 1000.0);
                 }
-            } else if line.contains("ANE Power:") {
-                if let Some(power_str) = line.split(':').nth(1) {
-                    ane_utilization = power_str
-                        .split_whitespace()
-                        .next()
-                        .unwrap_or("0")
-                        .parse::<f64>()
-                        .ok();
-                }
-            } else if line.contains("GPU HW active frequency:") {
-                if let Some(freq_str) = line.split(':').nth(1) {
-                    frequency = freq_str
-                        .split_whitespace()
-                        .next()
-                        .unwrap_or("0")
-                        .parse::<u32>()
-                        .ok();
-                }
-            } else if line.contains("GPU Power:") {
-                if let Some(power_str) = line.split(':').nth(1) {
-                    power_consumption = power_str
-                        .split_whitespace()
-                        .next()
-                        .unwrap_or("0")
-                        .parse::<f64>()
-                        .ok();
-                    // Convert power from mW to W
-                    if let Some(p) = power_consumption {
-                        power_consumption = Some(p / 1000.0);
-                    }
-                }
-            } else if line.contains("CPU Thermal pressure") {
-                if let Some(pressure_str) = line.split(':').nth(1) {
-                    thermal_pressure = pressure_str.trim().parse::<u32>().ok();
-                }
+            }
+        } else if line.contains("CPU Thermal pressure") {
+            if let Some(pressure_str) = line.split(':').nth(1) {
+                thermal_pressure = pressure_str.trim().parse::<u32>().ok();
             }
         }
     }

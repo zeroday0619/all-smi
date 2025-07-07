@@ -357,25 +357,27 @@ pub fn draw_utilization_history<W: Write>(stdout: &mut W, state: &AppState, cols
     print_node_view_and_history(
         stdout,
         state,
-        left_width,
-        right_width,
-        history_width,
-        avg_util,
-        avg_mem,
-        avg_temp,
+        NodeViewParams {
+            left_width,
+            _right_width: right_width,
+            history_width,
+            avg_util,
+            avg_mem,
+            avg_temp,
+        },
     );
 }
 
-fn print_node_view_and_history<W: Write>(
-    stdout: &mut W,
-    state: &AppState,
+struct NodeViewParams {
     left_width: usize,
     _right_width: usize,
     history_width: usize,
     avg_util: f64,
     avg_mem: f64,
     avg_temp: f64,
-) {
+}
+
+fn print_node_view_and_history<W: Write>(stdout: &mut W, state: &AppState, params: NodeViewParams) {
     // Get nodes (excluding "All" tab)
     let nodes: Vec<&String> = state.tabs.iter().skip(1).collect();
 
@@ -395,7 +397,7 @@ fn print_node_view_and_history<W: Write>(
     }
 
     // Calculate node grid layout
-    let nodes_per_row = left_width.saturating_sub(2).max(1);
+    let nodes_per_row = params.left_width.saturating_sub(2).max(1);
     let num_rows = if nodes.is_empty() {
         1
     } else {
@@ -412,13 +414,19 @@ fn print_node_view_and_history<W: Write>(
                 &nodes,
                 &node_utils,
                 state.current_tab,
-                left_width,
+                params.left_width,
                 row,
                 nodes_per_row,
             );
         } else {
             // Print empty space for this row
-            print_colored_text(stdout, &" ".repeat(left_width), Color::White, None, None);
+            print_colored_text(
+                stdout,
+                &" ".repeat(params.left_width),
+                Color::White,
+                None,
+                None,
+            );
         }
 
         // Print corresponding history line
@@ -428,9 +436,9 @@ fn print_node_view_and_history<W: Write>(
                 print_history_bar_with_value(
                     stdout,
                     &state.utilization_history,
-                    history_width,
+                    params.history_width,
                     100.0,
-                    format!("{avg_util:.1}%"),
+                    format!("{:.1}%", params.avg_util),
                 );
             }
             1 => {
@@ -438,9 +446,9 @@ fn print_node_view_and_history<W: Write>(
                 print_history_bar_with_value(
                     stdout,
                     &state.memory_history,
-                    history_width,
+                    params.history_width,
                     100.0,
-                    format!("{avg_mem:.1}%"),
+                    format!("{:.1}%", params.avg_mem),
                 );
             }
             2 => {
@@ -448,9 +456,9 @@ fn print_node_view_and_history<W: Write>(
                 print_history_bar_with_value(
                     stdout,
                     &state.temperature_history,
-                    history_width,
+                    params.history_width,
                     100.0,
-                    format!("{avg_temp:.0}°C"),
+                    format!("{:.0}°C", params.avg_temp),
                 );
             }
             _ => {}

@@ -3,6 +3,8 @@ use crate::utils::system::get_hostname;
 use chrono::Local;
 use std::process::Command;
 
+type CpuHardwareParseResult = Result<(String, u32, u32, u32, u32, u32), Box<dyn std::error::Error>>;
+
 pub struct MacOsCpuReader {
     is_apple_silicon: bool,
 }
@@ -246,10 +248,7 @@ impl MacOsCpuReader {
         Ok((cpu_model, p_core_count, e_core_count, gpu_core_count))
     }
 
-    fn parse_intel_mac_hardware_info(
-        &self,
-        hardware_info: &str,
-    ) -> Result<(String, u32, u32, u32, u32, u32), Box<dyn std::error::Error>> {
+    fn parse_intel_mac_hardware_info(&self, hardware_info: &str) -> CpuHardwareParseResult {
         let mut cpu_model = String::new();
         let mut socket_count = 1u32;
         let mut total_cores = 0u32;

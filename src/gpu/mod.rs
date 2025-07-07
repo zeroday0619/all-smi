@@ -15,6 +15,21 @@ use std::collections::HashMap;
 use std::fs;
 use std::process::Command;
 
+// Type aliases for complex return types
+type ProcessInfoResult = Option<(
+    f64,
+    f64,
+    u64,
+    u64,
+    String,
+    String,
+    String,
+    u64,
+    String,
+    u32,
+    u32,
+)>;
+
 pub trait GpuReader: Send {
     fn get_gpu_info(&self) -> Vec<GpuInfo>;
     fn get_process_info(&self) -> Vec<ProcessInfo>;
@@ -90,9 +105,9 @@ pub struct CpuInfo {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum CpuPlatformType {
     Intel,
-    AMD,
+    Amd,
     AppleSilicon,
-    ARM,
+    Arm,
     Other(String),
 }
 
@@ -212,21 +227,7 @@ fn is_apple_silicon() -> bool {
 }
 
 // Helper function to get system process information
-pub fn get_system_process_info(
-    pid: u32,
-) -> Option<(
-    f64,
-    f64,
-    u64,
-    u64,
-    String,
-    String,
-    String,
-    u64,
-    String,
-    u32,
-    u32,
-)> {
+pub fn get_system_process_info(pid: u32) -> ProcessInfoResult {
     let os_type = std::env::consts::OS;
 
     match os_type {
@@ -236,21 +237,7 @@ pub fn get_system_process_info(
     }
 }
 
-fn get_linux_process_info(
-    pid: u32,
-) -> Option<(
-    f64,
-    f64,
-    u64,
-    u64,
-    String,
-    String,
-    String,
-    u64,
-    String,
-    u32,
-    u32,
-)> {
+fn get_linux_process_info(pid: u32) -> ProcessInfoResult {
     // Read /proc/[pid]/stat for basic process information
     let stat_path = format!("/proc/{pid}/stat");
     let stat_content = fs::read_to_string(&stat_path).ok()?;
@@ -353,21 +340,7 @@ fn get_linux_process_info(
     ))
 }
 
-fn get_macos_process_info(
-    pid: u32,
-) -> Option<(
-    f64,
-    f64,
-    u64,
-    u64,
-    String,
-    String,
-    String,
-    u64,
-    String,
-    u32,
-    u32,
-)> {
+fn get_macos_process_info(pid: u32) -> ProcessInfoResult {
     // Use ps command for macOS
     let output = Command::new("ps")
         .args([
