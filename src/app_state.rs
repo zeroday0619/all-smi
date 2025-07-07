@@ -25,6 +25,7 @@ pub struct AppState {
     pub utilization_history: VecDeque<f64>,
     pub memory_history: VecDeque<f64>,
     pub temperature_history: VecDeque<f64>,
+    pub status_message: Option<String>,
 }
 
 #[derive(Clone)]
@@ -71,6 +72,7 @@ impl AppState {
             utilization_history: VecDeque::new(),
             memory_history: VecDeque::new(),
             temperature_history: VecDeque::new(),
+            status_message: None,
         }
     }
 }

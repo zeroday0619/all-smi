@@ -22,7 +22,8 @@ use tokio::sync::Mutex;
 use crate::app_state::{AppState, SortCriteria};
 use crate::cli::ViewArgs;
 use crate::device::{
-    get_cpu_readers, get_gpu_readers, get_memory_readers, CpuInfo, GpuInfo, MemoryInfo, ProcessInfo,
+    get_cpu_readers, get_gpu_readers, get_memory_readers, get_nvml_status_message, CpuInfo,
+    GpuInfo, MemoryInfo, ProcessInfo,
 };
 use crate::storage::info::StorageInfo;
 use crate::ui::buffer::{BufferWriter, DifferentialRenderer};
@@ -127,6 +128,11 @@ async fn run_local_mode(app_state: Arc<Mutex<AppState>>, args: ViewArgs) {
         state.memory_info = all_memory_info;
         state.process_info = all_processes;
         state.storage_info = all_storage_info;
+
+        // Check for NVML status message
+        if state.status_message.is_none() {
+            state.status_message = get_nvml_status_message();
+        }
 
         // Update utilization history
         update_utilization_history(&mut state);

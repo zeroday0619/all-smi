@@ -32,12 +32,23 @@ fn is_nvml_available() -> bool {
     NVML_IS_AVAILABLE.store(available, Ordering::Relaxed);
     NVML_AVAILABILITY_CHECKED.store(true, Ordering::Relaxed);
 
-    // Warn only once if NVML is not available
-    if !available && !NVML_FALLBACK_WARNED.swap(true, Ordering::Relaxed) {
-        eprintln!("NVML library not available, using nvidia-smi fallback");
+    // Set fallback warned flag but don't print here - will be handled by UI
+    if !available {
+        NVML_FALLBACK_WARNED.store(true, Ordering::Relaxed);
     }
 
     available
+}
+
+// Public function to get NVML status message for UI display
+pub fn get_nvml_status_message() -> Option<String> {
+    if NVML_AVAILABILITY_CHECKED.load(Ordering::Relaxed)
+        && !NVML_IS_AVAILABLE.load(Ordering::Relaxed)
+    {
+        Some("NVML unavailable - using nvidia-smi fallback".to_string())
+    } else {
+        None
+    }
 }
 
 // Initialize NVML instance only once

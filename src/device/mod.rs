@@ -2,6 +2,9 @@ pub mod apple_silicon;
 pub mod nvidia;
 pub mod nvidia_jetson;
 
+// Re-export NVML status function for UI
+pub use nvidia::get_nvml_status_message;
+
 // CPU reader modules
 pub mod cpu_linux;
 pub mod cpu_macos;

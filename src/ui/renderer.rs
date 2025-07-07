@@ -1484,19 +1484,50 @@ pub fn print_function_keys<W: Write>(
         &function_keys
     };
 
+    // Check if there's a status message to display
+    let status_msg = state.status_message.as_deref().unwrap_or("");
+    let status_len = status_msg.len();
+
+    // Calculate space available for function keys (reserve space for status message)
+    let available_space = if status_len > 0 {
+        cols.saturating_sub(status_len as u16 + 1) // +1 for separator space
+    } else {
+        cols
+    } as usize;
+
+    // Truncate function keys if needed to make room for status
+    let final_keys = if truncated_keys.len() > available_space {
+        &truncated_keys[..available_space]
+    } else {
+        truncated_keys
+    };
+
     print_colored_text(
         stdout,
-        truncated_keys,
+        final_keys,
         Color::White,
         Some(Color::DarkBlue),
         None,
     );
 
-    // Fill remaining space with background color
-    let remaining = cols as usize - truncated_keys.len();
+    // Calculate remaining space between function keys and status message
+    let used_space = final_keys.len() + status_len;
+    let remaining = cols as usize - used_space;
+
     if remaining > 0 {
         let padding = " ".repeat(remaining);
         print_colored_text(stdout, &padding, Color::White, Some(Color::DarkBlue), None);
+    }
+
+    // Print status message on the right if it exists
+    if !status_msg.is_empty() {
+        print_colored_text(
+            stdout,
+            status_msg,
+            Color::Yellow,
+            Some(Color::DarkBlue),
+            None,
+        );
     }
 }
 
