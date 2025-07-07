@@ -933,7 +933,10 @@ fn render_help_view<W: Write>(
     // Output the entire buffer to stdout in one operation with full screen clear
     queue!(stdout, cursor::MoveTo(0, 0)).unwrap();
     queue!(stdout, terminal::Clear(ClearType::All)).unwrap();
-    print!("{}", buffer.get_buffer());
+    queue!(stdout, Print(buffer.get_buffer())).unwrap();
+    
+    // Ensure all queued output is flushed atomically
+    stdout.flush().unwrap();
 }
 
 fn render_main_view<W: Write>(
@@ -1224,9 +1227,12 @@ fn render_main_view<W: Write>(
     // Output the entire buffer to stdout in one operation
     queue!(stdout, cursor::MoveTo(0, 0)).unwrap();
     queue!(stdout, terminal::Clear(ClearType::FromCursorDown)).unwrap();
-    print!("{}", buffer.get_buffer());
+    queue!(stdout, Print(buffer.get_buffer())).unwrap();
 
     print_function_keys(stdout, cols, rows, state, is_remote);
+    
+    // Ensure all queued output is flushed atomically
+    stdout.flush().unwrap();
 }
 
 fn update_utilization_history(state: &mut AppState) {
