@@ -15,7 +15,7 @@ fn format_ram_value(gb_value: f64) -> String {
     if gb_value >= 1024.0 {
         format!("{:.2}TB", gb_value / 1024.0)
     } else {
-        format!("{:.0}GB", gb_value)
+        format!("{gb_value:.0}GB")
     }
 }
 
@@ -30,7 +30,7 @@ pub fn print_colored_text<W: Write>(
         if text.len() > w {
             text.chars().take(w).collect::<String>()
         } else {
-            format!("{:<width$}", text, width = w)
+            format!("{text:<w$}")
         }
     } else {
         text.to_string()
@@ -70,7 +70,7 @@ pub fn draw_bar<W: Write>(
         label[..5].to_string()
     } else {
         // Pad with spaces if too short
-        format!("{:<5}", label)
+        format!("{label:<5}")
     };
     let available_bar_width = width.saturating_sub(9); // 9 for "LABEL: [" and "] " (5 + 4)
 
@@ -104,11 +104,7 @@ pub fn draw_bar<W: Write>(
 
     // Calculate positioning for right-aligned text
     let text_len = display_text.len();
-    let text_pos = if available_bar_width > text_len {
-        available_bar_width - text_len
-    } else {
-        0
-    };
+    let text_pos = available_bar_width.saturating_sub(text_len);
 
     // Print the bar with embedded text using filled vertical lines
     for i in 0..available_bar_width {
@@ -234,17 +230,17 @@ pub fn draw_system_view<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
     print_dashboard_row(
         stdout,
         &[
-            ("Nodes", format!("{}", total_nodes), Color::Yellow),
+            ("Nodes", format!("{total_nodes}"), Color::Yellow),
             (
                 "Total RAM",
                 format_ram_value(total_system_memory_gb),
                 Color::Green,
             ),
-            ("GPU Cores", format!("{}", total_gpus), Color::Cyan),
+            ("GPU Cores", format!("{total_gpus}"), Color::Cyan),
             ("Total VRAM", format_ram_value(total_memory_gb), Color::Blue),
             (
                 "Avg. Temp",
-                format!("{:.0}°C", avg_temperature),
+                format!("{avg_temperature:.0}°C"),
                 Color::Magenta,
             ),
             (
@@ -260,13 +256,13 @@ pub fn draw_system_view<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
     print_dashboard_row(
         stdout,
         &[
-            ("CPU Cores", format!("{}", total_cpu_cores), Color::Cyan),
+            ("CPU Cores", format!("{total_cpu_cores}"), Color::Cyan),
             (
                 "Used RAM",
                 format_ram_value(used_system_memory_gb),
                 Color::Green,
             ),
-            ("GPU Util", format!("{:.1}%", avg_utilization), Color::Blue),
+            ("GPU Util", format!("{avg_utilization:.1}%"), Color::Blue),
             (
                 "Used VRAM",
                 format_ram_value(used_gpu_memory_gb),
@@ -274,10 +270,10 @@ pub fn draw_system_view<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
             ),
             (
                 "Temp. Stdev",
-                format!("±{:.1}°C", temp_std_dev),
+                format!("±{temp_std_dev:.1}°C"),
                 Color::Magenta,
             ),
-            ("Avg. Power", format!("{:.1}W", avg_power), Color::Red),
+            ("Avg. Power", format!("{avg_power:.1}W"), Color::Red),
         ],
         box_width,
     );
@@ -311,7 +307,7 @@ fn print_dashboard_row<W: Write>(
         } else {
             label
         };
-        let formatted_label = format!(" {:<width$}", truncated_label, width = max_label_len);
+        let formatted_label = format!(" {truncated_label:<max_label_len$}");
         print_colored_text(stdout, &formatted_label, *color, None, None);
         print_colored_text(stdout, "│", Color::DarkGrey, None, None);
     }
@@ -327,7 +323,7 @@ fn print_dashboard_row<W: Write>(
         } else {
             value
         };
-        let formatted_value = format!(" {:<width$}", truncated_value, width = max_value_len);
+        let formatted_value = format!(" {truncated_value:<max_value_len$}");
         print_colored_text(stdout, &formatted_value, Color::White, None, None);
         print_colored_text(stdout, "│", Color::DarkGrey, None, None);
     }
@@ -434,7 +430,7 @@ fn print_node_view_and_history<W: Write>(
                     &state.utilization_history,
                     history_width,
                     100.0,
-                    format!("{:.1}%", avg_util),
+                    format!("{avg_util:.1}%"),
                 );
             }
             1 => {
@@ -444,7 +440,7 @@ fn print_node_view_and_history<W: Write>(
                     &state.memory_history,
                     history_width,
                     100.0,
-                    format!("{:.1}%", avg_mem),
+                    format!("{avg_mem:.1}%"),
                 );
             }
             2 => {
@@ -454,7 +450,7 @@ fn print_node_view_and_history<W: Write>(
                     &state.temperature_history,
                     history_width,
                     100.0,
-                    format!("{:.0}°C", avg_temp),
+                    format!("{avg_temp:.0}°C"),
                 );
             }
             _ => {}
@@ -556,11 +552,7 @@ fn print_history_bar_with_value<W: Write>(
     } else {
         // Calculate position for value text (right-aligned)
         let text_len = value_text.len();
-        let text_pos = if width > text_len {
-            width - text_len
-        } else {
-            0
-        };
+        let text_pos = width.saturating_sub(text_len);
 
         for i in 0..width {
             // Check if we should print the value text character
@@ -574,13 +566,11 @@ fn print_history_bar_with_value<W: Write>(
 
             let data_index = if data_points >= width {
                 data_points - width + i
+            } else if i < width - data_points {
+                print_colored_text(stdout, "⠀", Color::DarkGrey, None, None);
+                continue;
             } else {
-                if i < width - data_points {
-                    print_colored_text(stdout, "⠀", Color::DarkGrey, None, None);
-                    continue;
-                } else {
-                    i - (width - data_points)
-                }
+                i - (width - data_points)
             };
 
             if data_index < history.len() {
@@ -640,7 +630,7 @@ pub fn print_gpu_info<W: Write>(
         let formatted_value = if value.len() > value_width {
             value.chars().take(value_width).collect()
         } else {
-            format!("{:<width$}", value, width = value_width)
+            format!("{value:<value_width$}")
         };
         labels.push((formatted_value, Color::White));
     }
@@ -715,7 +705,7 @@ pub fn print_gpu_info<W: Write>(
     add_label(
         &mut labels,
         " Mem:",
-        format!("{:.1}/{:.1}GB", memory_used_gb, memory_total_gb),
+        format!("{memory_used_gb:.1}/{memory_total_gb:.1}GB"),
         mem_color,
         12,
     );
@@ -870,7 +860,7 @@ pub fn print_cpu_info<W: Write>(stdout: &mut W, _index: usize, info: &CpuInfo, w
         let formatted_value = if value.len() > value_width {
             value.chars().take(value_width).collect()
         } else {
-            format!("{:<width$}", value, width = value_width)
+            format!("{value:<value_width$}")
         };
         labels.push((formatted_value, Color::White));
     }
@@ -949,7 +939,7 @@ pub fn print_cpu_info<W: Write>(stdout: &mut W, _index: usize, info: &CpuInfo, w
             Color::Green
         };
 
-        add_label(&mut labels, " Temp:", format!("{}°C", temp), temp_color, 5);
+        add_label(&mut labels, " Temp:", format!("{temp}°C"), temp_color, 5);
     }
 
     // Add power consumption if available
@@ -957,7 +947,7 @@ pub fn print_cpu_info<W: Write>(stdout: &mut W, _index: usize, info: &CpuInfo, w
         add_label(
             &mut labels,
             " Power:",
-            format!("{:.1}W", power),
+            format!("{power:.1}W"),
             Color::Blue,
             7,
         );
@@ -988,7 +978,7 @@ pub fn print_cpu_info<W: Write>(stdout: &mut W, _index: usize, info: &CpuInfo, w
         draw_bar(
             stdout,
             "P-CPU",
-            apple_info.p_core_utilization as f64,
+            apple_info.p_core_utilization,
             100.0,
             individual_bar_width,
             None,
@@ -1000,7 +990,7 @@ pub fn print_cpu_info<W: Write>(stdout: &mut W, _index: usize, info: &CpuInfo, w
         draw_bar(
             stdout,
             "E-CPU",
-            apple_info.e_core_utilization as f64,
+            apple_info.e_core_utilization,
             100.0,
             individual_bar_width,
             None,
@@ -1017,8 +1007,8 @@ pub fn print_cpu_info<W: Write>(stdout: &mut W, _index: usize, info: &CpuInfo, w
                 }
                 draw_bar(
                     stdout,
-                    &format!("CPU{}", i),
-                    socket_info.utilization as f64,
+                    &format!("CPU{i}"),
+                    socket_info.utilization,
                     100.0,
                     individual_bar_width,
                     None,
@@ -1026,14 +1016,7 @@ pub fn print_cpu_info<W: Write>(stdout: &mut W, _index: usize, info: &CpuInfo, w
             }
         } else {
             // Single socket - show overall utilization gauge
-            draw_bar(
-                stdout,
-                "CPU",
-                info.utilization as f64,
-                100.0,
-                bar_width,
-                None,
-            );
+            draw_bar(stdout, "CPU", info.utilization, 100.0, bar_width, None);
         }
     }
 
@@ -1056,7 +1039,7 @@ pub fn print_memory_info<W: Write>(stdout: &mut W, _index: usize, info: &MemoryI
         let formatted_value = if value.len() > value_width {
             value.chars().take(value_width).collect()
         } else {
-            format!("{:<width$}", value, width = value_width)
+            format!("{value:<value_width$}")
         };
         labels.push((formatted_value, Color::White));
     }
@@ -1078,7 +1061,7 @@ pub fn print_memory_info<W: Write>(stdout: &mut W, _index: usize, info: &MemoryI
     add_label(
         &mut labels,
         " Total:",
-        format!("{:.1}GB", total_gb),
+        format!("{total_gb:.1}GB"),
         Color::White,
         8,
     );
@@ -1088,7 +1071,7 @@ pub fn print_memory_info<W: Write>(stdout: &mut W, _index: usize, info: &MemoryI
     add_label(
         &mut labels,
         " Used:",
-        format!("{:.1}GB", used_gb),
+        format!("{used_gb:.1}GB"),
         Color::White,
         8,
     );
@@ -1098,7 +1081,7 @@ pub fn print_memory_info<W: Write>(stdout: &mut W, _index: usize, info: &MemoryI
     add_label(
         &mut labels,
         " Avail:",
-        format!("{:.1}GB", available_gb),
+        format!("{available_gb:.1}GB"),
         Color::Green,
         8,
     );
@@ -1110,7 +1093,7 @@ pub fn print_memory_info<W: Write>(stdout: &mut W, _index: usize, info: &MemoryI
         add_label(
             &mut labels,
             " Swap:",
-            format!("{:.1}/{:.1}GB", swap_used_gb, swap_total_gb),
+            format!("{swap_used_gb:.1}/{swap_total_gb:.1}GB"),
             Color::DarkYellow,
             12,
         );
@@ -1134,14 +1117,7 @@ pub fn print_memory_info<W: Write>(stdout: &mut W, _index: usize, info: &MemoryI
     queue!(stdout, Print("     ")).unwrap();
 
     // Show memory utilization gauge
-    draw_bar(
-        stdout,
-        "RAM",
-        info.utilization as f64,
-        100.0,
-        bar_width,
-        None,
-    );
+    draw_bar(stdout, "RAM", info.utilization, 100.0, bar_width, None);
 
     queue!(stdout, Print("\r\n")).unwrap();
 }
@@ -1167,7 +1143,7 @@ pub fn print_storage_info<W: Write>(
         let formatted_value = if value.len() > value_width {
             value.chars().take(value_width).collect()
         } else {
-            format!("{:<width$}", value, width = value_width)
+            format!("{value:<value_width$}")
         };
         labels.push((formatted_value, Color::White));
     }
@@ -1210,7 +1186,7 @@ pub fn print_storage_info<W: Write>(
     add_label(
         &mut labels,
         " Usage:",
-        format!("{:.1}%", usage_percent),
+        format!("{usage_percent:.1}%"),
         usage_color,
         6,
     );
@@ -1218,7 +1194,7 @@ pub fn print_storage_info<W: Write>(
     add_label(
         &mut labels,
         " Free:",
-        format!("{:.1}GB", available_gb),
+        format!("{available_gb:.1}GB"),
         Color::Green,
         10,
     );
@@ -1233,7 +1209,7 @@ pub fn print_storage_info<W: Write>(
     queue!(stdout, Print("     ")).unwrap(); // Indent to align with GPU bars
 
     let bar_width = width.saturating_sub(10);
-    let capacity_text = format!("{:.1}/{:.1}GB", used_gb, total_gb);
+    let capacity_text = format!("{used_gb:.1}/{total_gb:.1}GB");
 
     draw_bar(
         stdout,
@@ -1334,7 +1310,7 @@ pub fn print_process_info<W: Write>(
         let gpu_mem_str = if gpu_memory_mb >= 1024.0 {
             format!("{:.1}GB", gpu_memory_mb / 1024.0)
         } else {
-            format!("{:.0}MB", gpu_memory_mb)
+            format!("{gpu_memory_mb:.0}MB")
         };
 
         // Format CPU percentage with appropriate color
@@ -1385,7 +1361,7 @@ pub fn print_process_info<W: Write>(
         // Print USER column
         print_colored_text(
             stdout,
-            &format!("{:<width$}", user_display, width = user_w),
+            &format!("{user_display:<user_w$}"),
             Color::Green,
             bg_color,
             None,
@@ -1395,7 +1371,7 @@ pub fn print_process_info<W: Write>(
         // Print NAME column
         print_colored_text(
             stdout,
-            &format!("{:<width$}", name_display, width = name_w),
+            &format!("{name_display:<name_w$}"),
             Color::White,
             bg_color,
             None,
@@ -1425,7 +1401,7 @@ pub fn print_process_info<W: Write>(
         // Print GPU MEM column
         print_colored_text(
             stdout,
-            &format!("{:<width$}", gpu_mem_str, width = gpu_mem_w),
+            &format!("{gpu_mem_str:<gpu_mem_w$}"),
             Color::Magenta,
             bg_color,
             None,
@@ -1453,7 +1429,7 @@ pub fn print_process_info<W: Write>(
         // Print COMMAND column
         print_colored_text(
             stdout,
-            &format!("{:<width$}", command_display, width = command_w),
+            &format!("{command_display:<command_w$}"),
             Color::Cyan,
             bg_color,
             None,
@@ -1487,12 +1463,11 @@ pub fn print_function_keys<W: Write>(
     let function_keys = if is_remote {
         // Remote mode: only GPU sorting
         format!(
-            "1:Help q:Exit ←→:Tabs ↑↓:Scroll PgUp/PgDn:Page d:Default u:Util g:GPU-Mem [{}]",
-            sort_indicator
+            "1:Help q:Exit ←→:Tabs ↑↓:Scroll PgUp/PgDn:Page d:Default u:Util g:GPU-Mem [{sort_indicator}]"
         )
     } else {
         // Local mode: both process and GPU sorting
-        format!("1:Help q:Exit ←→:Tabs ↑↓:Scroll PgUp/PgDn:Page p:PID m:Memory d:Default u:Util g:GPU-Mem [{}]", sort_indicator)
+        format!("1:Help q:Exit ←→:Tabs ↑↓:Scroll PgUp/PgDn:Page p:PID m:Memory d:Default u:Util g:GPU-Mem [{sort_indicator}]")
     };
 
     let truncated_keys = if function_keys.len() > cols as usize {

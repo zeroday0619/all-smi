@@ -309,9 +309,9 @@ async fn fetch_remote_data(
                 let _permit = semaphore.acquire().await.unwrap();
 
                 let url = if host.starts_with("http://") || host.starts_with("https://") {
-                    format!("{}/metrics", host)
+                    format!("{host}/metrics")
                 } else {
-                    format!("http://{}/metrics", host)
+                    format!("http://{host}/metrics")
                 };
 
                 // Retry logic - 3 attempts with exponential backoff
@@ -326,7 +326,7 @@ async fn fetch_remote_data(
                                             return Some((
                                                 host,
                                                 String::new(),
-                                                Some(format!("Text parse error: {}", e)),
+                                                Some(format!("Text parse error: {e}")),
                                             ));
                                         }
                                     }
@@ -344,10 +344,7 @@ async fn fetch_remote_data(
                                 return Some((
                                     host,
                                     String::new(),
-                                    Some(format!(
-                                        "Connection error after {} attempts: {}",
-                                        attempt, e
-                                    )),
+                                    Some(format!("Connection error after {attempt} attempts: {e}")),
                                 ));
                             }
                         }
@@ -404,8 +401,7 @@ async fn fetch_remote_data(
     // Debug logging for connection success rate
     if failed_connections > 0 {
         eprintln!(
-            "Connection stats: {} successful, {} failed out of {} total",
-            successful_connections, failed_connections, total_hosts
+            "Connection stats: {successful_connections} successful, {failed_connections} failed out of {total_hosts} total"
         );
     }
 
@@ -519,7 +515,7 @@ fn parse_metrics(
                 let hostname = host.split(':').next().unwrap_or_default().to_string();
                 let cpu_index = labels.get("index").cloned().unwrap_or("0".to_string());
 
-                let cpu_key = format!("{}:{}", host, cpu_index);
+                let cpu_key = format!("{host}:{cpu_index}");
 
                 let cpu_info = cpu_info_map.entry(cpu_key).or_insert_with(|| {
                     // Determine platform type from CPU model
@@ -683,7 +679,7 @@ fn parse_metrics(
                 let hostname = host.split(':').next().unwrap_or_default().to_string();
                 let memory_index = labels.get("index").cloned().unwrap_or("0".to_string());
 
-                let memory_key = format!("{}:{}", host, memory_index);
+                let memory_key = format!("{host}:{memory_index}");
 
                 let memory_info = memory_info_map
                     .entry(memory_key)
@@ -745,7 +741,7 @@ fn parse_metrics(
                     .and_then(|s| s.parse::<u32>().ok())
                     .unwrap_or(0);
 
-                let storage_key = format!("{}:{}:{}", host, mount_point, index);
+                let storage_key = format!("{host}:{mount_point}:{index}");
 
                 match metric_name {
                     "disk_total_bytes" => {
@@ -806,16 +802,18 @@ fn parse_metrics(
 
 async fn run_ui_loop(app_state: Arc<Mutex<AppState>>, args: &ViewArgs) {
     let mut stdout = stdout();
-    if let Err(_) = enable_raw_mode() {
+    if enable_raw_mode().is_err() {
         eprintln!("Failed to enable raw mode - terminal not available");
         return;
     }
-    if let Err(_) = execute!(
+    if execute!(
         stdout,
         EnterAlternateScreen,
         EnableMouseCapture,
         terminal::Clear(ClearType::All)
-    ) {
+    )
+    .is_err()
+    {
         eprintln!("Failed to initialize terminal display");
         let _ = disable_raw_mode();
         return;
@@ -882,7 +880,7 @@ async fn run_ui_loop(app_state: Arc<Mutex<AppState>>, args: &ViewArgs) {
                 break;
             }
         };
-        if let Err(_) = queue!(stdout, cursor::Hide) {
+        if queue!(stdout, cursor::Hide).is_err() {
             break;
         }
 
@@ -891,10 +889,8 @@ async fn run_ui_loop(app_state: Arc<Mutex<AppState>>, args: &ViewArgs) {
             || state.loading != previous_loading
             || state.current_tab != previous_tab;
 
-        if force_clear {
-            if let Err(_) = differential_renderer.force_clear() {
-                break;
-            }
+        if force_clear && differential_renderer.force_clear().is_err() {
+            break;
         }
 
         // Create content using buffer, then render differentially
@@ -908,7 +904,7 @@ async fn run_ui_loop(app_state: Arc<Mutex<AppState>>, args: &ViewArgs) {
         };
 
         // Use differential rendering to update only changed lines
-        if let Err(_) = differential_renderer.render_differential(&content) {
+        if differential_renderer.render_differential(&content).is_err() {
             break;
         }
 
@@ -917,10 +913,10 @@ async fn run_ui_loop(app_state: Arc<Mutex<AppState>>, args: &ViewArgs) {
         previous_loading = state.loading;
         previous_tab = state.current_tab;
 
-        if let Err(_) = queue!(stdout, cursor::Show) {
+        if queue!(stdout, cursor::Show).is_err() {
             break;
         }
-        if let Err(_) = stdout.flush() {
+        if stdout.flush().is_err() {
             break;
         }
     }
@@ -973,8 +969,8 @@ fn render_main_content(state: &AppState, args: &ViewArgs, cols: u16, rows: u16) 
     // Write time/date header to buffer first
     let current_time = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
     let version = env!("CARGO_PKG_VERSION");
-    let header_text = format!("all-smi - {}", current_time);
-    let version_text = format!("v{}", version);
+    let header_text = format!("all-smi - {current_time}");
+    let version_text = format!("v{version}");
 
     // Calculate spacing to right-align version
     let total_width = cols as usize;
@@ -987,7 +983,7 @@ fn render_main_content(state: &AppState, args: &ViewArgs, cols: u16, rows: u16) 
 
     print_colored_text(
         &mut buffer,
-        &format!("{}{}{}\r\n", header_text, spacing, version_text),
+        &format!("{header_text}{spacing}{version_text}\r\n"),
         Color::White,
         None,
         None,
@@ -1016,7 +1012,7 @@ fn render_main_content(state: &AppState, args: &ViewArgs, cols: u16, rows: u16) 
     gpu_info_to_display.sort_by(|a, b| state.sort_criteria.sort_gpus(a, b));
 
     // Calculate dynamic header size for accurate space allocation
-    let header_lines = calculate_header_lines(&state);
+    let header_lines = calculate_header_lines(state);
     let content_start_row = header_lines;
     let available_rows = rows.saturating_sub(content_start_row).saturating_sub(1) as usize;
 

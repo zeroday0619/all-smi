@@ -25,7 +25,7 @@ pub fn generate_help_popup_content(
                 let inner_content = get_row_content(row, width, height, state, is_remote);
                 // Ensure content exactly fills the space between borders
                 let padded_content = pad_content_to_width(inner_content, width.saturating_sub(2));
-                format!("║{}║", padded_content)
+                format!("║{padded_content}║")
             }
         };
 
@@ -112,7 +112,7 @@ fn get_row_content(
 }
 
 fn render_title_section(line_idx: usize, width: usize) -> String {
-    let title_lines = vec![
+    let title_lines = [
         "",
         "    █████╗ ██╗     ██╗          ███████╗███╗   ███╗██╗",
         "   ██╔══██╗██║     ██║          ██╔════╝████╗ ████║██║",
@@ -237,24 +237,16 @@ fn format_shortcut_line(key: &str, desc: &str, style: &str, width: usize) -> Str
     let content = match style {
         "title" => center_text_colored(desc, width, Color::Yellow),
         "separator" => "═".repeat(width).with(Color::DarkGrey).to_string(),
-        "header" => format!("  {}", key.green().to_string()),
+        "header" => format!("  {}", key.green()),
         "shortcut" => {
             if key.is_empty() {
                 String::new()
             } else {
-                format!(
-                    "  {:<12} {}",
-                    key.white().bold().to_string(),
-                    desc.white().to_string()
-                )
+                format!("  {:<12} {}", key.white().bold().to_string(), desc.white())
             }
         }
-        "legend" => format!("  {:<12} {}", key, desc.white().to_string()),
-        "status" => format!(
-            "  {:<12} {}",
-            key.cyan().to_string(),
-            desc.yellow().to_string()
-        ),
+        "legend" => format!("  {:<12} {}", key, desc.white()),
+        "status" => format!("  {:<12} {}", key.cyan().to_string(), desc.yellow()),
         _ => String::new(),
     };
 
@@ -266,7 +258,7 @@ fn format_terminal_line(cmd: &str, desc: &str, style: &str, width: usize) -> Str
     let content = match style {
         "title" => center_text_colored(desc, width, Color::Magenta),
         "separator" => "═".repeat(width).with(Color::DarkGrey).to_string(),
-        "header" => format!("  {}", cmd.green().to_string()),
+        "header" => format!("  {}", cmd.green()),
         "command" => {
             if cmd.is_empty() {
                 String::new()
@@ -274,10 +266,7 @@ fn format_terminal_line(cmd: &str, desc: &str, style: &str, width: usize) -> Str
                 let formatted_cmd = format!("  {:<35}", cmd.white().bold().to_string());
                 let formatted_seperator = "#".with(Color::DarkGrey).to_string();
                 let formatted_desc = desc.blue().to_string();
-                format!(
-                    "{} {} {}",
-                    formatted_cmd, formatted_seperator, formatted_desc
-                )
+                format!("{formatted_cmd} {formatted_seperator} {formatted_desc}")
             }
         }
         _ => String::new(),
@@ -300,7 +289,7 @@ fn center_text_colored(text: &str, width: usize, color: Color) -> String {
         format!(
             "{}{}{}",
             " ".repeat(left_padding),
-            text.with(color).to_string(),
+            text.with(color),
             " ".repeat(right_padding)
         )
     }
@@ -316,7 +305,7 @@ fn strip_ansi_codes(text: &str) -> String {
             // Skip ANSI escape sequence
             if chars.next() == Some('[') {
                 // Skip until we find the end character (typically 'm')
-                while let Some(c) = chars.next() {
+                for c in chars.by_ref() {
                     if c.is_ascii_alphabetic() {
                         break;
                     }

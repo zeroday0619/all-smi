@@ -308,7 +308,7 @@ impl MacOsCpuReader {
     fn get_cpu_utilization_powermetrics(&self) -> Result<f64, Box<dyn std::error::Error>> {
         // Use a short sampling period for powermetrics
         let output = Command::new("powermetrics")
-            .args(&["--samplers", "cpu_power", "-n", "1", "-i", "1000"])
+            .args(["--samplers", "cpu_power", "-n", "1", "-i", "1000"])
             .output()?;
 
         let powermetrics_output = String::from_utf8_lossy(&output.stdout);
@@ -330,7 +330,7 @@ impl MacOsCpuReader {
     }
 
     fn get_cpu_utilization_iostat(&self) -> Result<f64, Box<dyn std::error::Error>> {
-        let output = Command::new("iostat").args(&["-c", "1"]).output()?;
+        let output = Command::new("iostat").args(["-c", "1"]).output()?;
 
         let iostat_output = String::from_utf8_lossy(&output.stdout);
 
@@ -343,7 +343,7 @@ impl MacOsCpuReader {
                 .trim()
                 .chars()
                 .next()
-                .map_or(false, |c| c.is_ascii_digit())
+                .is_some_and(|c| c.is_ascii_digit())
             {
                 let fields: Vec<&str> = line.split_whitespace().collect();
                 if fields.len() >= 6 {
@@ -396,7 +396,7 @@ impl MacOsCpuReader {
     fn get_cpu_power_consumption(&self) -> Option<f64> {
         // Power consumption from powermetrics (simplified)
         if let Ok(output) = Command::new("powermetrics")
-            .args(&["--samplers", "cpu_power", "-n", "1", "-i", "1000"])
+            .args(["--samplers", "cpu_power", "-n", "1", "-i", "1000"])
             .output()
         {
             let powermetrics_output = String::from_utf8_lossy(&output.stdout);
@@ -422,7 +422,7 @@ impl CpuReader for MacOsCpuReader {
         match self.get_cpu_info_from_system() {
             Ok(cpu_info) => vec![cpu_info],
             Err(e) => {
-                eprintln!("Error reading CPU info: {}", e);
+                eprintln!("Error reading CPU info: {e}");
                 vec![]
             }
         }

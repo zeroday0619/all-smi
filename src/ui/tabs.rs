@@ -30,9 +30,9 @@ pub fn draw_tabs<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
         }
 
         if state.current_tab == i {
-            labels.push((format!(" {} ", tab), Color::Black));
+            labels.push((format!(" {tab} "), Color::Black));
         } else {
-            labels.push((format!(" {} ", tab), Color::White));
+            labels.push((format!(" {tab} "), Color::White));
         }
 
         available_width -= tab_width;

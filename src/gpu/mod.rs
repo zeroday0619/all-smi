@@ -150,7 +150,7 @@ pub fn get_gpu_readers() -> Vec<Box<dyn GpuReader>> {
                 readers.push(Box::new(apple_silicon::AppleSiliconGpuReader::new()));
             }
         }
-        _ => println!("Unsupported OS type: {}", os_type),
+        _ => println!("Unsupported OS type: {os_type}"),
     }
 
     readers
@@ -167,7 +167,7 @@ pub fn get_cpu_readers() -> Vec<Box<dyn CpuReader>> {
         "macos" => {
             readers.push(Box::new(cpu_macos::MacOsCpuReader::new()));
         }
-        _ => println!("CPU monitoring not supported for OS type: {}", os_type),
+        _ => println!("CPU monitoring not supported for OS type: {os_type}"),
     }
 
     readers
@@ -184,7 +184,7 @@ pub fn get_memory_readers() -> Vec<Box<dyn MemoryReader>> {
         "macos" => {
             readers.push(Box::new(memory_macos::MacOsMemoryReader::new()));
         }
-        _ => println!("Memory monitoring not supported for OS type: {}", os_type),
+        _ => println!("Memory monitoring not supported for OS type: {os_type}"),
     }
 
     readers
@@ -252,7 +252,7 @@ fn get_linux_process_info(
     u32,
 )> {
     // Read /proc/[pid]/stat for basic process information
-    let stat_path = format!("/proc/{}/stat", pid);
+    let stat_path = format!("/proc/{pid}/stat");
     let stat_content = fs::read_to_string(&stat_path).ok()?;
     let stat_fields: Vec<&str> = stat_content.split_whitespace().collect();
 
@@ -261,11 +261,11 @@ fn get_linux_process_info(
     }
 
     // Read /proc/[pid]/status for additional information
-    let status_path = format!("/proc/{}/status", pid);
+    let status_path = format!("/proc/{pid}/status");
     let status_content = fs::read_to_string(&status_path).ok()?;
 
     // Read /proc/[pid]/cmdline for full command
-    let cmdline_path = format!("/proc/{}/cmdline", pid);
+    let cmdline_path = format!("/proc/{pid}/cmdline");
     let cmdline_content = fs::read_to_string(&cmdline_path).unwrap_or_default();
     let command = cmdline_content.replace('\0', " ").trim().to_string();
     let command = if command.is_empty() {
@@ -370,7 +370,7 @@ fn get_macos_process_info(
 )> {
     // Use ps command for macOS
     let output = Command::new("ps")
-        .args(&[
+        .args([
             "-o",
             "pid,ppid,user,pcpu,pmem,rss,vsz,state,lstart,time,comm,args",
             "-p",
@@ -466,7 +466,7 @@ fn get_username_from_uid(uid: u32) -> String {
 }
 
 fn get_process_start_time(pid: u32) -> Option<String> {
-    let stat_path = format!("/proc/{}/stat", pid);
+    let stat_path = format!("/proc/{pid}/stat");
     let stat_content = fs::read_to_string(&stat_path).ok()?;
     let stat_fields: Vec<&str> = stat_content.split_whitespace().collect();
 

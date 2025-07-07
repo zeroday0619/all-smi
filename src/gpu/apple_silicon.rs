@@ -186,7 +186,6 @@ fn get_gpu_metrics() -> GpuMetrics {
             if line.contains("GPU HW active residency:") {
                 if let Some(usage_str) = line.split(':').nth(1) {
                     utilization = usage_str
-                        .trim()
                         .split_whitespace()
                         .next()
                         .unwrap_or("0")
@@ -197,7 +196,6 @@ fn get_gpu_metrics() -> GpuMetrics {
             } else if line.contains("ANE Power:") {
                 if let Some(power_str) = line.split(':').nth(1) {
                     ane_utilization = power_str
-                        .trim()
                         .split_whitespace()
                         .next()
                         .unwrap_or("0")
@@ -207,7 +205,6 @@ fn get_gpu_metrics() -> GpuMetrics {
             } else if line.contains("GPU HW active frequency:") {
                 if let Some(freq_str) = line.split(':').nth(1) {
                     frequency = freq_str
-                        .trim()
                         .split_whitespace()
                         .next()
                         .unwrap_or("0")
@@ -217,7 +214,6 @@ fn get_gpu_metrics() -> GpuMetrics {
             } else if line.contains("GPU Power:") {
                 if let Some(power_str) = line.split(':').nth(1) {
                     power_consumption = power_str
-                        .trim()
                         .split_whitespace()
                         .next()
                         .unwrap_or("0")

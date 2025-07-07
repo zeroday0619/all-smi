@@ -81,9 +81,7 @@ impl LinuxCpuReader {
         let mut cpu_model = String::new();
         let mut architecture = String::new();
         let mut platform_type = CpuPlatformType::Other("Unknown".to_string());
-        let socket_count;
-        let total_cores;
-        let total_threads;
+
         let mut base_frequency = 0u32;
         let mut max_frequency = 0u32;
         let mut cache_size = 0u32;
@@ -131,15 +129,15 @@ impl LinuxCpuReader {
             }
         }
 
-        socket_count = if physical_ids.is_empty() {
+        let socket_count = if physical_ids.is_empty() {
             1
         } else {
             physical_ids.len() as u32
         };
-        total_threads = processor_count;
+        let total_threads = processor_count;
 
         // Try to get core count from /proc/cpuinfo siblings field or estimate
-        total_cores = total_threads; // Default assumption, may be incorrect with hyperthreading
+        let total_cores = total_threads; // Default assumption, may be incorrect with hyperthreading
 
         // Try to get architecture from uname
         if let Ok(output) = std::process::Command::new("uname").arg("-m").output() {
@@ -256,7 +254,7 @@ impl CpuReader for LinuxCpuReader {
                 vec![cpu_info]
             }
             Err(e) => {
-                eprintln!("Error reading CPU info: {}", e);
+                eprintln!("Error reading CPU info: {e}");
                 vec![]
             }
         }
