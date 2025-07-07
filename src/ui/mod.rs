@@ -1,6 +1,11 @@
 pub mod buffer;
+pub mod chrome;
 pub mod dashboard;
+pub mod device_renderers;
 pub mod help;
 pub mod notification;
+pub mod process_renderer;
 pub mod renderer;
 pub mod tabs;
+pub mod text;
+pub mod widgets;

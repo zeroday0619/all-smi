@@ -5,7 +5,7 @@ use crossterm::{
 use std::io::Write;
 
 use crate::app_state::AppState;
-use crate::ui::renderer::print_colored_text;
+use crate::ui::text::print_colored_text;
 
 pub fn draw_tabs<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
     // Print tabs

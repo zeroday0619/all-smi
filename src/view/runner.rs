@@ -29,11 +29,11 @@ use crate::storage::info::StorageInfo;
 use crate::ui::buffer::{BufferWriter, DifferentialRenderer};
 // use crate::ui::help::print_help_popup; // Not needed with differential rendering
 use crate::ui::renderer::{
-    draw_dashboard_items, draw_system_view, print_colored_text, print_cpu_info,
-    print_function_keys, print_gpu_info, print_loading_indicator, print_memory_info,
-    print_process_info, print_storage_info,
+    draw_dashboard_items, draw_system_view, print_cpu_info, print_function_keys, print_gpu_info,
+    print_loading_indicator, print_memory_info, print_process_info, print_storage_info,
 };
 use crate::ui::tabs::draw_tabs;
+use crate::ui::text::print_colored_text;
 use crate::utils::{calculate_adaptive_interval, get_hostname, should_include_disk};
 use crate::view::event_handler::handle_key_event;
 
