@@ -1471,11 +1471,11 @@ pub fn print_function_keys<W: Write>(
     let function_keys = if is_remote {
         // Remote mode: only GPU sorting
         format!(
-            "1:Help q:Exit ←→:Tabs ↑↓:Scroll PgUp/PgDn:Page d:Default u:Util g:GPU-Mem [{sort_indicator}]"
+            "h:Help q:Exit ←→:Tabs ↑↓:Scroll PgUp/PgDn:Page d:Default u:Util g:GPU-Mem [{sort_indicator}]"
         )
     } else {
         // Local mode: both process and GPU sorting
-        format!("1:Help q:Exit ←→:Tabs ↑↓:Scroll PgUp/PgDn:Page p:PID m:Memory d:Default u:Util g:GPU-Mem [{sort_indicator}]")
+        format!("h:Help q:Exit ←→:Tabs ↑↓:Scroll PgUp/PgDn:Page p:PID m:Memory d:Default u:Util g:GPU-Mem [{sort_indicator}]")
     };
 
     let truncated_keys = if function_keys.len() > cols as usize {

@@ -27,6 +27,7 @@ pub struct AppState {
     pub memory_history: VecDeque<f64>,
     pub temperature_history: VecDeque<f64>,
     pub notifications: NotificationManager,
+    pub nvml_notification_shown: bool,
 }
 
 #[derive(Clone)]
@@ -74,6 +75,7 @@ impl AppState {
             memory_history: VecDeque::new(),
             temperature_history: VecDeque::new(),
             notifications: NotificationManager::new(),
+            nvml_notification_shown: false,
         }
     }
 }
