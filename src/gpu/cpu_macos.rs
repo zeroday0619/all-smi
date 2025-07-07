@@ -1,18 +1,33 @@
 use crate::gpu::{AppleSiliconCpuInfo, CpuInfo, CpuPlatformType, CpuReader, CpuSocketInfo};
 use crate::utils::system::get_hostname;
 use chrono::Local;
+use std::cell::RefCell;
 use std::process::Command;
 
 type CpuHardwareParseResult = Result<(String, u32, u32, u32, u32, u32), Box<dyn std::error::Error>>;
 
 pub struct MacOsCpuReader {
     is_apple_silicon: bool,
+    // Cached hardware info for Apple Silicon
+    cached_cpu_model: RefCell<Option<String>>,
+    cached_p_core_count: RefCell<Option<u32>>,
+    cached_e_core_count: RefCell<Option<u32>>,
+    cached_gpu_core_count: RefCell<Option<u32>>,
+    // Cached hardware info for Intel
+    cached_intel_info: RefCell<Option<(String, u32, u32, u32, u32, u32)>>,
 }
 
 impl MacOsCpuReader {
     pub fn new() -> Self {
         let is_apple_silicon = Self::detect_apple_silicon();
-        Self { is_apple_silicon }
+        Self {
+            is_apple_silicon,
+            cached_cpu_model: RefCell::new(None),
+            cached_p_core_count: RefCell::new(None),
+            cached_e_core_count: RefCell::new(None),
+            cached_gpu_core_count: RefCell::new(None),
+            cached_intel_info: RefCell::new(None),
+        }
     }
 
     fn detect_apple_silicon() -> bool {
@@ -21,6 +36,15 @@ impl MacOsCpuReader {
             return architecture.trim() == "arm64";
         }
         false
+    }
+
+    /// Clear cached hardware information (useful for reconnection scenarios)
+    pub fn clear_cache(&self) {
+        *self.cached_cpu_model.borrow_mut() = None;
+        *self.cached_p_core_count.borrow_mut() = None;
+        *self.cached_e_core_count.borrow_mut() = None;
+        *self.cached_gpu_core_count.borrow_mut() = None;
+        *self.cached_intel_info.borrow_mut() = None;
     }
 
     fn get_cpu_info_from_system(&self) -> Result<CpuInfo, Box<dyn std::error::Error>> {
@@ -169,6 +193,16 @@ impl MacOsCpuReader {
         &self,
         hardware_info: &str,
     ) -> Result<(String, u32, u32, u32), Box<dyn std::error::Error>> {
+        // Check if we have cached values
+        if let (Some(cpu_model), Some(p_core_count), Some(e_core_count), Some(gpu_core_count)) = (
+            self.cached_cpu_model.borrow().clone(),
+            *self.cached_p_core_count.borrow(),
+            *self.cached_e_core_count.borrow(),
+            *self.cached_gpu_core_count.borrow(),
+        ) {
+            return Ok((cpu_model, p_core_count, e_core_count, gpu_core_count));
+        }
+
         let mut cpu_model = String::new();
 
         // Extract CPU model from system_profiler output
@@ -185,6 +219,12 @@ impl MacOsCpuReader {
         let e_core_count = self.get_e_core_count()?;
         let gpu_core_count = self.get_gpu_core_count()?;
 
+        // Cache the values
+        *self.cached_cpu_model.borrow_mut() = Some(cpu_model.clone());
+        *self.cached_p_core_count.borrow_mut() = Some(p_core_count);
+        *self.cached_e_core_count.borrow_mut() = Some(e_core_count);
+        *self.cached_gpu_core_count.borrow_mut() = Some(gpu_core_count);
+
         Ok((cpu_model, p_core_count, e_core_count, gpu_core_count))
     }
 
@@ -192,7 +232,7 @@ impl MacOsCpuReader {
         let output = Command::new("sysctl")
             .arg("hw.perflevel0.physicalcpu")
             .output()?;
-        
+
         let output_str = String::from_utf8_lossy(&output.stdout);
         if let Some(value_str) = output_str.split(':').nth(1) {
             let count = value_str.trim().parse::<u32>()?;
@@ -206,7 +246,7 @@ impl MacOsCpuReader {
         let output = Command::new("sysctl")
             .arg("hw.perflevel1.physicalcpu")
             .output()?;
-        
+
         let output_str = String::from_utf8_lossy(&output.stdout);
         if let Some(value_str) = output_str.split(':').nth(1) {
             let count = value_str.trim().parse::<u32>()?;
@@ -221,9 +261,9 @@ impl MacOsCpuReader {
             .arg("SPDisplaysDataType")
             .arg("-json")
             .output()?;
-        
+
         let output_str = String::from_utf8_lossy(&output.stdout);
-        
+
         // Parse JSON to find GPU core count
         // Look for "sppci_cores" field in the JSON output
         for line in output_str.lines() {
@@ -232,7 +272,8 @@ impl MacOsCpuReader {
                 if let Some(value_part) = line.split(':').nth(1) {
                     if let Some(start_quote) = value_part.find('"') {
                         if let Some(end_quote) = value_part[start_quote + 1..].find('"') {
-                            let core_str = &value_part[start_quote + 1..start_quote + 1 + end_quote];
+                            let core_str =
+                                &value_part[start_quote + 1..start_quote + 1 + end_quote];
                             if let Ok(count) = core_str.parse::<u32>() {
                                 return Ok(count);
                             }
@@ -241,11 +282,16 @@ impl MacOsCpuReader {
                 }
             }
         }
-        
+
         Err("Failed to parse GPU core count".into())
     }
 
     fn parse_intel_mac_hardware_info(&self, hardware_info: &str) -> CpuHardwareParseResult {
+        // Check if we have cached values
+        if let Some(cached_info) = self.cached_intel_info.borrow().clone() {
+            return Ok(cached_info);
+        }
+
         let mut cpu_model = String::new();
         let mut socket_count = 1u32;
         let mut total_cores = 0u32;
@@ -291,14 +337,19 @@ impl MacOsCpuReader {
             }
         }
 
-        Ok((
+        let result = (
             cpu_model,
             socket_count,
             total_cores,
             total_threads,
             base_frequency,
             cache_size,
-        ))
+        );
+
+        // Cache the values
+        *self.cached_intel_info.borrow_mut() = Some(result.clone());
+
+        Ok(result)
     }
 
     fn get_cpu_utilization_powermetrics(&self) -> Result<f64, Box<dyn std::error::Error>> {
