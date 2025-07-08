@@ -147,6 +147,11 @@ impl MetricsParser {
             "gpu_power_consumption_watts" => gpu_info.power_consumption = value,
             "gpu_frequency_mhz" => gpu_info.frequency = value as u32,
             "ane_utilization" => gpu_info.ane_utilization = value,
+            "gpu_power_limit_max_watts" => {
+                gpu_info
+                    .detail
+                    .insert("power_limit_max".to_string(), value.to_string());
+            }
             _ => {}
         }
     }

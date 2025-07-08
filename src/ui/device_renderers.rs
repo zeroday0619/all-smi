@@ -84,9 +84,21 @@ pub fn print_gpu_info<W: Write>(
         None,
     );
     print_colored_text(stdout, " Pwr:", Color::Red, None, None);
+
+    // Check if power_limit_max is available and display as current/max
+    let power_display = if let Some(power_max_str) = info.detail.get("power_limit_max") {
+        if let Ok(power_max) = power_max_str.parse::<f64>() {
+            format!("{:.1}/{:.0}W", info.power_consumption, power_max)
+        } else {
+            format!("{:.1}W", info.power_consumption)
+        }
+    } else {
+        format!("{:.1}W", info.power_consumption)
+    };
+
     print_colored_text(
         stdout,
-        &format!("{:>6.1}W", info.power_consumption),
+        &format!("{power_display:>12}"),
         Color::White,
         None,
         None,
