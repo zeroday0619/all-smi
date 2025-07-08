@@ -3,6 +3,57 @@ use crate::storage::info::StorageInfo;
 use crate::ui::notification::NotificationManager;
 use std::cmp::Ordering;
 use std::collections::{HashMap, VecDeque};
+use std::time::{Duration, Instant};
+
+#[derive(Clone, Debug)]
+pub struct ConnectionStatus {
+    pub hostname: String, // This is the server address key (e.g., "localhost:10001")
+    pub url: String,
+    pub actual_hostname: Option<String>, // The real hostname from API (e.g., "node-0001")
+    pub is_connected: bool,
+    pub last_successful_connection: Option<Instant>,
+    pub consecutive_failures: u32,
+    pub last_error: Option<String>,
+    pub last_update: Instant,
+}
+
+impl ConnectionStatus {
+    pub fn new(hostname: String, url: String) -> Self {
+        Self {
+            hostname,
+            url,
+            actual_hostname: None,
+            is_connected: false,
+            last_successful_connection: None,
+            consecutive_failures: 0,
+            last_error: None,
+            last_update: Instant::now(),
+        }
+    }
+
+    pub fn mark_success(&mut self) {
+        self.is_connected = true;
+        self.last_successful_connection = Some(Instant::now());
+        self.consecutive_failures = 0;
+        self.last_error = None;
+        self.last_update = Instant::now();
+    }
+
+    pub fn mark_failure(&mut self, error: String) {
+        self.is_connected = false;
+        self.consecutive_failures += 1;
+        self.last_error = Some(error);
+        self.last_update = Instant::now();
+    }
+
+    pub fn is_recently_failed(&self) -> bool {
+        !self.is_connected && self.last_update.elapsed() < Duration::from_secs(30)
+    }
+
+    pub fn connection_duration(&self) -> Option<Duration> {
+        self.last_successful_connection.map(|t| t.elapsed())
+    }
+}
 
 #[derive(Clone)]
 pub struct AppState {
@@ -29,6 +80,9 @@ pub struct AppState {
     pub temperature_history: VecDeque<f64>,
     pub notifications: NotificationManager,
     pub nvml_notification_shown: bool,
+    // Connection status tracking for remote mode
+    pub connection_status: HashMap<String, ConnectionStatus>,
+    pub known_hosts: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -77,6 +131,9 @@ impl AppState {
             temperature_history: VecDeque::new(),
             notifications: NotificationManager::new(),
             nvml_notification_shown: false,
+            // Connection status tracking for remote mode
+            connection_status: HashMap::new(),
+            known_hosts: Vec::new(),
         }
     }
 }

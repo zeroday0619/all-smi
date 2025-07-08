@@ -293,6 +293,7 @@ fn print_node_view_and_history<W: Write>(stdout: &mut W, state: &AppState, param
                 stdout,
                 &nodes,
                 &node_utils,
+                &state.connection_status,
                 state.current_tab,
                 params.left_width,
                 row,
@@ -354,6 +355,7 @@ fn print_node_view_row<W: Write>(
     stdout: &mut W,
     nodes: &[&String],
     node_utils: &HashMap<String, f64>,
+    connection_status: &HashMap<String, crate::app_state::ConnectionStatus>,
     current_tab: usize,
     left_width: usize,
     row: usize,
@@ -370,7 +372,23 @@ fn print_node_view_row<W: Write>(
     let mut row_chars = Vec::new();
     for (col, node) in row_nodes.iter().enumerate() {
         let util = node_utils.get(*node).unwrap_or(&0.0);
-        let (char, color) = get_node_char_and_color(*util, current_tab == col + 1 + start_idx);
+
+        // Find connection status by looking for a status where actual_hostname matches the display name
+        // or where the hostname (URL key) matches if no actual_hostname is set
+        let is_connected = connection_status
+            .values()
+            .find(|status| {
+                if let Some(actual_hostname) = &status.actual_hostname {
+                    actual_hostname == *node
+                } else {
+                    &status.hostname == *node
+                }
+            })
+            .map(|status| status.is_connected)
+            .unwrap_or(false);
+
+        let (char, color) =
+            get_node_char_and_color(*util, current_tab == col + 1 + start_idx, is_connected);
         row_chars.push((char, color));
     }
 
@@ -395,9 +413,17 @@ fn print_node_view_row<W: Write>(
     }
 }
 
-fn get_node_char_and_color(utilization: f64, is_selected: bool) -> (char, Color) {
-    let base_color = ThemeConfig::utilization_color(utilization);
+fn get_node_char_and_color(
+    utilization: f64,
+    is_selected: bool,
+    is_connected: bool,
+) -> (char, Color) {
+    if !is_connected {
+        // Disconnected node - show circle with X in gray
+        return ('⊗', Color::DarkGrey);
+    }
 
+    let base_color = ThemeConfig::utilization_color(utilization);
     let char = if is_selected { '●' } else { '○' };
     (char, base_color)
 }

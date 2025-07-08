@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use regex::Regex;
 
+use crate::app_state::ConnectionStatus;
 use crate::common::config::{AppConfig, EnvConfig};
 use crate::device::{CpuInfo, GpuInfo, MemoryInfo};
 use crate::storage::info::StorageInfo;
@@ -35,11 +36,13 @@ impl NetworkClient {
         Vec<CpuInfo>,
         Vec<MemoryInfo>,
         Vec<StorageInfo>,
+        Vec<ConnectionStatus>,
     ) {
         let mut all_gpu_info = Vec::new();
         let mut all_cpu_info = Vec::new();
         let mut all_memory_info = Vec::new();
         let mut all_storage_info = Vec::new();
+        let mut connection_statuses = Vec::new();
 
         // Parallel data collection with concurrency limiting and retries
         let total_hosts = hosts.len();
@@ -119,51 +122,81 @@ impl NetworkClient {
         // Wait for all fetch tasks to complete
         let fetch_results = futures_util::future::join_all(fetch_tasks).await;
 
-        // Process all fetch results with error tracking
-        let mut successful_connections = 0;
-        let mut failed_connections = 0;
+        // Process all fetch results with connection status tracking
+        let mut _successful_connections = 0;
+        let mut _failed_connections = 0;
         for task_result in fetch_results {
             match task_result {
                 Ok(Some((host, text, error))) => {
-                    if error.is_some() {
-                        failed_connections += 1;
+                    let host_identifier = host.clone();
+                    let mut connection_status =
+                        ConnectionStatus::new(host_identifier.clone(), host.clone());
+
+                    if let Some(error_msg) = error {
+                        _failed_connections += 1;
+                        connection_status.mark_failure(error_msg);
+                        connection_statuses.push(connection_status);
                         continue;
                     }
-                    successful_connections += 1;
+
+                    _successful_connections += 1;
+                    connection_status.mark_success();
 
                     if text.is_empty() {
+                        connection_statuses.push(connection_status);
                         continue;
                     }
 
                     let parser = super::metrics_parser::MetricsParser::new();
                     let (gpu_info, cpu_info, memory_info, storage_info) =
                         parser.parse_metrics(&text, &host, re);
+
+                    // Extract the actual hostname from device info if available
+                    let actual_hostname = if let Some(first_gpu) = gpu_info.first() {
+                        Some(first_gpu.hostname.clone())
+                    } else if let Some(first_cpu) = cpu_info.first() {
+                        Some(first_cpu.hostname.clone())
+                    } else if let Some(first_memory) = memory_info.first() {
+                        Some(first_memory.hostname.clone())
+                    } else if let Some(first_storage) = storage_info.first() {
+                        Some(first_storage.hostname.clone())
+                    } else {
+                        None
+                    };
+
+                    // Store the actual hostname while keeping the URL as the key
+                    connection_status.actual_hostname = actual_hostname;
+                    connection_statuses.push(connection_status);
+
                     all_gpu_info.extend(gpu_info);
                     all_cpu_info.extend(cpu_info);
                     all_memory_info.extend(memory_info);
                     all_storage_info.extend(storage_info);
                 }
                 Ok(None) => {
-                    failed_connections += 1;
+                    _failed_connections += 1;
+                    // We don't have host information for None results, so we can't create a connection status
                 }
                 Err(_) => {
-                    failed_connections += 1;
+                    _failed_connections += 1;
+                    // We don't have host information for Err results, so we can't create a connection status
                 }
             }
         }
 
-        // Debug logging for connection success rate
-        if failed_connections > 0 {
-            eprintln!(
-                "Connection stats: {successful_connections} successful, {failed_connections} failed out of {total_hosts} total"
-            );
-        }
+        // Debug logging for connection success rate - commented out to avoid interfering with TUI
+        // if failed_connections > 0 {
+        //     eprintln!(
+        //         "Connection stats: {successful_connections} successful, {failed_connections} failed out of {total_hosts} total"
+        //     );
+        // }
 
         (
             all_gpu_info,
             all_cpu_info,
             all_memory_info,
             all_storage_info,
+            connection_statuses,
         )
     }
 }

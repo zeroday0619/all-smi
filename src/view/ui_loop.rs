@@ -321,6 +321,19 @@ impl UiLoop {
         if state.current_tab > 0 && state.current_tab < state.tabs.len() {
             let current_hostname = &state.tabs[state.current_tab];
 
+            // Check connection status for the current node
+            let is_connected = state
+                .connection_status
+                .get(current_hostname)
+                .map(|status| status.is_connected)
+                .unwrap_or(true); // Default to connected for local mode
+
+            if !is_connected {
+                // Show elegant disconnection notification
+                self.render_disconnection_notification(buffer, current_hostname, width);
+                return;
+            }
+
             // CPU information for specific host
             let cpu_info_to_display: Vec<_> = state
                 .cpu_info
@@ -359,6 +372,115 @@ impl UiLoop {
                 print_storage_info(buffer, i, storage_info, width);
             }
         }
+    }
+
+    fn render_disconnection_notification(
+        &self,
+        buffer: &mut BufferWriter,
+        hostname: &str,
+        width: usize,
+    ) {
+        use crate::ui::text::print_colored_text;
+        use crossterm::style::Color;
+
+        // Add some spacing
+        writeln!(buffer).unwrap();
+        writeln!(buffer).unwrap();
+
+        // Create a centered notification box
+        let box_width = (width - 4).min(60); // Leave margin and max width
+        let margin = (width - box_width) / 2;
+
+        // Top border
+        write!(buffer, "{}", " ".repeat(margin)).unwrap();
+        print_colored_text(buffer, "┌", Color::Red, None, None);
+        print_colored_text(buffer, &"─".repeat(box_width - 2), Color::Red, None, None);
+        print_colored_text(buffer, "┐", Color::Red, None, None);
+        writeln!(buffer).unwrap();
+
+        // Title line
+        let title = "CONNECTION LOST";
+        let title_padding = (box_width - 4 - title.len()) / 2;
+        write!(buffer, "{}", " ".repeat(margin)).unwrap();
+        print_colored_text(buffer, "│ ", Color::Red, None, None);
+        print_colored_text(buffer, &" ".repeat(title_padding), Color::White, None, None);
+        print_colored_text(buffer, title, Color::Red, None, None);
+        print_colored_text(
+            buffer,
+            &" ".repeat(box_width - 4 - title_padding - title.len()),
+            Color::White,
+            None,
+            None,
+        );
+        print_colored_text(buffer, " │", Color::Red, None, None);
+        writeln!(buffer).unwrap();
+
+        // Empty line
+        write!(buffer, "{}", " ".repeat(margin)).unwrap();
+        print_colored_text(buffer, "│", Color::Red, None, None);
+        print_colored_text(buffer, &" ".repeat(box_width - 2), Color::White, None, None);
+        print_colored_text(buffer, "│", Color::Red, None, None);
+        writeln!(buffer).unwrap();
+
+        // Hostname line
+        let hostname_text = format!("Node: {}", hostname);
+        let hostname_padding = (box_width - 4 - hostname_text.len()) / 2;
+        write!(buffer, "{}", " ".repeat(margin)).unwrap();
+        print_colored_text(buffer, "│ ", Color::Red, None, None);
+        print_colored_text(
+            buffer,
+            &" ".repeat(hostname_padding),
+            Color::White,
+            None,
+            None,
+        );
+        print_colored_text(buffer, &hostname_text, Color::Yellow, None, None);
+        print_colored_text(
+            buffer,
+            &" ".repeat(box_width - 4 - hostname_padding - hostname_text.len()),
+            Color::White,
+            None,
+            None,
+        );
+        print_colored_text(buffer, " │", Color::Red, None, None);
+        writeln!(buffer).unwrap();
+
+        // Status line
+        let status_text = "Unable to retrieve node information";
+        let status_padding = (box_width - 4 - status_text.len()) / 2;
+        write!(buffer, "{}", " ".repeat(margin)).unwrap();
+        print_colored_text(buffer, "│ ", Color::Red, None, None);
+        print_colored_text(
+            buffer,
+            &" ".repeat(status_padding),
+            Color::White,
+            None,
+            None,
+        );
+        print_colored_text(buffer, status_text, Color::DarkGrey, None, None);
+        print_colored_text(
+            buffer,
+            &" ".repeat(box_width - 4 - status_padding - status_text.len()),
+            Color::White,
+            None,
+            None,
+        );
+        print_colored_text(buffer, " │", Color::Red, None, None);
+        writeln!(buffer).unwrap();
+
+        // Empty line
+        write!(buffer, "{}", " ".repeat(margin)).unwrap();
+        print_colored_text(buffer, "│", Color::Red, None, None);
+        print_colored_text(buffer, &" ".repeat(box_width - 2), Color::White, None, None);
+        print_colored_text(buffer, "│", Color::Red, None, None);
+        writeln!(buffer).unwrap();
+
+        // Bottom border
+        write!(buffer, "{}", " ".repeat(margin)).unwrap();
+        print_colored_text(buffer, "└", Color::Red, None, None);
+        print_colored_text(buffer, &"─".repeat(box_width - 2), Color::Red, None, None);
+        print_colored_text(buffer, "┘", Color::Red, None, None);
+        writeln!(buffer).unwrap();
     }
 
     fn render_local_devices(&self, buffer: &mut BufferWriter, state: &AppState, width: usize) {

@@ -18,6 +18,31 @@ use crate::network::NetworkClient;
 use crate::storage::info::StorageInfo;
 use crate::utils::{get_hostname, should_include_disk};
 
+/// Extract hostname from URL, handling both simple hostnames and full URLs
+fn extract_hostname_from_url(url: &str) -> String {
+    // Handle full URLs like "http://remote1:9090"
+    if url.starts_with("http://") || url.starts_with("https://") {
+        if let Some(start) = url.find("://") {
+            let after_protocol = &url[start + 3..];
+            if let Some(end) = after_protocol.find('/') {
+                after_protocol[..end].to_string()
+            } else {
+                after_protocol.to_string()
+            }
+        } else {
+            url.to_string()
+        }
+    } else {
+        // Handle simple hostname:port format
+        url.to_string()
+    }
+}
+
+/// Extract the full host:port combination as unique identifier
+fn extract_host_identifier(url: &str) -> String {
+    extract_hostname_from_url(url)
+}
+
 pub struct DataCollector {
     app_state: Arc<Mutex<AppState>>,
 }
@@ -89,7 +114,13 @@ impl DataCollector {
         let re = Regex::new(r"^all_smi_([^\{]+)\{([^}]+)\} ([\d\.]+)$").unwrap();
 
         loop {
-            let (all_gpu_info, all_cpu_info, all_memory_info, all_storage_info) = self
+            let (
+                all_gpu_info,
+                all_cpu_info,
+                all_memory_info,
+                all_storage_info,
+                connection_statuses,
+            ) = self
                 .fetch_remote_data(&hosts, &client, &semaphore, &re)
                 .await;
 
@@ -98,6 +129,8 @@ impl DataCollector {
                 all_cpu_info,
                 all_memory_info,
                 all_storage_info,
+                connection_statuses,
+                &hosts,
             )
             .await;
 
@@ -214,6 +247,8 @@ impl DataCollector {
         all_cpu_info: Vec<CpuInfo>,
         all_memory_info: Vec<MemoryInfo>,
         all_storage_info: Vec<StorageInfo>,
+        connection_statuses: Vec<crate::app_state::ConnectionStatus>,
+        hosts: &[String],
     ) {
         // Deduplicate storage info by instance and mount_point
         let mut deduplicated_storage: HashMap<String, StorageInfo> = HashMap::new();
@@ -229,14 +264,48 @@ impl DataCollector {
         state.memory_info = all_memory_info;
         state.storage_info = final_storage_info;
 
+        // Update connection status and maintain known hosts
+        self.update_connection_status(&mut state, connection_statuses, hosts);
+
         // Update utilization history
         self.update_utilization_history(&mut state);
 
-        // Update tabs from all device hostnames
+        // Update tabs from all device hostnames (including disconnected ones)
         self.update_remote_tabs(&mut state);
 
         state.process_info = Vec::new(); // No process info in remote mode
         state.loading = false;
+    }
+
+    fn update_connection_status(
+        &self,
+        state: &mut AppState,
+        connection_statuses: Vec<crate::app_state::ConnectionStatus>,
+        hosts: &[String],
+    ) {
+        // Initialize known hosts if not already set
+        if state.known_hosts.is_empty() {
+            state.known_hosts = hosts.iter().map(|h| extract_host_identifier(h)).collect();
+        }
+
+        // Update connection status for each received status
+        for status in connection_statuses {
+            state
+                .connection_status
+                .insert(status.hostname.clone(), status);
+        }
+
+        // For hosts that didn't return a status (e.g., Ok(None) or Err cases),
+        // mark them as failed if we don't have recent status
+        for host in hosts {
+            let host_id = extract_host_identifier(host);
+            if !state.connection_status.contains_key(&host_id) {
+                let mut status =
+                    crate::app_state::ConnectionStatus::new(host_id.clone(), host.clone());
+                status.mark_failure("No response received".to_string());
+                state.connection_status.insert(host_id, status);
+            }
+        }
     }
 
     fn update_utilization_history(&self, state: &mut AppState) {
@@ -313,31 +382,34 @@ impl DataCollector {
     }
 
     fn update_remote_tabs(&self, state: &mut AppState) {
-        let mut hostnames: HashSet<String> = HashSet::new();
-
-        // Collect hostnames from all device types
-        for info in &state.gpu_info {
-            hostnames.insert(info.hostname.clone());
-        }
-        for info in &state.cpu_info {
-            hostnames.insert(info.hostname.clone());
-        }
-        for info in &state.memory_info {
-            hostnames.insert(info.hostname.clone());
-        }
-        for info in &state.storage_info {
-            hostnames.insert(info.hostname.clone());
-        }
-
-        let mut sorted_hostnames: Vec<String> = hostnames.into_iter().collect();
-        sorted_hostnames.sort();
+        // Create tabs in the same order as known_hosts (preserves hosts.csv order)
+        let display_names: Vec<String> = state
+            .known_hosts
+            .iter()
+            .map(|host_id| {
+                // Use actual hostname if connected, otherwise use URL
+                if let Some(connection_status) = state.connection_status.get(host_id) {
+                    if connection_status.is_connected {
+                        if let Some(actual_hostname) = &connection_status.actual_hostname {
+                            actual_hostname.clone()
+                        } else {
+                            host_id.clone()
+                        }
+                    } else {
+                        host_id.clone()
+                    }
+                } else {
+                    host_id.clone()
+                }
+            })
+            .collect();
 
         // For single node, skip "All" tab and go directly to node tab
-        let tabs = if sorted_hostnames.len() <= 1 {
-            sorted_hostnames
+        let tabs = if display_names.len() <= 1 {
+            display_names
         } else {
             let mut tabs = vec!["All".to_string()];
-            tabs.extend(sorted_hostnames);
+            tabs.extend(display_names);
             tabs
         };
 
@@ -355,6 +427,7 @@ impl DataCollector {
         Vec<CpuInfo>,
         Vec<MemoryInfo>,
         Vec<StorageInfo>,
+        Vec<crate::app_state::ConnectionStatus>,
     ) {
         let network_client = NetworkClient::new();
         network_client.fetch_remote_data(hosts, semaphore, re).await

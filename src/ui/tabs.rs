@@ -45,11 +45,29 @@ pub fn draw_tabs<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
             break; // No more space
         }
 
-        if state.current_tab == i {
-            labels.push((format!(" {tab} "), Color::Black));
+        // Determine color based on connection status and selection
+        let color = if state.current_tab == i {
+            Color::Black // Selected tab (will get blue background)
         } else {
-            labels.push((format!(" {tab} "), Color::White));
-        }
+            // Check if this tab represents a disconnected node
+            let is_connected = if tab != "All" {
+                state
+                    .connection_status
+                    .get(tab)
+                    .map(|status| status.is_connected)
+                    .unwrap_or(true) // Default to connected for local mode
+            } else {
+                true // "All" tab is always "connected"
+            };
+
+            if is_connected {
+                Color::White // Connected: normal white text
+            } else {
+                Color::DarkGrey // Disconnected: dimmed grey text
+            }
+        };
+
+        labels.push((format!(" {tab} "), color));
 
         available_width -= tab_width;
     }
