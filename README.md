@@ -149,6 +149,27 @@ all-smi view --hostfile hosts.csv
 all-smi api --port 9090
 ```
 
+### Quick Start with Make Commands
+
+For development and testing, you can use the provided Makefile:
+
+```bash
+# Run local monitoring
+make local
+
+# Run remote monitoring with hosts file
+make remote
+
+# Start mock server for testing
+make mock
+
+# Build release version
+make release
+
+# Run tests
+make test
+```
+
 ### View Mode (Interactive Monitoring)
 
 The `view` mode provides a terminal-based interface with real-time updates.
