@@ -423,7 +423,7 @@ impl UiLoop {
         writeln!(buffer).unwrap();
 
         // Hostname line
-        let hostname_text = format!("Node: {}", hostname);
+        let hostname_text = format!("Node: {hostname}");
         let hostname_padding = (box_width - 4 - hostname_text.len()) / 2;
         write!(buffer, "{}", " ".repeat(margin)).unwrap();
         print_colored_text(buffer, "│ ", Color::Red, None, None);

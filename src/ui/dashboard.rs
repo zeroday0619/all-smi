@@ -12,6 +12,11 @@ pub fn draw_system_view<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
 
     // Calculate cluster statistics
     let total_nodes = state.tabs.len().saturating_sub(1); // Exclude "All" tab
+    let live_nodes = state
+        .connection_status
+        .values()
+        .filter(|status| status.is_connected)
+        .count();
     let total_gpus = state.gpu_info.len();
     let total_memory_gb = state
         .gpu_info
@@ -110,7 +115,11 @@ pub fn draw_system_view<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
     print_dashboard_row(
         stdout,
         &[
-            ("Nodes", format!("{total_nodes}"), Color::Yellow),
+            (
+                "Nodes",
+                format!("{live_nodes}/{total_nodes}"),
+                Color::Yellow,
+            ),
             (
                 "Total RAM",
                 format_ram_value(total_system_memory_gb),
@@ -291,13 +300,15 @@ fn print_node_view_and_history<W: Write>(stdout: &mut W, state: &AppState, param
             // Print node view for this row
             print_node_view_row(
                 stdout,
-                &nodes,
-                &node_utils,
-                &state.connection_status,
-                state.current_tab,
-                params.left_width,
-                row,
-                nodes_per_row,
+                NodeViewRowParams {
+                    nodes: &nodes,
+                    node_utils: &node_utils,
+                    connection_status: &state.connection_status,
+                    current_tab: state.current_tab,
+                    left_width: params.left_width,
+                    row,
+                    nodes_per_row,
+                },
             );
         } else {
             // Print empty space for this row
@@ -351,31 +362,34 @@ fn print_node_view_and_history<W: Write>(stdout: &mut W, state: &AppState, param
     }
 }
 
-fn print_node_view_row<W: Write>(
-    stdout: &mut W,
-    nodes: &[&String],
-    node_utils: &HashMap<String, f64>,
-    connection_status: &HashMap<String, crate::app_state::ConnectionStatus>,
+struct NodeViewRowParams<'a> {
+    nodes: &'a [&'a String],
+    node_utils: &'a HashMap<String, f64>,
+    connection_status: &'a HashMap<String, crate::app_state::ConnectionStatus>,
     current_tab: usize,
     left_width: usize,
     row: usize,
     nodes_per_row: usize,
-) {
-    let start_idx = row * nodes_per_row;
-    let row_nodes: Vec<&String> = nodes
+}
+
+fn print_node_view_row<W: Write>(stdout: &mut W, params: NodeViewRowParams) {
+    let start_idx = params.row * params.nodes_per_row;
+    let row_nodes: Vec<&String> = params
+        .nodes
         .iter()
         .skip(start_idx)
-        .take(nodes_per_row)
+        .take(params.nodes_per_row)
         .copied()
         .collect();
 
     let mut row_chars = Vec::new();
     for (col, node) in row_nodes.iter().enumerate() {
-        let util = node_utils.get(*node).unwrap_or(&0.0);
+        let util = params.node_utils.get(*node).unwrap_or(&0.0);
 
         // Find connection status by looking for a status where actual_hostname matches the display name
         // or where the hostname (URL key) matches if no actual_hostname is set
-        let is_connected = connection_status
+        let is_connected = params
+            .connection_status
             .values()
             .find(|status| {
                 if let Some(actual_hostname) = &status.actual_hostname {
@@ -387,14 +401,17 @@ fn print_node_view_row<W: Write>(
             .map(|status| status.is_connected)
             .unwrap_or(false);
 
-        let (char, color) =
-            get_node_char_and_color(*util, current_tab == col + 1 + start_idx, is_connected);
+        let (char, color) = get_node_char_and_color(
+            *util,
+            params.current_tab == col + 1 + start_idx,
+            is_connected,
+        );
         row_chars.push((char, color));
     }
 
     // Calculate actual display width (Unicode chars like ● take 2 display columns)
     let actual_width = row_chars.len(); // Each node character takes 1 position, regardless of Unicode width
-    let padding_needed = left_width.saturating_sub(actual_width);
+    let padding_needed = params.left_width.saturating_sub(actual_width);
 
     // Print each character with its color
     for (char, color) in row_chars {

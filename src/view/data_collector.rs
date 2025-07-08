@@ -299,12 +299,14 @@ impl DataCollector {
         // mark them as failed if we don't have recent status
         for host in hosts {
             let host_id = extract_host_identifier(host);
-            if !state.connection_status.contains_key(&host_id) {
-                let mut status =
-                    crate::app_state::ConnectionStatus::new(host_id.clone(), host.clone());
-                status.mark_failure("No response received".to_string());
-                state.connection_status.insert(host_id, status);
-            }
+            state
+                .connection_status
+                .entry(host_id.clone())
+                .or_insert_with(|| {
+                    let mut status = crate::app_state::ConnectionStatus::new(host_id, host.clone());
+                    status.mark_failure("No response received".to_string());
+                    status
+                });
         }
     }
 

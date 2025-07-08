@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 #[derive(Clone, Debug)]
 pub struct ConnectionStatus {
     pub hostname: String, // This is the server address key (e.g., "localhost:10001")
+    #[allow(dead_code)]
     pub url: String,
     pub actual_hostname: Option<String>, // The real hostname from API (e.g., "node-0001")
     pub is_connected: bool,
@@ -46,10 +47,12 @@ impl ConnectionStatus {
         self.last_update = Instant::now();
     }
 
+    #[allow(dead_code)]
     pub fn is_recently_failed(&self) -> bool {
         !self.is_connected && self.last_update.elapsed() < Duration::from_secs(30)
     }
 
+    #[allow(dead_code)]
     pub fn connection_duration(&self) -> Option<Duration> {
         self.last_successful_connection.map(|t| t.elapsed())
     }

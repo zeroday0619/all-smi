@@ -158,10 +158,10 @@ impl NetworkClient {
                         Some(first_cpu.hostname.clone())
                     } else if let Some(first_memory) = memory_info.first() {
                         Some(first_memory.hostname.clone())
-                    } else if let Some(first_storage) = storage_info.first() {
-                        Some(first_storage.hostname.clone())
                     } else {
-                        None
+                        storage_info
+                            .first()
+                            .map(|first_storage| first_storage.hostname.clone())
                     };
 
                     // Store the actual hostname while keeping the URL as the key
