@@ -245,6 +245,9 @@ impl UiLoop {
             self.render_local_devices(&mut buffer, state, width);
         }
 
+        // Add function keys to main content view
+        print_function_keys(&mut buffer, cols, rows, state, is_remote);
+
         buffer.get_buffer().to_string()
     }
 
