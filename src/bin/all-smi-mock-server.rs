@@ -5,7 +5,7 @@ use hyper::service::service_fn;
 use hyper::{Request, Response};
 use hyper_util::rt::TokioIo;
 use hyper_util::server::conn::auto::Builder;
-use rand::Rng;
+use rand::{rng, Rng};
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::fs::File;
@@ -169,8 +169,8 @@ const PLACEHOLDER_SYS_MEMORY_BUFFERS: &str = "{{SYS_MEMORY_BUFFERS}}";
 const PLACEHOLDER_SYS_MEMORY_CACHED: &str = "{{SYS_MEMORY_CACHED}}";
 
 fn generate_uuid() -> String {
-    let mut rng = rand::thread_rng();
-    let bytes: [u8; 16] = rng.gen();
+    let mut rng = rng();
+    let bytes: [u8; 16] = rng.random();
     format!(
         "GPU-{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
         bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
@@ -183,25 +183,25 @@ impl MockNode {
         let gpu_memory_gb = Self::extract_gpu_memory_gb(&gpu_name);
         let memory_total_bytes = gpu_memory_gb * 1024 * 1024 * 1024;
 
-        let mut rng = rand::thread_rng();
+        let mut rng = rng();
 
         // Choose random disk size from options
         let disk_sizes = [DISK_SIZE_1TB, DISK_SIZE_4TB, DISK_SIZE_12TB];
-        let disk_total_bytes = disk_sizes[rng.gen_range(0..disk_sizes.len())];
+        let disk_total_bytes = disk_sizes[rng.random_range(0..disk_sizes.len())];
 
         let gpus: Vec<GpuMetrics> = (0..NUM_GPUS)
             .map(|_| {
-                let utilization = rng.gen_range(10.0..90.0);
+                let utilization = rng.random_range(10.0..90.0);
                 let memory_used_bytes =
-                    rng.gen_range(memory_total_bytes / 10..memory_total_bytes * 9 / 10);
+                    rng.random_range(memory_total_bytes / 10..memory_total_bytes * 9 / 10);
                 let memory_usage_percent =
                     (memory_used_bytes as f32 / memory_total_bytes as f32) * 100.0;
 
                 // Calculate realistic initial power consumption
-                let base_power = rng.gen_range(80.0..120.0);
-                let util_power_contribution = utilization * rng.gen_range(4.0..6.0);
-                let memory_power_contribution = memory_usage_percent * rng.gen_range(1.0..2.0);
-                let gpu_bias = rng.gen_range(-30.0..30.0);
+                let base_power = rng.random_range(80.0..120.0);
+                let util_power_contribution = utilization * rng.random_range(4.0..6.0);
+                let memory_power_contribution = memory_usage_percent * rng.random_range(1.0..2.0);
+                let gpu_bias = rng.random_range(-30.0..30.0);
                 let power_consumption_watts =
                     (base_power + util_power_contribution + memory_power_contribution + gpu_bias)
                         .clamp(80.0, 700.0);
@@ -223,7 +223,7 @@ impl MockNode {
 
                 // ANE utilization only for Apple Silicon
                 let ane_utilization_watts = if platform == PlatformType::Apple {
-                    rng.gen_range(0.0..2.5) // ANE power consumption 0-2.5W
+                    rng.random_range(0.0..2.5) // ANE power consumption 0-2.5W
                 } else {
                     0.0
                 };
@@ -264,7 +264,8 @@ impl MockNode {
             cpu,
             memory,
             platform_type: platform,
-            disk_available_bytes: rng.gen_range(disk_total_bytes / 10..disk_total_bytes * 9 / 10),
+            disk_available_bytes: rng
+                .random_range(disk_total_bytes / 10..disk_total_bytes * 9 / 10),
             disk_total_bytes,
             response_template,
             rendered_response: String::new(),
@@ -287,7 +288,7 @@ impl MockNode {
                     "Apple M2 Max",
                     "Apple M3",
                 ];
-                let model = models[rng.gen_range(0..models.len())].to_string();
+                let model = models[rng.random_range(0..models.len())].to_string();
 
                 let (p_cores, e_cores, gpu_cores) = match model.as_str() {
                     "Apple M1" => (4, 4, 8),
@@ -300,19 +301,19 @@ impl MockNode {
 
                 CpuMetrics {
                     model,
-                    utilization: rng.gen_range(15.0..75.0),
+                    utilization: rng.random_range(15.0..75.0),
                     socket_count: 1,
                     core_count: p_cores + e_cores,
                     thread_count: p_cores + e_cores, // Apple Silicon doesn't use hyperthreading
-                    frequency_mhz: rng.gen_range(3000..3500),
-                    temperature_celsius: Some(rng.gen_range(45..70)),
-                    power_consumption_watts: Some(rng.gen_range(15.0..35.0)),
-                    socket_utilizations: vec![rng.gen_range(15.0..75.0)],
+                    frequency_mhz: rng.random_range(3000..3500),
+                    temperature_celsius: Some(rng.random_range(45..70)),
+                    power_consumption_watts: Some(rng.random_range(15.0..35.0)),
+                    socket_utilizations: vec![rng.random_range(15.0..75.0)],
                     p_core_count: Some(p_cores),
                     e_core_count: Some(e_cores),
                     gpu_core_count: Some(gpu_cores),
-                    p_core_utilization: Some(rng.gen_range(10.0..80.0)),
-                    e_core_utilization: Some(rng.gen_range(5.0..40.0)),
+                    p_core_utilization: Some(rng.random_range(10.0..80.0)),
+                    e_core_utilization: Some(rng.random_range(5.0..40.0)),
                 }
             }
             PlatformType::Intel => {
@@ -322,19 +323,19 @@ impl MockNode {
                     "Intel Core i9-13900K",
                     "Intel Xeon E5-2699 v4",
                 ];
-                let model = models[rng.gen_range(0..models.len())].to_string();
+                let model = models[rng.random_range(0..models.len())].to_string();
 
                 let socket_count = if model.contains("Xeon") {
-                    rng.gen_range(1..=2)
+                    rng.random_range(1..=2)
                 } else {
                     1
                 };
-                let cores_per_socket = rng.gen_range(8..32);
+                let cores_per_socket = rng.random_range(8..32);
                 let total_cores = socket_count * cores_per_socket;
                 let total_threads = total_cores * 2; // Intel hyperthreading
 
                 let socket_utilizations: Vec<f32> = (0..socket_count)
-                    .map(|_| rng.gen_range(20.0..80.0))
+                    .map(|_| rng.random_range(20.0..80.0))
                     .collect();
                 let overall_util =
                     socket_utilizations.iter().sum::<f32>() / socket_utilizations.len() as f32;
@@ -345,9 +346,9 @@ impl MockNode {
                     socket_count,
                     core_count: total_cores,
                     thread_count: total_threads,
-                    frequency_mhz: rng.gen_range(2400..3800),
-                    temperature_celsius: Some(rng.gen_range(55..85)),
-                    power_consumption_watts: Some(rng.gen_range(150.0..400.0)),
+                    frequency_mhz: rng.random_range(2400..3800),
+                    temperature_celsius: Some(rng.random_range(55..85)),
+                    power_consumption_watts: Some(rng.random_range(150.0..400.0)),
                     socket_utilizations,
                     p_core_count: None,
                     e_core_count: None,
@@ -363,19 +364,19 @@ impl MockNode {
                     "AMD EPYC 9554",
                     "AMD Threadripper PRO 5995WX",
                 ];
-                let model = models[rng.gen_range(0..models.len())].to_string();
+                let model = models[rng.random_range(0..models.len())].to_string();
 
                 let socket_count = if model.contains("EPYC") {
-                    rng.gen_range(1..=2)
+                    rng.random_range(1..=2)
                 } else {
                     1
                 };
-                let cores_per_socket = rng.gen_range(16..64);
+                let cores_per_socket = rng.random_range(16..64);
                 let total_cores = socket_count * cores_per_socket;
                 let total_threads = total_cores * 2; // AMD SMT
 
                 let socket_utilizations: Vec<f32> = (0..socket_count)
-                    .map(|_| rng.gen_range(25.0..85.0))
+                    .map(|_| rng.random_range(25.0..85.0))
                     .collect();
                 let overall_util =
                     socket_utilizations.iter().sum::<f32>() / socket_utilizations.len() as f32;
@@ -386,9 +387,9 @@ impl MockNode {
                     socket_count,
                     core_count: total_cores,
                     thread_count: total_threads,
-                    frequency_mhz: rng.gen_range(2200..4500),
-                    temperature_celsius: Some(rng.gen_range(50..80)),
-                    power_consumption_watts: Some(rng.gen_range(180.0..500.0)),
+                    frequency_mhz: rng.random_range(2200..4500),
+                    temperature_celsius: Some(rng.random_range(50..80)),
+                    power_consumption_watts: Some(rng.random_range(180.0..500.0)),
                     socket_utilizations,
                     p_core_count: None,
                     e_core_count: None,
@@ -404,7 +405,7 @@ impl MockNode {
                     "NVIDIA Jetson Xavier NX",
                     "NVIDIA Jetson Nano",
                 ];
-                let model = models[rng.gen_range(0..models.len())].to_string();
+                let model = models[rng.random_range(0..models.len())].to_string();
 
                 let (cores, threads) = match model.as_str() {
                     "NVIDIA Jetson AGX Orin" => (12, 12),
@@ -415,14 +416,14 @@ impl MockNode {
 
                 CpuMetrics {
                     model,
-                    utilization: rng.gen_range(20.0..70.0),
+                    utilization: rng.random_range(20.0..70.0),
                     socket_count: 1,
                     core_count: cores,
                     thread_count: threads,
-                    frequency_mhz: rng.gen_range(1400..2200),
-                    temperature_celsius: Some(rng.gen_range(55..75)),
-                    power_consumption_watts: Some(rng.gen_range(10.0..60.0)),
-                    socket_utilizations: vec![rng.gen_range(20.0..70.0)],
+                    frequency_mhz: rng.random_range(1400..2200),
+                    temperature_celsius: Some(rng.random_range(55..75)),
+                    power_consumption_watts: Some(rng.random_range(10.0..60.0)),
+                    socket_utilizations: vec![rng.random_range(20.0..70.0)],
                     p_core_count: None,
                     e_core_count: None,
                     gpu_core_count: None,
@@ -433,15 +434,15 @@ impl MockNode {
             PlatformType::Nvidia => {
                 // Default NVIDIA GPU server (Intel/AMD CPU)
                 let models = ["Intel Xeon Gold 6248R", "AMD EPYC 7742"];
-                let model = models[rng.gen_range(0..models.len())].to_string();
+                let model = models[rng.random_range(0..models.len())].to_string();
 
                 let socket_count = 2;
-                let cores_per_socket = rng.gen_range(16..32);
+                let cores_per_socket = rng.random_range(16..32);
                 let total_cores = socket_count * cores_per_socket;
                 let total_threads = total_cores * 2;
 
                 let socket_utilizations: Vec<f32> = (0..socket_count)
-                    .map(|_| rng.gen_range(30.0..85.0))
+                    .map(|_| rng.random_range(30.0..85.0))
                     .collect();
                 let overall_util =
                     socket_utilizations.iter().sum::<f32>() / socket_utilizations.len() as f32;
@@ -452,9 +453,9 @@ impl MockNode {
                     socket_count,
                     core_count: total_cores,
                     thread_count: total_threads,
-                    frequency_mhz: rng.gen_range(2400..3600),
-                    temperature_celsius: Some(rng.gen_range(60..80)),
-                    power_consumption_watts: Some(rng.gen_range(200.0..450.0)),
+                    frequency_mhz: rng.random_range(2400..3600),
+                    temperature_celsius: Some(rng.random_range(60..80)),
+                    power_consumption_watts: Some(rng.random_range(200.0..450.0)),
                     socket_utilizations,
                     p_core_count: None,
                     e_core_count: None,
@@ -469,22 +470,22 @@ impl MockNode {
     fn create_memory_metrics(rng: &mut rand::rngs::ThreadRng) -> MemoryMetrics {
         // Memory size options: 256GB, 512GB, 1TB, 2TB, 4TB
         let memory_sizes_gb = [256, 512, 1024, 2048, 4096];
-        let total_gb = memory_sizes_gb[rng.gen_range(0..memory_sizes_gb.len())];
+        let total_gb = memory_sizes_gb[rng.random_range(0..memory_sizes_gb.len())];
         let total_bytes = total_gb as u64 * 1024 * 1024 * 1024;
 
         // Start used memory at 40%+ and make it fluctuate
-        let base_utilization = rng.gen_range(40.0..80.0);
+        let base_utilization = rng.random_range(40.0..80.0);
         let utilization = base_utilization as f32;
         let used_bytes = (total_bytes as f64 * utilization as f64 / 100.0) as u64;
         let available_bytes = total_bytes - used_bytes;
-        let free_bytes = rng.gen_range(available_bytes / 4..available_bytes * 3 / 4);
+        let free_bytes = rng.random_range(available_bytes / 4..available_bytes * 3 / 4);
 
         // Linux-specific memory breakdown
-        let buffers_bytes = rng.gen_range(total_bytes / 100..total_bytes / 20); // 1-5% for buffers
-        let cached_bytes = rng.gen_range(total_bytes / 50..total_bytes / 10); // 2-10% for cache
+        let buffers_bytes = rng.random_range(total_bytes / 100..total_bytes / 20); // 1-5% for buffers
+        let cached_bytes = rng.random_range(total_bytes / 50..total_bytes / 10); // 2-10% for cache
 
         // Swap configuration (some nodes have swap, others don't)
-        let (swap_total_bytes, swap_used_bytes, swap_free_bytes) = if rng.gen_bool(0.7) {
+        let (swap_total_bytes, swap_used_bytes, swap_free_bytes) = if rng.random_bool(0.7) {
             // 70% chance of having swap
             // Swap size: min(1/8 of total memory, 32GB)
             let max_swap_32gb = 32 * 1024 * 1024 * 1024; // 32GB in bytes
@@ -641,15 +642,15 @@ impl MockNode {
                             };
 
                         labels.push("driver_version=\"560.35.05\"".to_string());
-                        labels.push(format!("cuda_version=\"{}\"", cuda_version));
-                        labels.push(format!("architecture=\"{}\"", architecture));
-                        labels.push(format!("compute_capability=\"{}\"", compute_capability));
+                        labels.push(format!("cuda_version=\"{cuda_version}\""));
+                        labels.push(format!("architecture=\"{architecture}\""));
+                        labels.push(format!("compute_capability=\"{compute_capability}\""));
                         labels.push("compute_mode=\"Default\"".to_string());
                         labels.push("persistence_mode=\"Enabled\"".to_string());
                         labels.push("ecc_mode_current=\"Enabled\"".to_string());
                         labels.push("mig_mode_current=\"Disabled\"".to_string());
-                        labels.push(format!("pcie_gen_current=\"{}\"", pcie_gen));
-                        labels.push(format!("pcie_gen_max=\"{}\"", pcie_gen));
+                        labels.push(format!("pcie_gen_current=\"{pcie_gen}\""));
+                        labels.push(format!("pcie_gen_max=\"{pcie_gen}\""));
                         labels.push("pcie_width_current=\"16\"".to_string());
                         labels.push("pcie_width_max=\"16\"".to_string());
                         labels.push("performance_state=\"P0\"".to_string());
@@ -668,10 +669,10 @@ impl MockNode {
                                 ("35.4.1", "11.4", "7.2") // Default to Xavier
                             };
 
-                        labels.push(format!("driver_version=\"{}\"", driver_version));
-                        labels.push(format!("cuda_version=\"{}\"", cuda_version));
+                        labels.push(format!("driver_version=\"{driver_version}\""));
+                        labels.push(format!("cuda_version=\"{cuda_version}\""));
                         labels.push("architecture=\"Tegra\"".to_string());
-                        labels.push(format!("compute_capability=\"{}\"", compute_capability));
+                        labels.push(format!("compute_capability=\"{compute_capability}\""));
                     }
                     _ => {}
                 }
@@ -718,8 +719,7 @@ impl MockNode {
                         gpu_name, instance_name, gpu.uuid, i
                     );
                     template.push_str(&format!(
-                        "all_smi_gpu_pcie_gen_current{{{labels}}} {}\n",
-                        pcie_gen
+                        "all_smi_gpu_pcie_gen_current{{{labels}}} {pcie_gen}\n"
                     ));
                 }
 
@@ -745,8 +745,7 @@ impl MockNode {
                         gpu_name, instance_name, gpu.uuid, i
                     );
                     template.push_str(&format!(
-                        "all_smi_gpu_clock_graphics_max_mhz{{{labels}}} {}\n",
-                        max_graphics_clock
+                        "all_smi_gpu_clock_graphics_max_mhz{{{labels}}} {max_graphics_clock}\n"
                     ));
                 }
 
@@ -760,8 +759,7 @@ impl MockNode {
                         gpu_name, instance_name, gpu.uuid, i
                     );
                     template.push_str(&format!(
-                        "all_smi_gpu_clock_memory_max_mhz{{{labels}}} {}\n",
-                        max_memory_clock
+                        "all_smi_gpu_clock_memory_max_mhz{{{labels}}} {max_memory_clock}\n"
                     ));
                 }
 
@@ -776,8 +774,7 @@ impl MockNode {
                         gpu_name, instance_name, gpu.uuid, i
                     );
                     template.push_str(&format!(
-                        "all_smi_gpu_power_limit_current_watts{{{labels}}} {}\n",
-                        power_limit
+                        "all_smi_gpu_power_limit_current_watts{{{labels}}} {power_limit}\n"
                     ));
                 }
 
@@ -791,8 +788,7 @@ impl MockNode {
                         gpu_name, instance_name, gpu.uuid, i
                     );
                     template.push_str(&format!(
-                        "all_smi_gpu_power_limit_max_watts{{{labels}}} {}\n",
-                        power_limit
+                        "all_smi_gpu_power_limit_max_watts{{{labels}}} {power_limit}\n"
                     ));
                 }
 
@@ -1181,15 +1177,16 @@ impl MockNode {
     }
 
     fn update(&mut self) {
-        let mut rng = rand::thread_rng();
+        let mut rng = rng();
 
         for gpu in &mut self.gpus {
             // GPU utilization: gradual changes
-            let utilization_delta = rng.gen_range(-5.0..5.0);
+            let utilization_delta = rng.random_range(-5.0..5.0);
             gpu.utilization = (gpu.utilization + utilization_delta).clamp(0.0, 100.0);
 
             // GPU memory: change by less than 3GB
-            let memory_delta = rng.gen_range(-(3 * 1024 * 1024 * 1024)..(3 * 1024 * 1024 * 1024));
+            let memory_delta =
+                rng.random_range(-(3 * 1024 * 1024 * 1024)..(3 * 1024 * 1024 * 1024));
             gpu.memory_used_bytes = gpu
                 .memory_used_bytes
                 .saturating_add_signed(memory_delta)
@@ -1200,19 +1197,19 @@ impl MockNode {
                 (gpu.memory_used_bytes as f32 / gpu.memory_total_bytes as f32) * 100.0;
 
             // Base power consumption (idle state) - varies by GPU type
-            let base_power = rng.gen_range(80.0..120.0);
+            let base_power = rng.random_range(80.0..120.0);
 
             // Power contribution from GPU utilization (strong correlation)
-            let util_power_contribution = gpu.utilization * rng.gen_range(4.0..6.0); // 4-6W per % utilization
+            let util_power_contribution = gpu.utilization * rng.random_range(4.0..6.0); // 4-6W per % utilization
 
             // Power contribution from memory usage (moderate correlation)
-            let memory_power_contribution = memory_usage_percent * rng.gen_range(1.0..2.0); // 1-2W per % memory usage
+            let memory_power_contribution = memory_usage_percent * rng.random_range(1.0..2.0); // 1-2W per % memory usage
 
             // Individual GPU bias (some GPUs naturally consume more/less power)
-            let gpu_bias = rng.gen_range(-30.0..30.0);
+            let gpu_bias = rng.random_range(-30.0..30.0);
 
             // Random variation (±15W)
-            let random_variation = rng.gen_range(-15.0..15.0);
+            let random_variation = rng.random_range(-15.0..15.0);
 
             // Calculate total power consumption
             gpu.power_consumption_watts = (base_power
@@ -1226,7 +1223,7 @@ impl MockNode {
             let base_temp = 45.0;
             let util_temp_contribution = gpu.utilization * 0.25; // 0.25°C per % utilization
             let power_temp_contribution = (gpu.power_consumption_watts - 200.0) * 0.05; // Temperature increases with power
-            let temp_variation = rng.gen_range(-3.0..3.0);
+            let temp_variation = rng.random_range(-3.0..3.0);
 
             gpu.temperature_celsius =
                 (base_temp + util_temp_contribution + power_temp_contribution + temp_variation)
@@ -1235,37 +1232,37 @@ impl MockNode {
             // GPU frequency: correlate with utilization (higher util = higher freq)
             let base_freq = 1200.0;
             let util_freq_contribution = gpu.utilization * 6.0; // Up to 600MHz boost at 100% util
-            let freq_variation = rng.gen_range(-100.0..100.0);
+            let freq_variation = rng.random_range(-100.0..100.0);
 
             gpu.frequency_mhz =
                 (base_freq + util_freq_contribution + freq_variation).clamp(1000.0, 1980.0) as u32;
 
             // Update ANE utilization for Apple Silicon
             if let PlatformType::Apple = self.platform_type {
-                let ane_delta = rng.gen_range(-0.3..0.3);
+                let ane_delta = rng.random_range(-0.3..0.3);
                 gpu.ane_utilization_watts = (gpu.ane_utilization_watts + ane_delta).clamp(0.0, 3.0);
             }
         }
 
         // Update CPU metrics
-        let cpu_utilization_delta = rng.gen_range(-3.0..3.0);
+        let cpu_utilization_delta = rng.random_range(-3.0..3.0);
         self.cpu.utilization = (self.cpu.utilization + cpu_utilization_delta).clamp(0.0, 100.0);
 
         // Update per-socket utilizations
         for socket_util in &mut self.cpu.socket_utilizations {
-            let socket_delta = rng.gen_range(-3.0..3.0);
+            let socket_delta = rng.random_range(-3.0..3.0);
             *socket_util = (*socket_util + socket_delta).clamp(0.0, 100.0);
         }
 
         // Update CPU temperature if available
         if let Some(ref mut temp) = self.cpu.temperature_celsius {
-            let temp_delta = rng.gen_range(-2..3);
+            let temp_delta = rng.random_range(-2..3);
             *temp = (*temp as i32 + temp_delta).clamp(35, 85) as u32;
         }
 
         // Update CPU power consumption if available
         if let Some(ref mut power) = self.cpu.power_consumption_watts {
-            let power_delta = rng.gen_range(-10.0..10.0);
+            let power_delta = rng.random_range(-10.0..10.0);
             *power = (*power + power_delta).clamp(10.0, 500.0);
         }
 
@@ -1274,14 +1271,14 @@ impl MockNode {
             &mut self.cpu.p_core_utilization,
             &mut self.cpu.e_core_utilization,
         ) {
-            let p_delta = rng.gen_range(-4.0..4.0);
-            let e_delta = rng.gen_range(-2.0..2.0);
+            let p_delta = rng.random_range(-4.0..4.0);
+            let e_delta = rng.random_range(-2.0..2.0);
             *p_util = (*p_util + p_delta).clamp(0.0, 100.0);
             *e_util = (*e_util + e_delta).clamp(0.0, 100.0);
         }
 
         // Update memory metrics with gradual fluctuation
-        let memory_util_delta = rng.gen_range(-2.0..2.0);
+        let memory_util_delta = rng.random_range(-2.0..2.0);
         // Allow memory utilization to occasionally reach 100% to trigger swap usage
         self.memory.utilization = (self.memory.utilization + memory_util_delta).clamp(30.0, 102.0);
 
@@ -1314,7 +1311,7 @@ impl MockNode {
             self.memory.available_bytes = self.memory.total_bytes - target_used_bytes;
 
             // Update free bytes (a portion of available bytes)
-            let free_ratio = rng.gen_range(0.3..0.8);
+            let free_ratio = rng.random_range(0.3..0.8);
             self.memory.free_bytes = (self.memory.available_bytes as f64 * free_ratio) as u64;
 
             // No swap usage when memory is below 100%
@@ -1326,7 +1323,7 @@ impl MockNode {
 
         // Small fluctuations in buffers and cache
         if self.memory.buffers_bytes > 0 {
-            let buffer_delta = rng.gen_range(
+            let buffer_delta = rng.random_range(
                 -(self.memory.total_bytes as i64 / 200)..(self.memory.total_bytes as i64 / 200),
             );
             self.memory.buffers_bytes = self
@@ -1337,7 +1334,7 @@ impl MockNode {
         }
 
         if self.memory.cached_bytes > 0 {
-            let cache_delta = rng.gen_range(
+            let cache_delta = rng.random_range(
                 -(self.memory.total_bytes as i64 / 100)..(self.memory.total_bytes as i64 / 100),
             );
             self.memory.cached_bytes = self
@@ -1348,7 +1345,7 @@ impl MockNode {
         }
 
         // Change disk available bytes by a small amount, up to 1 GiB
-        let delta = rng.gen_range(-(1024 * 1024 * 1024)..(1024 * 1024 * 1024));
+        let delta = rng.random_range(-(1024 * 1024 * 1024)..(1024 * 1024 * 1024));
         self.disk_available_bytes = self
             .disk_available_bytes
             .saturating_add_signed(delta)
@@ -1469,7 +1466,7 @@ async fn main() -> Result<()> {
             let mut interval = interval(Duration::from_secs(10)); // Every 10 seconds
             loop {
                 interval.tick().await;
-                let mut rng = rand::thread_rng(); // Create RNG inside the loop to avoid Send issues
+                let mut rng = rng(); // Create RNG inside the loop to avoid Send issues
                 let mut nodes_guard = nodes_failure.lock().unwrap();
                 let port_list: Vec<u16> = nodes_guard.keys().cloned().collect();
 
@@ -1477,7 +1474,7 @@ async fn main() -> Result<()> {
                     // Randomly select nodes to fail
                     let mut selected_ports = Vec::new();
                     while selected_ports.len() < failure_count as usize {
-                        let port = port_list[rng.gen_range(0..port_list.len())];
+                        let port = port_list[rng.random_range(0..port_list.len())];
                         if !selected_ports.contains(&port) {
                             selected_ports.push(port);
                         }
@@ -1487,10 +1484,10 @@ async fn main() -> Result<()> {
                     for (port, node) in nodes_guard.iter_mut() {
                         if selected_ports.contains(port) {
                             // Randomly fail/recover selected nodes
-                            node.is_responding = rng.gen_bool(0.3); // 30% chance to be responding
+                            node.is_responding = rng.random_bool(0.3); // 30% chance to be responding
                         } else {
                             // Non-selected nodes have higher chance to be responding
-                            node.is_responding = rng.gen_bool(0.9); // 90% chance to be responding
+                            node.is_responding = rng.random_bool(0.9); // 90% chance to be responding
                         }
                     }
 
