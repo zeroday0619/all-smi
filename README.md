@@ -373,12 +373,13 @@ This project is licensed under the MIT License. See the LICENSE file for details
 ## Changelog
 
 ### Recent Updates
-- **v0.4.0:** Architectural refactoring, Smart sudo detection and comprehensive unit testing
-- **v0.3.3:** CPU, Memory, and ANE support, and UI fixes
-- **v0.3.2:** Cargo.toml for publishing and release process
-- **v0.3.1:** GitHub actions and Dockerfile, and UI fixes
-- **v0.3.0:** Multi-architecture support, optimized space allocation, enhanced UI
-- **v0.2.2:** GPU sorting functionality with hotkeys
-- **v0.2.1:** Help system improvements and code refactoring
-- **v0.2.0:** Remote monitoring and cluster management features
-- **v0.1.0:** Initial release with local GPU monitoring
+- **v0.4.0 (2025/07/08):** Architectural refactoring, Smart sudo detection and comprehensive unit testing
+- **v0.3.3 (2025/07/07):** CPU, Memory, and ANE support, and UI fixes
+- **v0.3.2 (2025/07/06):** Cargo.toml for publishing and release process
+- **v0.3.1 (2025/07/06):** GitHub actions and Dockerfile, and UI fixes
+- **v0.3.0 (2025/07/06):** Multi-architecture support, optimized space allocation, enhanced UI
+- **v0.2.2 (2025/07/06):** GPU sorting functionality with hotkeys
+- **v0.2.1 (2025/07/05):** Help system improvements and code refactoring
+- **v0.2.0 (2025/07/05):** Remote monitoring and cluster management features
+- **v0.1.1 (2025/07/04):** ANE (Apple Neural Engine) support, page navigation keys, and scrolling fixes
+- **v0.1.0 (2024/08/11):** Initial release with local GPU monitoring
