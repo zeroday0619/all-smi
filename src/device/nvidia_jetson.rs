@@ -40,6 +40,44 @@ impl GpuReader for NvidiaJetsonGpuReader {
 
         let (total_memory, used_memory) = get_memory_info();
 
+        // Get Jetson-specific information
+        let mut detail = HashMap::new();
+
+        // Try to get CUDA version from nvidia-smi if available
+        if let Ok(output) = std::process::Command::new("nvidia-smi").output() {
+            if output.status.success() {
+                let output_str = String::from_utf8_lossy(&output.stdout);
+                // Parse CUDA version from header
+                for line in output_str.lines() {
+                    if line.contains("CUDA Version:") {
+                        if let Some(version) = line.split("CUDA Version:").nth(1) {
+                            detail.insert("cuda_version".to_string(), version.trim().to_string());
+                        }
+                    }
+                    if line.contains("Driver Version:") {
+                        if let Some(version) = line.split("Driver Version:").nth(1) {
+                            detail.insert("driver_version".to_string(), version.trim().to_string());
+                        }
+                    }
+                }
+            }
+        }
+
+        // Get Jetson architecture info
+        if let Ok(arch) = fs::read_to_string("/sys/devices/soc0/family") {
+            detail.insert("architecture".to_string(), arch.trim().to_string());
+        }
+
+        // Get compute capability for Jetson
+        // Jetson Nano/TX2: 5.3, Xavier: 7.2, Orin: 8.7
+        if name.contains("Orin") {
+            detail.insert("compute_capability".to_string(), "8.7".to_string());
+        } else if name.contains("Xavier") {
+            detail.insert("compute_capability".to_string(), "7.2".to_string());
+        } else if name.contains("TX2") || name.contains("Nano") {
+            detail.insert("compute_capability".to_string(), "5.3".to_string());
+        }
+
         gpu_info.push(GpuInfo {
             uuid: "NVIDIA-Jetson".to_string(),
             time: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
@@ -54,7 +92,7 @@ impl GpuReader for NvidiaJetsonGpuReader {
             total_memory,
             frequency,
             power_consumption,
-            detail: HashMap::new(),
+            detail,
         });
 
         gpu_info

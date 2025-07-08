@@ -145,9 +145,129 @@ impl NvidiaGpuReader {
                 .map(|p| p as f64 / 1000.0) // Convert milliwatts to watts
                 .unwrap_or(0.0);
 
-            // Create detail map with driver version
+            // Create detail map with driver version and CUDA info
             let mut detail = HashMap::new();
             detail.insert("driver_version".to_string(), driver_version.clone());
+
+            // Get CUDA version
+            if let Ok(cuda_version) = nvml.sys_cuda_driver_version() {
+                let major = cuda_version / 1000;
+                let minor = (cuda_version % 1000) / 10;
+                detail.insert("cuda_version".to_string(), format!("{major}.{minor}"));
+            }
+
+            // Get additional device information
+            if let Ok(arch) = device.architecture() {
+                detail.insert("architecture".to_string(), format!("{arch:?}"));
+            }
+
+            if let Ok(brand) = device.brand() {
+                detail.insert("brand".to_string(), format!("{brand:?}"));
+            }
+
+            if let Ok(compute_mode) = device.compute_mode() {
+                detail.insert("compute_mode".to_string(), format!("{compute_mode:?}"));
+            }
+
+            // Note: persistence_mode is not directly available in nvml-wrapper
+            // We'll get it from nvidia-smi fallback if needed
+
+            // PCIe information
+            if let Ok(pcie_gen) = device.current_pcie_link_gen() {
+                detail.insert("pcie_gen_current".to_string(), pcie_gen.to_string());
+            }
+            if let Ok(pcie_gen_max) = device.max_pcie_link_gen() {
+                detail.insert("pcie_gen_max".to_string(), pcie_gen_max.to_string());
+            }
+            if let Ok(pcie_width) = device.current_pcie_link_width() {
+                detail.insert("pcie_width_current".to_string(), pcie_width.to_string());
+            }
+            if let Ok(pcie_width_max) = device.max_pcie_link_width() {
+                detail.insert("pcie_width_max".to_string(), pcie_width_max.to_string());
+            }
+
+            // Performance state
+            if let Ok(perf_state) = device.performance_state() {
+                detail.insert("performance_state".to_string(), format!("{perf_state:?}"));
+            }
+
+            // Power limits
+            if let Ok(power_limit) = device.power_management_limit() {
+                detail.insert(
+                    "power_limit_current".to_string(),
+                    format!("{:.2}", power_limit as f64 / 1000.0),
+                );
+            }
+            if let Ok(power_limit_default) = device.power_management_limit_default() {
+                detail.insert(
+                    "power_limit_default".to_string(),
+                    format!("{:.2}", power_limit_default as f64 / 1000.0),
+                );
+            }
+            if let Ok(constraints) = device.power_management_limit_constraints() {
+                detail.insert(
+                    "power_limit_min".to_string(),
+                    format!("{:.2}", constraints.min_limit as f64 / 1000.0),
+                );
+                detail.insert(
+                    "power_limit_max".to_string(),
+                    format!("{:.2}", constraints.max_limit as f64 / 1000.0),
+                );
+            }
+
+            // Max clocks
+            if let Ok(max_graphics_clock) = device.max_customer_boost_clock(Clock::Graphics) {
+                detail.insert(
+                    "clock_graphics_max".to_string(),
+                    max_graphics_clock.to_string(),
+                );
+            }
+            if let Ok(max_memory_clock) = device.max_customer_boost_clock(Clock::Memory) {
+                detail.insert("clock_memory_max".to_string(), max_memory_clock.to_string());
+            }
+
+            // ECC mode
+            if let Ok(ecc_enabled) = device.is_ecc_enabled() {
+                detail.insert(
+                    "ecc_mode_current".to_string(),
+                    if ecc_enabled.currently_enabled {
+                        "Enabled"
+                    } else {
+                        "Disabled"
+                    }
+                    .to_string(),
+                );
+                if ecc_enabled.currently_enabled != ecc_enabled.pending_enabled {
+                    detail.insert(
+                        "ecc_mode_pending".to_string(),
+                        if ecc_enabled.pending_enabled {
+                            "Enabled"
+                        } else {
+                            "Disabled"
+                        }
+                        .to_string(),
+                    );
+                }
+            }
+
+            // MIG mode
+            if let Ok(mig_mode) = device.mig_mode() {
+                detail.insert(
+                    "mig_mode_current".to_string(),
+                    format!("{:?}", mig_mode.current),
+                );
+                if mig_mode.current != mig_mode.pending {
+                    detail.insert(
+                        "mig_mode_pending".to_string(),
+                        format!("{:?}", mig_mode.pending),
+                    );
+                }
+            }
+
+            // VBIOS version
+            if let Ok(vbios) = device.vbios_version() {
+                detail.insert("vbios_version".to_string(), vbios);
+            }
 
             gpu_info.push(GpuInfo {
                 uuid,
@@ -257,10 +377,27 @@ impl NvidiaGpuReader {
     fn get_gpu_info_nvidia_smi(&self) -> Vec<GpuInfo> {
         let mut gpu_info = Vec::new();
 
+        // First, get CUDA version using nvidia-smi without query (appears in header)
+        let mut cuda_version = String::new();
+        if let Ok(output) = Command::new("nvidia-smi").output() {
+            if output.status.success() {
+                let output_str = String::from_utf8_lossy(&output.stdout);
+                // Parse CUDA version from header (e.g., "CUDA Version: 12.6")
+                for line in output_str.lines() {
+                    if line.contains("CUDA Version:") {
+                        if let Some(version) = line.split("CUDA Version:").nth(1) {
+                            cuda_version = version.trim().to_string();
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+
         // Execute the nvidia-smi command to get GPU information, including driver version
         let output = Command::new("nvidia-smi")
             .arg("--format=csv,noheader,nounits")
-            .arg("--query-gpu=uuid,driver_version,name,utilization.gpu,temperature.gpu,memory.used,memory.total,clocks.current.graphics,power.draw")
+            .arg("--query-gpu=uuid,driver_version,name,utilization.gpu,temperature.gpu,memory.used,memory.total,clocks.current.graphics,power.draw,compute_mode,persistence_mode,pcie.link.gen.current,pcie.link.gen.max,pcie.link.width.current,pcie.link.width.max,clocks.max.graphics,clocks.max.memory,power.limit,power.default_limit,power.min_limit,power.max_limit,pstate,vbios_version")
             .output();
 
         if let Ok(output) = output {
@@ -270,7 +407,7 @@ impl NvidiaGpuReader {
 
                 for line in lines {
                     let parts: Vec<&str> = line.trim().split(',').collect();
-                    if parts.len() == 9 {
+                    if parts.len() >= 9 {
                         let time = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
                         let uuid = parts[0].trim().to_string();
                         let driver_version = parts[1].trim().to_string();
@@ -285,6 +422,112 @@ impl NvidiaGpuReader {
 
                         let mut detail = HashMap::new();
                         detail.insert("driver_version".to_string(), driver_version);
+
+                        // Add CUDA version if we found it
+                        if !cuda_version.is_empty() {
+                            detail.insert("cuda_version".to_string(), cuda_version.clone());
+                        }
+
+                        // Parse additional fields if available
+                        if parts.len() >= 23 {
+                            // Compute mode
+                            if parts.len() > 9 && !parts[9].trim().is_empty() {
+                                detail.insert(
+                                    "compute_mode".to_string(),
+                                    parts[9].trim().to_string(),
+                                );
+                            }
+
+                            // Persistence mode
+                            if parts.len() > 10 && !parts[10].trim().is_empty() {
+                                detail.insert(
+                                    "persistence_mode".to_string(),
+                                    parts[10].trim().to_string(),
+                                );
+                            }
+
+                            // PCIe information
+                            if parts.len() > 11 && !parts[11].trim().is_empty() {
+                                detail.insert(
+                                    "pcie_gen_current".to_string(),
+                                    parts[11].trim().to_string(),
+                                );
+                            }
+                            if parts.len() > 12 && !parts[12].trim().is_empty() {
+                                detail.insert(
+                                    "pcie_gen_max".to_string(),
+                                    parts[12].trim().to_string(),
+                                );
+                            }
+                            if parts.len() > 13 && !parts[13].trim().is_empty() {
+                                detail.insert(
+                                    "pcie_width_current".to_string(),
+                                    parts[13].trim().to_string(),
+                                );
+                            }
+                            if parts.len() > 14 && !parts[14].trim().is_empty() {
+                                detail.insert(
+                                    "pcie_width_max".to_string(),
+                                    parts[14].trim().to_string(),
+                                );
+                            }
+
+                            // Max clocks
+                            if parts.len() > 15 && !parts[15].trim().is_empty() {
+                                detail.insert(
+                                    "clock_graphics_max".to_string(),
+                                    parts[15].trim().to_string(),
+                                );
+                            }
+                            if parts.len() > 16 && !parts[16].trim().is_empty() {
+                                detail.insert(
+                                    "clock_memory_max".to_string(),
+                                    parts[16].trim().to_string(),
+                                );
+                            }
+
+                            // Power limits
+                            if parts.len() > 17 && !parts[17].trim().is_empty() {
+                                detail.insert(
+                                    "power_limit_current".to_string(),
+                                    parts[17].trim().to_string(),
+                                );
+                            }
+                            if parts.len() > 18 && !parts[18].trim().is_empty() {
+                                detail.insert(
+                                    "power_limit_default".to_string(),
+                                    parts[18].trim().to_string(),
+                                );
+                            }
+                            if parts.len() > 19 && !parts[19].trim().is_empty() {
+                                detail.insert(
+                                    "power_limit_min".to_string(),
+                                    parts[19].trim().to_string(),
+                                );
+                            }
+                            if parts.len() > 20 && !parts[20].trim().is_empty() {
+                                detail.insert(
+                                    "power_limit_max".to_string(),
+                                    parts[20].trim().to_string(),
+                                );
+                            }
+
+                            // Performance state
+                            if parts.len() > 21 && !parts[21].trim().is_empty() {
+                                detail.insert(
+                                    "performance_state".to_string(),
+                                    parts[21].trim().to_string(),
+                                );
+                            }
+
+                            // VBIOS version
+                            if parts.len() > 22 && !parts[22].trim().is_empty() {
+                                detail.insert(
+                                    "vbios_version".to_string(),
+                                    parts[22].trim().to_string(),
+                                );
+                            }
+                        }
 
                         gpu_info.push(GpuInfo {
                             uuid,

@@ -147,6 +147,8 @@ const PLACEHOLDER_ANE: &str = "{{ANE_";
 const PLACEHOLDER_DISK_AVAIL: &str = "{{DISK_AVAIL}}";
 const PLACEHOLDER_DISK_TOTAL: &str = "{{DISK_TOTAL}}";
 
+// GPU placeholders for dynamic values
+
 // CPU placeholders
 const PLACEHOLDER_CPU_UTIL: &str = "{{CPU_UTIL}}";
 const PLACEHOLDER_CPU_SOCKET0_UTIL: &str = "{{CPU_SOCKET0_UTIL}}";
@@ -605,6 +607,211 @@ impl MockNode {
             }
         }
 
+        // GPU vendor info metrics (NVIDIA and Jetson)
+        if matches!(platform, PlatformType::Nvidia | PlatformType::Jetson) {
+            template.push_str("# HELP all_smi_gpu_info GPU vendor-specific information\n");
+            template.push_str("# TYPE all_smi_gpu_info info\n");
+
+            for (i, gpu) in gpus.iter().enumerate() {
+                let mut labels = vec![
+                    format!("gpu=\"{}\"", gpu_name),
+                    format!("instance=\"{}\"", instance_name),
+                    format!("uuid=\"{}\"", gpu.uuid),
+                    format!("index=\"{}\"", i),
+                ];
+
+                // Add CUDA-specific labels based on platform
+                match platform {
+                    PlatformType::Nvidia => {
+                        // Determine architecture and capabilities based on GPU name
+                        let (architecture, compute_capability, cuda_version, pcie_gen) =
+                            if gpu_name.contains("H200") || gpu_name.contains("H100") {
+                                ("Hopper", "9.0", "12.6", "5")
+                            } else if gpu_name.contains("A100") || gpu_name.contains("A6000") {
+                                ("Ampere", "8.0", "12.4", "4")
+                            } else if gpu_name.contains("RTX 4090") || gpu_name.contains("RTX 4080")
+                            {
+                                ("Ada Lovelace", "8.9", "12.3", "4")
+                            } else if gpu_name.contains("V100") {
+                                ("Volta", "7.0", "12.2", "3")
+                            } else if gpu_name.contains("T4") {
+                                ("Turing", "7.5", "12.1", "3")
+                            } else {
+                                ("Ampere", "8.6", "12.4", "4") // Default to A40-like specs
+                            };
+
+                        labels.push("driver_version=\"560.35.05\"".to_string());
+                        labels.push(format!("cuda_version=\"{}\"", cuda_version));
+                        labels.push(format!("architecture=\"{}\"", architecture));
+                        labels.push(format!("compute_capability=\"{}\"", compute_capability));
+                        labels.push("compute_mode=\"Default\"".to_string());
+                        labels.push("persistence_mode=\"Enabled\"".to_string());
+                        labels.push("ecc_mode_current=\"Enabled\"".to_string());
+                        labels.push("mig_mode_current=\"Disabled\"".to_string());
+                        labels.push(format!("pcie_gen_current=\"{}\"", pcie_gen));
+                        labels.push(format!("pcie_gen_max=\"{}\"", pcie_gen));
+                        labels.push("pcie_width_current=\"16\"".to_string());
+                        labels.push("pcie_width_max=\"16\"".to_string());
+                        labels.push("performance_state=\"P0\"".to_string());
+                        labels.push("vbios_version=\"96.00.61.00.01\"".to_string());
+                    }
+                    PlatformType::Jetson => {
+                        // Determine Jetson variant based on GPU name
+                        let (driver_version, cuda_version, compute_capability) =
+                            if gpu_name.contains("Orin") {
+                                ("36.2.0", "12.2", "8.7")
+                            } else if gpu_name.contains("Xavier") {
+                                ("35.4.1", "11.4", "7.2")
+                            } else if gpu_name.contains("Nano") {
+                                ("32.7.3", "10.2", "5.3")
+                            } else {
+                                ("35.4.1", "11.4", "7.2") // Default to Xavier
+                            };
+
+                        labels.push(format!("driver_version=\"{}\"", driver_version));
+                        labels.push(format!("cuda_version=\"{}\"", cuda_version));
+                        labels.push("architecture=\"Tegra\"".to_string());
+                        labels.push(format!("compute_capability=\"{}\"", compute_capability));
+                    }
+                    _ => {}
+                }
+
+                template.push_str(&format!("all_smi_gpu_info{{{}}} 1\n", labels.join(", ")));
+            }
+
+            // Add numeric metrics for NVIDIA GPUs
+            if let PlatformType::Nvidia = platform {
+                // Determine PCIe gen based on GPU model
+                let pcie_gen = if gpu_name.contains("H200") || gpu_name.contains("H100") {
+                    5
+                } else if gpu_name.contains("A100")
+                    || gpu_name.contains("A6000")
+                    || gpu_name.contains("RTX 40")
+                {
+                    4
+                } else {
+                    3
+                };
+
+                // Determine clock speeds and power limits based on GPU model
+                let (max_graphics_clock, max_memory_clock, power_limit) =
+                    if gpu_name.contains("H200") || gpu_name.contains("H100") {
+                        (1980, 2619, 700)
+                    } else if gpu_name.contains("A100") {
+                        (1410, 1593, 400)
+                    } else if gpu_name.contains("RTX 4090") {
+                        (2520, 1313, 450)
+                    } else if gpu_name.contains("V100") {
+                        (1380, 877, 300)
+                    } else if gpu_name.contains("T4") {
+                        (1590, 1250, 70)
+                    } else {
+                        (1770, 1500, 300) // Default
+                    };
+
+                // PCIe metrics
+                template.push_str("# HELP all_smi_gpu_pcie_gen_current Current PCIe generation\n");
+                template.push_str("# TYPE all_smi_gpu_pcie_gen_current gauge\n");
+                for (i, gpu) in gpus.iter().enumerate() {
+                    let labels = format!(
+                        "gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"",
+                        gpu_name, instance_name, gpu.uuid, i
+                    );
+                    template.push_str(&format!(
+                        "all_smi_gpu_pcie_gen_current{{{labels}}} {}\n",
+                        pcie_gen
+                    ));
+                }
+
+                template
+                    .push_str("# HELP all_smi_gpu_pcie_width_current Current PCIe link width\n");
+                template.push_str("# TYPE all_smi_gpu_pcie_width_current gauge\n");
+                for (i, gpu) in gpus.iter().enumerate() {
+                    let labels = format!(
+                        "gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"",
+                        gpu_name, instance_name, gpu.uuid, i
+                    );
+                    template.push_str(&format!("all_smi_gpu_pcie_width_current{{{labels}}} 16\n"));
+                }
+
+                // Max clocks
+                template.push_str(
+                    "# HELP all_smi_gpu_clock_graphics_max_mhz Maximum graphics clock in MHz\n",
+                );
+                template.push_str("# TYPE all_smi_gpu_clock_graphics_max_mhz gauge\n");
+                for (i, gpu) in gpus.iter().enumerate() {
+                    let labels = format!(
+                        "gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"",
+                        gpu_name, instance_name, gpu.uuid, i
+                    );
+                    template.push_str(&format!(
+                        "all_smi_gpu_clock_graphics_max_mhz{{{labels}}} {}\n",
+                        max_graphics_clock
+                    ));
+                }
+
+                template.push_str(
+                    "# HELP all_smi_gpu_clock_memory_max_mhz Maximum memory clock in MHz\n",
+                );
+                template.push_str("# TYPE all_smi_gpu_clock_memory_max_mhz gauge\n");
+                for (i, gpu) in gpus.iter().enumerate() {
+                    let labels = format!(
+                        "gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"",
+                        gpu_name, instance_name, gpu.uuid, i
+                    );
+                    template.push_str(&format!(
+                        "all_smi_gpu_clock_memory_max_mhz{{{labels}}} {}\n",
+                        max_memory_clock
+                    ));
+                }
+
+                // Power limits
+                template.push_str(
+                    "# HELP all_smi_gpu_power_limit_current_watts Current power limit in watts\n",
+                );
+                template.push_str("# TYPE all_smi_gpu_power_limit_current_watts gauge\n");
+                for (i, gpu) in gpus.iter().enumerate() {
+                    let labels = format!(
+                        "gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"",
+                        gpu_name, instance_name, gpu.uuid, i
+                    );
+                    template.push_str(&format!(
+                        "all_smi_gpu_power_limit_current_watts{{{labels}}} {}\n",
+                        power_limit
+                    ));
+                }
+
+                template.push_str(
+                    "# HELP all_smi_gpu_power_limit_max_watts Maximum power limit in watts\n",
+                );
+                template.push_str("# TYPE all_smi_gpu_power_limit_max_watts gauge\n");
+                for (i, gpu) in gpus.iter().enumerate() {
+                    let labels = format!(
+                        "gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"",
+                        gpu_name, instance_name, gpu.uuid, i
+                    );
+                    template.push_str(&format!(
+                        "all_smi_gpu_power_limit_max_watts{{{labels}}} {}\n",
+                        power_limit
+                    ));
+                }
+
+                // Performance state (dynamic based on utilization)
+                template.push_str("# HELP all_smi_gpu_performance_state GPU performance state (P0=0, P1=1, ...)\n");
+                template.push_str("# TYPE all_smi_gpu_performance_state gauge\n");
+                for (i, gpu) in gpus.iter().enumerate() {
+                    let labels = format!(
+                        "gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"",
+                        gpu_name, instance_name, gpu.uuid, i
+                    );
+                    let placeholder = format!("{{{{PSTATE_{i}}}}}");
+                    template.push_str(&format!(
+                        "all_smi_gpu_performance_state{{{labels}}} {placeholder}\n"
+                    ));
+                }
+            }
+        }
+
         // CPU metrics
         let cpu_labels = format!(
             "cpu_model=\"{}\", instance=\"{}\", hostname=\"{}\", index=\"0\"",
@@ -856,6 +1063,22 @@ impl MockNode {
                     &format!("{{{{ANE_{i}}}}}"),
                     &format!("{:.3}", gpu.ane_utilization_watts),
                 );
+            }
+
+            // Replace performance state for NVIDIA GPUs (based on utilization)
+            if let PlatformType::Nvidia = self.platform_type {
+                let pstate = if gpu.utilization > 80.0 {
+                    0 // P0 - Maximum performance
+                } else if gpu.utilization > 50.0 {
+                    2 // P2 - Balanced
+                } else if gpu.utilization > 20.0 {
+                    5 // P5 - Auto
+                } else if gpu.utilization > 0.0 {
+                    8 // P8 - Adaptive
+                } else {
+                    12 // P12 - Idle
+                };
+                response = response.replace(&format!("{{{{PSTATE_{i}}}}}"), &pstate.to_string());
             }
         }
 

@@ -77,6 +77,121 @@ pub async fn metrics_handler(State(state): State<SharedState>) -> String {
                 info.name, info.instance, info.uuid, i, dla_util
             ));
         }
+
+        // Add GPU vendor info metric with all detail fields as labels
+        if !info.detail.is_empty() {
+            metrics.push_str("# HELP all_smi_gpu_info GPU vendor-specific information\n");
+            metrics.push_str("# TYPE all_smi_gpu_info info\n");
+
+            // Build label string from detail HashMap
+            let mut labels = vec![
+                format!("gpu=\"{}\"", info.name),
+                format!("instance=\"{}\"", info.instance),
+                format!("uuid=\"{}\"", info.uuid),
+                format!("index=\"{}\"", i),
+            ];
+
+            // Add all detail fields as labels
+            for (key, value) in &info.detail {
+                // Escape quotes in values for Prometheus format
+                let escaped_value = value.replace('"', "\\\"");
+                labels.push(format!("{key}=\"{escaped_value}\""));
+            }
+
+            metrics.push_str(&format!("all_smi_gpu_info{{{}}} 1\n", labels.join(", ")));
+        }
+
+        // Add individual metrics for important CUDA fields
+        if let Some(pcie_gen) = info.detail.get("pcie_gen_current") {
+            metrics.push_str("# HELP all_smi_gpu_pcie_gen_current Current PCIe generation\n");
+            metrics.push_str("# TYPE all_smi_gpu_pcie_gen_current gauge\n");
+            if let Ok(gen) = pcie_gen.parse::<f64>() {
+                metrics.push_str(&format!(
+                    "all_smi_gpu_pcie_gen_current{{gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"}} {}\n",
+                    info.name, info.instance, info.uuid, i, gen
+                ));
+            }
+        }
+
+        if let Some(pcie_width) = info.detail.get("pcie_width_current") {
+            metrics.push_str("# HELP all_smi_gpu_pcie_width_current Current PCIe link width\n");
+            metrics.push_str("# TYPE all_smi_gpu_pcie_width_current gauge\n");
+            if let Ok(width) = pcie_width.parse::<f64>() {
+                metrics.push_str(&format!(
+                    "all_smi_gpu_pcie_width_current{{gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"}} {}\n",
+                    info.name, info.instance, info.uuid, i, width
+                ));
+            }
+        }
+
+        if let Some(clock_max) = info.detail.get("clock_graphics_max") {
+            metrics.push_str(
+                "# HELP all_smi_gpu_clock_graphics_max_mhz Maximum graphics clock in MHz\n",
+            );
+            metrics.push_str("# TYPE all_smi_gpu_clock_graphics_max_mhz gauge\n");
+            if let Ok(clock) = clock_max.parse::<f64>() {
+                metrics.push_str(&format!(
+                    "all_smi_gpu_clock_graphics_max_mhz{{gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"}} {}\n",
+                    info.name, info.instance, info.uuid, i, clock
+                ));
+            }
+        }
+
+        if let Some(clock_max) = info.detail.get("clock_memory_max") {
+            metrics
+                .push_str("# HELP all_smi_gpu_clock_memory_max_mhz Maximum memory clock in MHz\n");
+            metrics.push_str("# TYPE all_smi_gpu_clock_memory_max_mhz gauge\n");
+            if let Ok(clock) = clock_max.parse::<f64>() {
+                metrics.push_str(&format!(
+                    "all_smi_gpu_clock_memory_max_mhz{{gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"}} {}\n",
+                    info.name, info.instance, info.uuid, i, clock
+                ));
+            }
+        }
+
+        // Power limit metrics
+        if let Some(power_limit) = info.detail.get("power_limit_current") {
+            metrics.push_str(
+                "# HELP all_smi_gpu_power_limit_current_watts Current power limit in watts\n",
+            );
+            metrics.push_str("# TYPE all_smi_gpu_power_limit_current_watts gauge\n");
+            if let Ok(power) = power_limit.parse::<f64>() {
+                metrics.push_str(&format!(
+                    "all_smi_gpu_power_limit_current_watts{{gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"}} {}\n",
+                    info.name, info.instance, info.uuid, i, power
+                ));
+            }
+        }
+
+        if let Some(power_limit) = info.detail.get("power_limit_max") {
+            metrics.push_str(
+                "# HELP all_smi_gpu_power_limit_max_watts Maximum power limit in watts\n",
+            );
+            metrics.push_str("# TYPE all_smi_gpu_power_limit_max_watts gauge\n");
+            if let Ok(power) = power_limit.parse::<f64>() {
+                metrics.push_str(&format!(
+                    "all_smi_gpu_power_limit_max_watts{{gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"}} {}\n",
+                    info.name, info.instance, info.uuid, i, power
+                ));
+            }
+        }
+
+        // Performance state as numeric value (P0=0, P1=1, etc.)
+        if let Some(pstate) = info.detail.get("performance_state") {
+            metrics.push_str(
+                "# HELP all_smi_gpu_performance_state GPU performance state (P0=0, P1=1, ...)\n",
+            );
+            metrics.push_str("# TYPE all_smi_gpu_performance_state gauge\n");
+            // Extract numeric value from "P0", "P1", etc.
+            if let Some(state_str) = pstate.strip_prefix('P') {
+                if let Ok(state_num) = state_str.parse::<f64>() {
+                    metrics.push_str(&format!(
+                        "all_smi_gpu_performance_state{{gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"}} {}\n",
+                        info.name, info.instance, info.uuid, i, state_num
+                    ));
+                }
+            }
+        }
     }
 
     if !state.process_info.is_empty() {
