@@ -82,6 +82,7 @@ impl GpuReader for NvidiaJetsonGpuReader {
             uuid: "NVIDIA-Jetson".to_string(),
             time: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
             name,
+            device_type: "GPU".to_string(),
             hostname: get_hostname(),
             instance: get_hostname(),
             utilization,

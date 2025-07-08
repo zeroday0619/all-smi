@@ -54,8 +54,14 @@ pub fn print_gpu_info<W: Write>(
         0.0
     };
 
-    // Print info line: GPU <name> @ <hostname> Util:4.0% Mem:25.2/128GB Temp:0°C Pwr:0.0W
-    print_colored_text(stdout, "GPU ", Color::Cyan, None, None);
+    // Print info line: <device_type> <name> @ <hostname> Util:4.0% Mem:25.2/128GB Temp:0°C Pwr:0.0W
+    print_colored_text(
+        stdout,
+        &format!("{} ", info.device_type),
+        Color::Cyan,
+        None,
+        None,
+    );
     print_colored_text(stdout, &device_name, Color::White, None, None);
     print_colored_text(stdout, " @ ", Color::DarkGreen, None, None);
     print_colored_text(stdout, &hostname_display, Color::White, None, None);
@@ -105,6 +111,18 @@ pub fn print_gpu_info<W: Write>(
         None,
         None,
     );
+
+    // Display CUDA version and Driver version if available
+    if let Some(cuda_version) = info.detail.get("cuda_version") {
+        print_colored_text(stdout, " CUDA:", Color::Green, None, None);
+        print_colored_text(stdout, cuda_version, Color::White, None, None);
+    }
+
+    if let Some(driver_version) = info.detail.get("driver_version") {
+        print_colored_text(stdout, " Driver:", Color::Green, None, None);
+        print_colored_text(stdout, driver_version, Color::White, None, None);
+    }
+
     queue!(stdout, Print("\r\n")).unwrap();
 
     // Calculate gauge widths with 5 char padding on each side and 2 space separation
