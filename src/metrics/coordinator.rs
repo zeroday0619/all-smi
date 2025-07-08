@@ -138,7 +138,8 @@ impl MetricsCoordinator {
         }
 
         let recent_points = history.len().min(10); // Use last 10 points for trend
-        let recent: Vec<f64> = history.iter().rev().take(recent_points).copied().collect();
+        let start_idx = history.len().saturating_sub(recent_points);
+        let recent: Vec<f64> = history.iter().skip(start_idx).copied().collect();
 
         // Simple linear regression
         let n = recent.len() as f64;

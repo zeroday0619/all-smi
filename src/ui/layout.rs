@@ -267,7 +267,7 @@ mod tests {
     fn test_calculate_progress_bar_layout() {
         let layout = LayoutCalculator::calculate_progress_bar_layout(40, 3, 5);
 
-        assert_eq!(layout.bar_width, 10); // (40 - 10 padding - 4 separators) / 3
+        assert_eq!(layout.bar_width, 8); // (40 - 10 padding - 4 separators) / 3 = 26 / 3 = 8
         assert_eq!(layout.left_padding, 5);
         assert_eq!(layout.right_padding, 5);
         assert_eq!(layout.separator_width, 2);
@@ -285,9 +285,9 @@ mod tests {
         let widths = LayoutCalculator::calculate_table_columns(50, &specs);
 
         // Min total: 30, separators: 2, extra: 18
-        // Weight distribution: A=18*1/3.5=5, B=18*2/3.5=10, C=18*0.5/3.5=3
+        // Weight distribution: A=18*1/3.5=5, B=18*2/3.5=10, C=18*0.5/3.5=2
         assert_eq!(widths[0], 15); // 10 + 5
         assert_eq!(widths[1], 25); // 15 + 10
-        assert_eq!(widths[2], 8); // 5 + 3
+        assert_eq!(widths[2], 7); // 5 + 2
     }
 }

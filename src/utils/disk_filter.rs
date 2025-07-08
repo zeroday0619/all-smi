@@ -47,7 +47,9 @@ impl DiskFilter {
         prefixes.insert("/Applications/");
         prefixes.insert("/System/");
         prefixes.insert("/private/");
-        prefixes.insert("/Volumes/");
+        // Exclude specific system volumes, but allow external drives
+        prefixes.insert("/Volumes/VM/");
+        exact.insert("/Volumes"); // Empty volumes directory
         prefixes.insert("/Network/");
 
         exact.insert("/Users/Shared");
