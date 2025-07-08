@@ -111,3 +111,139 @@ impl ThemeConfig {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_adaptive_interval() {
+        assert_eq!(EnvConfig::adaptive_interval(0), 2);
+        assert_eq!(EnvConfig::adaptive_interval(1), 2);
+        assert_eq!(EnvConfig::adaptive_interval(2), 3);
+        assert_eq!(EnvConfig::adaptive_interval(5), 3);
+        assert_eq!(EnvConfig::adaptive_interval(10), 3);
+        assert_eq!(EnvConfig::adaptive_interval(11), 4);
+        assert_eq!(EnvConfig::adaptive_interval(25), 4);
+        assert_eq!(EnvConfig::adaptive_interval(50), 4);
+        assert_eq!(EnvConfig::adaptive_interval(51), 5);
+        assert_eq!(EnvConfig::adaptive_interval(75), 5);
+        assert_eq!(EnvConfig::adaptive_interval(100), 5);
+        assert_eq!(EnvConfig::adaptive_interval(101), 6);
+        assert_eq!(EnvConfig::adaptive_interval(200), 6);
+        assert_eq!(EnvConfig::adaptive_interval(500), 6);
+        assert_eq!(EnvConfig::adaptive_interval(1000), 6);
+    }
+
+    #[test]
+    fn test_max_concurrent_connections() {
+        assert_eq!(EnvConfig::max_concurrent_connections(10), 10);
+        assert_eq!(EnvConfig::max_concurrent_connections(50), 50);
+        assert_eq!(EnvConfig::max_concurrent_connections(64), 64);
+        assert_eq!(EnvConfig::max_concurrent_connections(100), 64);
+        assert_eq!(EnvConfig::max_concurrent_connections(200), 64);
+    }
+
+    #[test]
+    fn test_connection_stagger_delay() {
+        assert_eq!(EnvConfig::connection_stagger_delay(0, 10), 0);
+        assert_eq!(EnvConfig::connection_stagger_delay(1, 10), 50);
+        assert_eq!(EnvConfig::connection_stagger_delay(5, 10), 250);
+        assert_eq!(EnvConfig::connection_stagger_delay(9, 10), 450);
+        assert_eq!(EnvConfig::connection_stagger_delay(0, 1), 0);
+        assert_eq!(EnvConfig::connection_stagger_delay(10, 20), 250);
+    }
+
+    #[test]
+    fn test_retry_delay() {
+        assert_eq!(EnvConfig::retry_delay(1), 50);
+        assert_eq!(EnvConfig::retry_delay(2), 100);
+        assert_eq!(EnvConfig::retry_delay(3), 150);
+        assert_eq!(EnvConfig::retry_delay(5), 250);
+        assert_eq!(EnvConfig::retry_delay(0), 0);
+    }
+
+    #[test]
+    fn test_progress_bar_color_thresholds() {
+        use crossterm::style::Color;
+
+        assert_eq!(ThemeConfig::progress_bar_color(0.0), Color::DarkGrey);
+        assert_eq!(ThemeConfig::progress_bar_color(0.03), Color::DarkGrey);
+        assert_eq!(ThemeConfig::progress_bar_color(0.05), Color::DarkGrey);
+        assert_eq!(ThemeConfig::progress_bar_color(0.06), Color::DarkGreen);
+        assert_eq!(ThemeConfig::progress_bar_color(0.1), Color::DarkGreen);
+        assert_eq!(ThemeConfig::progress_bar_color(0.25), Color::DarkGreen);
+        assert_eq!(ThemeConfig::progress_bar_color(0.26), Color::Green);
+        assert_eq!(ThemeConfig::progress_bar_color(0.5), Color::Green);
+        assert_eq!(ThemeConfig::progress_bar_color(0.7), Color::Green);
+        assert_eq!(ThemeConfig::progress_bar_color(0.71), Color::Yellow);
+        assert_eq!(ThemeConfig::progress_bar_color(0.75), Color::Yellow);
+        assert_eq!(ThemeConfig::progress_bar_color(0.8), Color::Yellow);
+        assert_eq!(ThemeConfig::progress_bar_color(0.81), Color::Red);
+        assert_eq!(ThemeConfig::progress_bar_color(0.9), Color::Red);
+        assert_eq!(ThemeConfig::progress_bar_color(1.0), Color::Red);
+    }
+
+    #[test]
+    fn test_utilization_color_thresholds() {
+        use crossterm::style::Color;
+
+        assert_eq!(ThemeConfig::utilization_color(0.0), Color::DarkGrey);
+        assert_eq!(ThemeConfig::utilization_color(10.0), Color::DarkGrey);
+        assert_eq!(ThemeConfig::utilization_color(20.0), Color::DarkGrey);
+        assert_eq!(ThemeConfig::utilization_color(20.1), Color::Green);
+        assert_eq!(ThemeConfig::utilization_color(30.0), Color::Green);
+        assert_eq!(ThemeConfig::utilization_color(50.0), Color::Green);
+        assert_eq!(ThemeConfig::utilization_color(50.1), Color::Yellow);
+        assert_eq!(ThemeConfig::utilization_color(70.0), Color::Yellow);
+        assert_eq!(ThemeConfig::utilization_color(80.0), Color::Yellow);
+        assert_eq!(ThemeConfig::utilization_color(80.1), Color::Red);
+        assert_eq!(ThemeConfig::utilization_color(90.0), Color::Red);
+        assert_eq!(ThemeConfig::utilization_color(100.0), Color::Red);
+    }
+
+    #[test]
+    fn test_app_config_constants() {
+        assert_eq!(AppConfig::MIN_RENDER_INTERVAL_MS, 33);
+        assert_eq!(AppConfig::EVENT_POLL_TIMEOUT_MS, 50);
+        assert_eq!(AppConfig::MAX_CONCURRENT_CONNECTIONS, 64);
+        assert_eq!(AppConfig::CONNECTION_TIMEOUT_SECS, 5);
+        assert_eq!(AppConfig::RETRY_ATTEMPTS, 3);
+        assert_eq!(AppConfig::RETRY_BASE_DELAY_MS, 50);
+        assert_eq!(AppConfig::DEFAULT_UPDATE_INTERVAL_SECS, 2);
+        assert_eq!(AppConfig::CONNECTION_STAGGER_BASE_MS, 500);
+        assert_eq!(AppConfig::CRITICAL_THRESHOLD, 0.8);
+        assert_eq!(AppConfig::WARNING_THRESHOLD, 0.7);
+        assert_eq!(AppConfig::NORMAL_THRESHOLD, 0.25);
+        assert_eq!(AppConfig::LOW_THRESHOLD, 0.05);
+    }
+
+    #[test]
+    fn test_boundary_conditions() {
+        assert_eq!(EnvConfig::adaptive_interval(0), 2);
+        assert_eq!(EnvConfig::adaptive_interval(usize::MAX), 6);
+
+        assert_eq!(EnvConfig::connection_stagger_delay(0, 1), 0);
+        assert_eq!(EnvConfig::connection_stagger_delay(1000, 1000), 500);
+
+        assert_eq!(EnvConfig::retry_delay(0), 0);
+        assert_eq!(EnvConfig::retry_delay(1000), 50000);
+
+        use crossterm::style::Color;
+        assert_eq!(
+            ThemeConfig::progress_bar_color(f64::NEG_INFINITY),
+            Color::DarkGrey
+        );
+        assert_eq!(ThemeConfig::progress_bar_color(f64::INFINITY), Color::Red);
+        assert_eq!(
+            ThemeConfig::utilization_color(f64::NEG_INFINITY),
+            Color::DarkGrey
+        );
+        assert_eq!(ThemeConfig::utilization_color(f64::INFINITY), Color::Red);
+
+        assert_eq!(ThemeConfig::progress_bar_color(-1.0), Color::DarkGrey);
+        assert_eq!(ThemeConfig::progress_bar_color(2.0), Color::Red);
+        assert_eq!(ThemeConfig::utilization_color(-10.0), Color::DarkGrey);
+        assert_eq!(ThemeConfig::utilization_color(200.0), Color::Red);
+    }
+}

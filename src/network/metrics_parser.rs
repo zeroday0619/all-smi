@@ -352,3 +352,342 @@ impl Default for MetricsParser {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use regex::Regex;
+
+    fn create_test_parser() -> MetricsParser {
+        MetricsParser::new()
+    }
+
+    fn create_test_regex() -> Regex {
+        Regex::new(r"^all_smi_([^\{]+)\{([^}]+)\} ([\d\.]+)$").unwrap()
+    }
+
+    #[test]
+    fn test_parse_labels() {
+        let parser = create_test_parser();
+
+        let labels = parser.parse_labels(r#"instance="node-0058", mount_point="/", index="0""#);
+        assert_eq!(labels.get("instance").unwrap(), "node-0058");
+        assert_eq!(labels.get("mount_point").unwrap(), "/");
+        assert_eq!(labels.get("index").unwrap(), "0");
+
+        let labels = parser.parse_labels(r#"gpu="NVIDIA H200 141GB HBM3", uuid="GPU-12345""#);
+        assert_eq!(labels.get("gpu").unwrap(), "NVIDIA H200 141GB HBM3");
+        assert_eq!(labels.get("uuid").unwrap(), "GPU-12345");
+
+        let labels = parser.parse_labels("");
+        assert!(labels.is_empty());
+
+        let labels = parser.parse_labels("malformed");
+        assert!(labels.is_empty());
+    }
+
+    #[test]
+    fn test_parse_gpu_metrics() {
+        let parser = create_test_parser();
+        let re = create_test_regex();
+        let host = "127.0.0.1:10058";
+
+        let test_data = r#"
+all_smi_gpu_utilization{gpu="NVIDIA H200 141GB HBM3", instance="node-0058", uuid="GPU-12345", index="0"} 25.5
+all_smi_gpu_memory_used_bytes{gpu="NVIDIA H200 141GB HBM3", instance="node-0058", uuid="GPU-12345", index="0"} 8589934592
+all_smi_gpu_memory_total_bytes{gpu="NVIDIA H200 141GB HBM3", instance="node-0058", uuid="GPU-12345", index="0"} 34359738368
+all_smi_gpu_temperature_celsius{gpu="NVIDIA H200 141GB HBM3", instance="node-0058", uuid="GPU-12345", index="0"} 65
+all_smi_gpu_power_consumption_watts{gpu="NVIDIA H200 141GB HBM3", instance="node-0058", uuid="GPU-12345", index="0"} 400.5
+all_smi_ane_utilization{gpu="NVIDIA H200 141GB HBM3", instance="node-0058", uuid="GPU-12345", index="0"} 15.2
+"#;
+
+        let (gpu_info, _, _, _) = parser.parse_metrics(test_data, host, &re);
+
+        assert_eq!(gpu_info.len(), 1);
+        let gpu = &gpu_info[0];
+        assert_eq!(gpu.uuid, "GPU-12345");
+        assert_eq!(gpu.name, "NVIDIA H200 141GB HBM3");
+        assert_eq!(gpu.hostname, "node-0058");
+        assert_eq!(gpu.utilization, 25.5);
+        assert_eq!(gpu.used_memory, 8589934592);
+        assert_eq!(gpu.total_memory, 34359738368);
+        assert_eq!(gpu.temperature, 65);
+        assert_eq!(gpu.power_consumption, 400.5);
+        assert_eq!(gpu.ane_utilization, 15.2);
+    }
+
+    #[test]
+    fn test_parse_cpu_metrics() {
+        let parser = create_test_parser();
+        let re = create_test_regex();
+        let host = "127.0.0.1:10058";
+
+        let test_data = r#"
+all_smi_cpu_utilization{cpu_model="Intel Xeon", instance="node-0058", hostname="node-0058", index="0"} 45.2
+all_smi_cpu_socket_count{cpu_model="Intel Xeon", instance="node-0058", hostname="node-0058", index="0"} 2
+all_smi_cpu_core_count{cpu_model="Intel Xeon", instance="node-0058", hostname="node-0058", index="0"} 16
+all_smi_cpu_thread_count{cpu_model="Intel Xeon", instance="node-0058", hostname="node-0058", index="0"} 32
+all_smi_cpu_frequency_mhz{cpu_model="Intel Xeon", instance="node-0058", hostname="node-0058", index="0"} 2400
+all_smi_cpu_temperature_celsius{cpu_model="Intel Xeon", instance="node-0058", hostname="node-0058", index="0"} 55
+all_smi_cpu_power_consumption_watts{cpu_model="Intel Xeon", instance="node-0058", hostname="node-0058", index="0"} 125.5
+"#;
+
+        let (_, cpu_info, _, _) = parser.parse_metrics(test_data, host, &re);
+
+        assert_eq!(cpu_info.len(), 1);
+        let cpu = &cpu_info[0];
+        assert_eq!(cpu.hostname, "node-0058");
+        assert_eq!(cpu.cpu_model, "Intel Xeon");
+        assert_eq!(cpu.utilization, 45.2);
+        assert_eq!(cpu.socket_count, 2);
+        assert_eq!(cpu.total_cores, 16);
+        assert_eq!(cpu.total_threads, 32);
+        assert_eq!(cpu.base_frequency_mhz, 2400);
+        assert_eq!(cpu.max_frequency_mhz, 2400);
+        assert_eq!(cpu.temperature, Some(55));
+        assert_eq!(cpu.power_consumption, Some(125.5));
+        assert!(matches!(
+            cpu.platform_type,
+            crate::device::CpuPlatformType::Intel
+        ));
+    }
+
+    #[test]
+    fn test_parse_apple_silicon_cpu_metrics() {
+        let parser = create_test_parser();
+        let re = create_test_regex();
+        let host = "127.0.0.1:10058";
+
+        let test_data = r#"
+all_smi_cpu_utilization{cpu_model="Apple M2 Max", instance="node-0058", hostname="node-0058", index="0"} 30.5
+all_smi_cpu_p_core_count{cpu_model="Apple M2 Max", instance="node-0058", hostname="node-0058", index="0"} 8
+all_smi_cpu_e_core_count{cpu_model="Apple M2 Max", instance="node-0058", hostname="node-0058", index="0"} 4
+all_smi_cpu_p_core_utilization{cpu_model="Apple M2 Max", instance="node-0058", hostname="node-0058", index="0"} 25.2
+all_smi_cpu_e_core_utilization{cpu_model="Apple M2 Max", instance="node-0058", hostname="node-0058", index="0"} 10.8
+"#;
+
+        let (_, cpu_info, _, _) = parser.parse_metrics(test_data, host, &re);
+
+        assert_eq!(cpu_info.len(), 1);
+        let cpu = &cpu_info[0];
+        assert_eq!(cpu.cpu_model, "Apple M2 Max");
+        assert_eq!(cpu.utilization, 30.5);
+        assert!(matches!(
+            cpu.platform_type,
+            crate::device::CpuPlatformType::AppleSilicon
+        ));
+
+        let apple_info = cpu.apple_silicon_info.as_ref().unwrap();
+        assert_eq!(apple_info.p_core_count, 8);
+        assert_eq!(apple_info.e_core_count, 4);
+        assert_eq!(apple_info.p_core_utilization, 25.2);
+        assert_eq!(apple_info.e_core_utilization, 10.8);
+    }
+
+    #[test]
+    fn test_parse_memory_metrics() {
+        let parser = create_test_parser();
+        let re = create_test_regex();
+        let host = "127.0.0.1:10058";
+
+        let test_data = r#"
+all_smi_memory_total_bytes{instance="node-0058", hostname="node-0058", index="0"} 137438953472
+all_smi_memory_used_bytes{instance="node-0058", hostname="node-0058", index="0"} 68719476736
+all_smi_memory_available_bytes{instance="node-0058", hostname="node-0058", index="0"} 68719476736
+all_smi_memory_utilization{instance="node-0058", hostname="node-0058", index="0"} 50.0
+"#;
+
+        let (_, _, memory_info, _) = parser.parse_metrics(test_data, host, &re);
+
+        assert_eq!(memory_info.len(), 1);
+        let memory = &memory_info[0];
+        assert_eq!(memory.hostname, "node-0058");
+        assert_eq!(memory.total_bytes, 137438953472);
+        assert_eq!(memory.used_bytes, 68719476736);
+        assert_eq!(memory.available_bytes, 68719476736);
+        assert_eq!(memory.utilization, 50.0);
+    }
+
+    #[test]
+    fn test_parse_storage_metrics() {
+        let parser = create_test_parser();
+        let re = create_test_regex();
+        let host = "127.0.0.1:10058";
+
+        let test_data = r#"
+all_smi_disk_total_bytes{instance="node-0058", mount_point="/", index="0"} 4398046511104
+all_smi_disk_available_bytes{instance="node-0058", mount_point="/", index="0"} 891915494941
+all_smi_disk_total_bytes{instance="node-0058", mount_point="/home", index="1"} 1099511627776
+all_smi_disk_available_bytes{instance="node-0058", mount_point="/home", index="1"} 549755813888
+"#;
+
+        let (_, _, _, storage_info) = parser.parse_metrics(test_data, host, &re);
+
+        assert_eq!(storage_info.len(), 2);
+
+        let root_storage = storage_info.iter().find(|s| s.mount_point == "/").unwrap();
+        assert_eq!(root_storage.hostname, "node-0058");
+        assert_eq!(root_storage.total_bytes, 4398046511104);
+        assert_eq!(root_storage.available_bytes, 891915494941);
+        assert_eq!(root_storage.index, 0);
+
+        let home_storage = storage_info
+            .iter()
+            .find(|s| s.mount_point == "/home")
+            .unwrap();
+        assert_eq!(home_storage.hostname, "node-0058");
+        assert_eq!(home_storage.total_bytes, 1099511627776);
+        assert_eq!(home_storage.available_bytes, 549755813888);
+        assert_eq!(home_storage.index, 1);
+    }
+
+    #[test]
+    fn test_parse_mixed_metrics() {
+        let parser = create_test_parser();
+        let re = create_test_regex();
+        let host = "127.0.0.1:10058";
+
+        let test_data = r#"
+all_smi_gpu_utilization{gpu="NVIDIA RTX 4090", instance="node-0001", uuid="GPU-ABCDE", index="0"} 75.0
+all_smi_cpu_utilization{cpu_model="AMD Ryzen", instance="node-0001", hostname="node-0001", index="0"} 60.0
+all_smi_memory_total_bytes{instance="node-0001", hostname="node-0001", index="0"} 68719476736
+all_smi_disk_total_bytes{instance="node-0001", mount_point="/", index="0"} 2199023255552
+"#;
+
+        let (gpu_info, cpu_info, memory_info, storage_info) =
+            parser.parse_metrics(test_data, host, &re);
+
+        assert_eq!(gpu_info.len(), 1);
+        assert_eq!(cpu_info.len(), 1);
+        assert_eq!(memory_info.len(), 1);
+        assert_eq!(storage_info.len(), 1);
+
+        assert_eq!(gpu_info[0].name, "NVIDIA RTX 4090");
+        assert_eq!(gpu_info[0].utilization, 75.0);
+        assert_eq!(gpu_info[0].hostname, "node-0001");
+
+        assert_eq!(cpu_info[0].cpu_model, "AMD Ryzen");
+        assert_eq!(cpu_info[0].utilization, 60.0);
+        assert!(matches!(
+            cpu_info[0].platform_type,
+            crate::device::CpuPlatformType::Amd
+        ));
+
+        assert_eq!(memory_info[0].total_bytes, 68719476736);
+        assert_eq!(storage_info[0].total_bytes, 2199023255552);
+    }
+
+    #[test]
+    fn test_invalid_metrics() {
+        let parser = create_test_parser();
+        let re = create_test_regex();
+        let host = "127.0.0.1:10058";
+
+        let test_data = r#"
+invalid_metric_format
+all_smi_gpu_utilization{malformed labels} invalid_value
+all_smi_unknown_metric{instance="test"} 42.0
+"#;
+
+        let (gpu_info, cpu_info, memory_info, storage_info) =
+            parser.parse_metrics(test_data, host, &re);
+
+        assert!(gpu_info.is_empty());
+        assert!(cpu_info.is_empty());
+        assert!(memory_info.is_empty());
+        assert!(storage_info.is_empty());
+    }
+
+    #[test]
+    fn test_empty_metrics() {
+        let parser = create_test_parser();
+        let re = create_test_regex();
+        let host = "127.0.0.1:10058";
+
+        let (gpu_info, cpu_info, memory_info, storage_info) = parser.parse_metrics("", host, &re);
+
+        assert!(gpu_info.is_empty());
+        assert!(cpu_info.is_empty());
+        assert!(memory_info.is_empty());
+        assert!(storage_info.is_empty());
+    }
+
+    #[test]
+    fn test_hostname_update() {
+        let parser = create_test_parser();
+        let re = create_test_regex();
+        let host = "127.0.0.1:10058";
+
+        let test_data = r#"
+all_smi_gpu_utilization{gpu="Tesla V100", instance="production-node-42", uuid="GPU-XYZ", index="0"} 85.0
+all_smi_cpu_utilization{cpu_model="Intel Xeon", instance="production-node-42", hostname="node-0058", index="0"} 55.0
+"#;
+
+        let (gpu_info, cpu_info, _, _) = parser.parse_metrics(test_data, host, &re);
+
+        assert_eq!(gpu_info[0].hostname, "production-node-42");
+        assert_eq!(cpu_info[0].hostname, "production-node-42");
+    }
+
+    #[test]
+    fn test_cpu_platform_detection() {
+        let parser = create_test_parser();
+        let re = create_test_regex();
+        let host = "127.0.0.1:10058";
+
+        let test_cases = [
+            ("Apple M1 Pro", crate::device::CpuPlatformType::AppleSilicon),
+            ("Intel Core i9", crate::device::CpuPlatformType::Intel),
+            ("AMD Ryzen 9", crate::device::CpuPlatformType::Amd),
+            (
+                "Unknown Processor",
+                crate::device::CpuPlatformType::Other("Unknown".to_string()),
+            ),
+        ];
+
+        for (cpu_model, expected_type) in test_cases {
+            let test_data = format!(
+                r#"all_smi_cpu_utilization{{cpu_model="{cpu_model}", instance="test", hostname="test", index="0"}} 50.0"#
+            );
+
+            let (_, cpu_info, _, _) = parser.parse_metrics(&test_data, host, &re);
+            assert_eq!(cpu_info.len(), 1);
+
+            match (&cpu_info[0].platform_type, &expected_type) {
+                (
+                    crate::device::CpuPlatformType::AppleSilicon,
+                    crate::device::CpuPlatformType::AppleSilicon,
+                ) => {}
+                (crate::device::CpuPlatformType::Intel, crate::device::CpuPlatformType::Intel) => {}
+                (crate::device::CpuPlatformType::Amd, crate::device::CpuPlatformType::Amd) => {}
+                (
+                    crate::device::CpuPlatformType::Other(actual),
+                    crate::device::CpuPlatformType::Other(expected),
+                ) => {
+                    assert_eq!(actual, expected);
+                }
+                _ => panic!(
+                    "Platform type mismatch for {}: expected {:?}, got {:?}",
+                    cpu_model, expected_type, cpu_info[0].platform_type
+                ),
+            }
+        }
+    }
+
+    #[test]
+    fn test_missing_required_fields() {
+        let parser = create_test_parser();
+        let re = create_test_regex();
+        let host = "127.0.0.1:10058";
+
+        let test_data = r#"
+all_smi_gpu_utilization{instance="node-0058", index="0"} 25.5
+all_smi_disk_total_bytes{instance="node-0058", index="0"} 1000000000
+"#;
+
+        let (gpu_info, _, _, storage_info) = parser.parse_metrics(test_data, host, &re);
+
+        assert!(gpu_info.is_empty());
+        assert!(storage_info.is_empty());
+    }
+}
