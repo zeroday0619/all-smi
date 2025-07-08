@@ -5,7 +5,7 @@ use crossterm::{
 use std::io::Write;
 
 use crate::app_state::AppState;
-use crate::ui::renderer::print_colored_text;
+use crate::ui::text::print_colored_text;
 
 pub fn draw_tabs<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
     // Print tabs
@@ -15,25 +15,59 @@ pub fn draw_tabs<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
     // Reserve space for "Tabs: " prefix (6 chars) plus some padding
     let mut available_width = cols.saturating_sub(8);
 
-    // Skip tabs that are before the scroll offset
-    let visible_tabs: Vec<_> = state
+    // Always show "All" tab first (index 0)
+    if !state.tabs.is_empty() {
+        let all_tab = &state.tabs[0];
+        let tab_width = all_tab.len() as u16 + 2; // Tab name + 2 spaces padding
+
+        if available_width >= tab_width {
+            if state.current_tab == 0 {
+                labels.push((format!(" {all_tab} "), Color::Black));
+            } else {
+                labels.push((format!(" {all_tab} "), Color::White));
+            }
+            available_width -= tab_width;
+        }
+    }
+
+    // Show node tabs starting from scroll offset (skip "All" tab at index 0)
+    let node_tabs: Vec<_> = state
         .tabs
         .iter()
         .enumerate()
+        .skip(1) // Skip "All" tab
         .skip(state.tab_scroll_offset)
         .collect();
 
-    for (i, tab) in visible_tabs {
+    for (i, tab) in node_tabs {
         let tab_width = tab.len() as u16 + 2; // Tab name + 2 spaces padding
         if available_width < tab_width {
             break; // No more space
         }
 
-        if state.current_tab == i {
-            labels.push((format!(" {tab} "), Color::Black));
+        // Determine color based on connection status and selection
+        let color = if state.current_tab == i {
+            Color::Black // Selected tab (will get blue background)
         } else {
-            labels.push((format!(" {tab} "), Color::White));
-        }
+            // Check if this tab represents a disconnected node
+            let is_connected = if tab != "All" {
+                state
+                    .connection_status
+                    .get(tab)
+                    .map(|status| status.is_connected)
+                    .unwrap_or(true) // Default to connected for local mode
+            } else {
+                true // "All" tab is always "connected"
+            };
+
+            if is_connected {
+                Color::White // Connected: normal white text
+            } else {
+                Color::DarkGrey // Disconnected: dimmed grey text
+            }
+        };
+
+        labels.push((format!(" {tab} "), color));
 
         available_width -= tab_width;
     }
@@ -66,22 +100,36 @@ fn render_tab_separator<W: Write>(stdout: &mut W, cols: u16) {
 #[allow(dead_code)]
 pub fn calculate_tab_visibility(state: &AppState, cols: u16) -> TabVisibility {
     let mut available_width = cols.saturating_sub(8);
-    let mut last_visible_tab = state.tab_scroll_offset;
 
-    for (i, tab) in state.tabs.iter().enumerate().skip(state.tab_scroll_offset) {
+    // Reserve space for "All" tab (always visible)
+    if !state.tabs.is_empty() {
+        let all_tab_width = state.tabs[0].len() as u16 + 2;
+        available_width = available_width.saturating_sub(all_tab_width);
+    }
+
+    // Calculate visible node tabs (skip "All" tab)
+    let mut last_visible_node_tab = state.tab_scroll_offset;
+
+    for (node_index, tab) in state
+        .tabs
+        .iter()
+        .enumerate()
+        .skip(1)
+        .skip(state.tab_scroll_offset)
+    {
         let tab_width = tab.len() as u16 + 2;
         if available_width < tab_width {
             break;
         }
         available_width -= tab_width;
-        last_visible_tab = i;
+        last_visible_node_tab = node_index - 1; // Convert to node tab index
     }
 
     TabVisibility {
         first_visible: state.tab_scroll_offset,
-        last_visible: last_visible_tab,
+        last_visible: last_visible_node_tab + 1, // Convert back to absolute tab index
         has_more_left: state.tab_scroll_offset > 0,
-        has_more_right: last_visible_tab < state.tabs.len() - 1,
+        has_more_right: last_visible_node_tab + 1 < state.tabs.len() - 1,
     }
 }
 
@@ -128,6 +176,8 @@ mod tests {
             temperature_history: VecDeque::new(),
             notifications: crate::ui::notification::NotificationManager::new(),
             nvml_notification_shown: false,
+            connection_status: HashMap::new(),
+            known_hosts: Vec::new(),
         }
     }
 

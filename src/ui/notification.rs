@@ -27,6 +27,7 @@ pub struct Notification {
     pub message: String,
     pub created_at: DateTime<Local>,
     pub duration_seconds: u64,
+    #[allow(dead_code)] // Future notification system architecture
     pub notification_type: NotificationType,
 }
 
@@ -147,6 +148,7 @@ impl NotificationManager {
             .map(|n| n.message.as_str())
     }
 
+    #[allow(dead_code)] // Future notification system architecture
     pub fn get_current_notification(&self) -> Option<&Notification> {
         self.current_notification.as_ref()
     }

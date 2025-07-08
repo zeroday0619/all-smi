@@ -1,8 +1,8 @@
 use crate::device::{GpuInfo, GpuReader, ProcessInfo};
+use crate::utils::get_hostname;
 use chrono::Local;
 use std::collections::HashMap;
 use std::fs;
-use std::process::Command;
 
 pub struct NvidiaJetsonGpuReader;
 
@@ -63,13 +63,6 @@ impl GpuReader for NvidiaJetsonGpuReader {
     fn get_process_info(&self) -> Vec<ProcessInfo> {
         Vec::new()
     }
-}
-
-fn get_hostname() -> String {
-    let output = Command::new("hostname")
-        .output()
-        .expect("Failed to execute hostname command");
-    String::from_utf8_lossy(&output.stdout).trim().to_string()
 }
 
 fn get_memory_info() -> (u64, u64) {

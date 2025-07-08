@@ -1,4 +1,5 @@
 use crate::device::{get_system_process_info, GpuInfo, GpuReader, ProcessInfo};
+use crate::utils::get_hostname;
 use chrono::Local;
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
@@ -262,13 +263,6 @@ fn get_gpu_name_and_version() -> (String, Option<String>) {
     }
 
     (name, driver_version)
-}
-
-fn get_hostname() -> String {
-    let output = Command::new("hostname")
-        .output()
-        .expect("Failed to execute hostname command");
-    String::from_utf8_lossy(&output.stdout).trim().to_string()
 }
 
 fn get_total_memory() -> u64 {

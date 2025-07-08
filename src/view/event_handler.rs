@@ -41,9 +41,16 @@ pub async fn handle_key_event(key_event: KeyEvent, state: &mut AppState, args: &
 fn handle_left_arrow(state: &mut AppState) {
     if state.current_tab > 0 {
         state.current_tab -= 1;
-        if state.current_tab < state.tab_scroll_offset + 1 && state.tab_scroll_offset > 0 {
-            state.tab_scroll_offset -= 1;
+
+        // If we're moving to a node tab (not "All" tab), adjust scroll if needed
+        if state.current_tab > 0 {
+            // Calculate which node tab index this is (subtract 1 for "All" tab)
+            let node_tab_index = state.current_tab - 1;
+            if node_tab_index < state.tab_scroll_offset {
+                state.tab_scroll_offset = node_tab_index;
+            }
         }
+        // If moving to "All" tab (index 0), no scroll adjustment needed since it's always visible
     }
     state.gpu_scroll_offset = 0;
     state.storage_scroll_offset = 0;
@@ -52,28 +59,43 @@ fn handle_left_arrow(state: &mut AppState) {
 fn handle_right_arrow(state: &mut AppState) {
     if state.current_tab < state.tabs.len() - 1 {
         state.current_tab += 1;
-        let (cols, _) = size().unwrap();
-        let mut available_width = cols.saturating_sub(5);
-        let mut last_visible_tab = state.tab_scroll_offset;
 
-        for (i, tab) in state
-            .tabs
-            .iter()
-            .enumerate()
-            .skip(1)
-            .skip(state.tab_scroll_offset)
-        {
-            let tab_width = tab.len() as u16 + 2;
-            if available_width < tab_width {
-                break;
+        // If we're moving to a node tab (not "All" tab), check if we need to scroll
+        if state.current_tab > 0 {
+            let (cols, _) = size().unwrap();
+            let mut available_width = cols.saturating_sub(8); // Space for "Tabs: " prefix
+
+            // Reserve space for "All" tab (always visible)
+            if !state.tabs.is_empty() {
+                let all_tab_width = state.tabs[0].len() as u16 + 2;
+                available_width = available_width.saturating_sub(all_tab_width);
             }
-            available_width -= tab_width;
-            last_visible_tab = i;
-        }
 
-        if state.current_tab > last_visible_tab {
-            state.tab_scroll_offset += 1;
+            // Calculate which node tabs are visible starting from scroll offset
+            let mut last_visible_node_tab_index = state.tab_scroll_offset;
+
+            for (node_index, tab) in state
+                .tabs
+                .iter()
+                .enumerate()
+                .skip(1)
+                .skip(state.tab_scroll_offset)
+            {
+                let tab_width = tab.len() as u16 + 2;
+                if available_width < tab_width {
+                    break;
+                }
+                available_width -= tab_width;
+                last_visible_node_tab_index = node_index - 1; // Convert to node tab index (subtract 1 for "All")
+            }
+
+            // Check if current tab is a node tab and not visible
+            let current_node_tab_index = state.current_tab - 1; // Convert to node tab index
+            if current_node_tab_index > last_visible_node_tab_index {
+                state.tab_scroll_offset += 1;
+            }
         }
+        // If moving to "All" tab, no scroll adjustment needed since it's always visible
     }
     state.gpu_scroll_offset = 0;
     state.storage_scroll_offset = 0;

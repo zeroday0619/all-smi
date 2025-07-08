@@ -1,7 +1,10 @@
 mod api;
 mod app_state;
 mod cli;
+mod common;
 mod device;
+mod metrics;
+mod network;
 mod storage;
 mod ui;
 mod utils;

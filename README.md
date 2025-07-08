@@ -1,5 +1,11 @@
 # all-smi
 
+[![Crates.io version](https://img.shields.io/crates/v/all-smi.svg?style=flat-square)](https://crates.io/crates/all-smi)
+[![Crates.io downloads](https://img.shields.io/crates/d/all-smi.svg?style=flat-square)](https://crates.io/crates/all-smi)
+![CI](https://github.com/inureyes/all-smi/workflows/CI/badge.svg)
+[![dependency status](https://deps.rs/repo/github/inureyes/all-smi/status.svg)](https://deps.rs/repo/github/inureyes/all-smi)
+
+
 `all-smi` is a command-line utility for monitoring GPU hardware across multiple systems. It provides a real-time view of GPU utilization, memory usage, temperature, power consumption, and other metrics. The tool is designed to be a cross-platform alternative to `nvidia-smi`, with support for NVIDIA GPUs, Apple Silicon GPUs, and NVIDIA Jetson platforms.
 
 The application presents a terminal-based user interface with cluster overview, interactive sorting, and both local and remote monitoring capabilities. It also provides an API mode for Prometheus metrics integration.
@@ -141,6 +147,27 @@ all-smi view --hostfile hosts.csv
 
 # API mode
 all-smi api --port 9090
+```
+
+### Quick Start with Make Commands
+
+For development and testing, you can use the provided Makefile:
+
+```bash
+# Run local monitoring
+make local
+
+# Run remote monitoring with hosts file
+make remote
+
+# Start mock server for testing
+make mock
+
+# Build release version
+make release
+
+# Run tests
+make test
 ```
 
 ### View Mode (Interactive Monitoring)

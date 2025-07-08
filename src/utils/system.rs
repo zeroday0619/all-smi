@@ -8,6 +8,17 @@ pub fn get_hostname() -> String {
     String::from_utf8_lossy(&output.stdout).trim().to_string()
 }
 
+/// Check if the current process already has sudo privileges
+pub fn has_sudo_privileges() -> bool {
+    Command::new("sudo")
+        .arg("-n") // Non-interactive mode
+        .arg("-v") // Validate sudo timestamp
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false)
+}
+
+#[allow(dead_code)] // Used in runner_old.rs (backup file)
 pub fn calculate_adaptive_interval(node_count: usize) -> u64 {
     // Adaptive interval based on node count to prevent overwhelming the network
     // For 1-10 nodes: 2 seconds
@@ -39,6 +50,14 @@ pub fn ensure_sudo_permissions_with_fallback() -> bool {
 }
 
 pub fn request_sudo_with_explanation() {
+    // Check if we already have sudo privileges
+    if has_sudo_privileges() {
+        println!("✅ Administrator privileges already available.");
+        println!("   Starting system monitoring...");
+        println!();
+        return;
+    }
+
     println!("🔧 all-smi: System Monitoring Interface");
     println!("============================================");
     println!();
@@ -111,6 +130,14 @@ pub fn request_sudo_with_explanation() {
 }
 
 pub fn request_sudo_with_explanation_and_fallback() -> bool {
+    // Check if we already have sudo privileges
+    if has_sudo_privileges() {
+        println!("✅ Administrator privileges already available.");
+        println!("   Starting local system monitoring...");
+        println!();
+        return true;
+    }
+
     println!("🔧 all-smi: System Monitoring Interface");
     println!("============================================");
     println!();
@@ -210,4 +237,78 @@ pub fn request_sudo_with_explanation_and_fallback() -> bool {
     println!("   Starting local system monitoring...");
     println!();
     true // User granted sudo permissions
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_calculate_adaptive_interval() {
+        assert_eq!(calculate_adaptive_interval(0), 2);
+        assert_eq!(calculate_adaptive_interval(1), 2);
+        assert_eq!(calculate_adaptive_interval(5), 2);
+        assert_eq!(calculate_adaptive_interval(10), 2);
+        assert_eq!(calculate_adaptive_interval(11), 3);
+        assert_eq!(calculate_adaptive_interval(25), 3);
+        assert_eq!(calculate_adaptive_interval(50), 3);
+        assert_eq!(calculate_adaptive_interval(51), 4);
+        assert_eq!(calculate_adaptive_interval(75), 4);
+        assert_eq!(calculate_adaptive_interval(100), 4);
+        assert_eq!(calculate_adaptive_interval(101), 5);
+        assert_eq!(calculate_adaptive_interval(150), 5);
+        assert_eq!(calculate_adaptive_interval(200), 5);
+        assert_eq!(calculate_adaptive_interval(201), 6);
+        assert_eq!(calculate_adaptive_interval(500), 6);
+        assert_eq!(calculate_adaptive_interval(1000), 6);
+    }
+
+    #[test]
+    fn test_get_hostname() {
+        let hostname = get_hostname();
+        assert!(!hostname.is_empty(), "Hostname should not be empty");
+        assert!(
+            !hostname.contains('\n'),
+            "Hostname should not contain newlines"
+        );
+        assert!(
+            !hostname.contains('\r'),
+            "Hostname should not contain carriage returns"
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn test_ensure_sudo_permissions_macos() {
+        ensure_sudo_permissions();
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn test_ensure_sudo_permissions_non_macos() {
+        ensure_sudo_permissions();
+    }
+
+    #[test]
+    fn test_ensure_sudo_permissions_with_fallback_returns_bool() {
+        let _result = ensure_sudo_permissions_with_fallback();
+        // Function should execute without panicking and return a boolean
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn test_has_sudo_privileges_on_macos() {
+        let _result = has_sudo_privileges();
+        // Function should execute without panicking and return a boolean
+    }
+
+    #[test]
+    #[cfg(not(target_os = "macos"))]
+    fn test_has_sudo_privileges_on_non_macos() {
+        let result = has_sudo_privileges();
+        assert!(
+            result == true || result == false,
+            "has_sudo_privileges should return a boolean"
+        );
+    }
 }

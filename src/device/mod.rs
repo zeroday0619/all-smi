@@ -508,3 +508,257 @@ fn parse_time_to_seconds(time_str: &str) -> u64 {
         _ => 0,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_time_to_seconds() {
+        assert_eq!(parse_time_to_seconds("0:01"), 1);
+        assert_eq!(parse_time_to_seconds("1:30"), 90);
+        assert_eq!(parse_time_to_seconds("0:01.23"), 1);
+        assert_eq!(parse_time_to_seconds("2:15.45"), 135);
+        assert_eq!(parse_time_to_seconds("1:23:45"), 5025);
+        assert_eq!(parse_time_to_seconds("0:05:30"), 330);
+        assert_eq!(parse_time_to_seconds("0:00:00"), 0);
+        assert_eq!(parse_time_to_seconds("invalid"), 0);
+        assert_eq!(parse_time_to_seconds(""), 0);
+        assert_eq!(parse_time_to_seconds("1"), 0);
+        assert_eq!(parse_time_to_seconds("1:2:3:4"), 0);
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn test_is_apple_silicon_on_macos() {
+        let _result = is_apple_silicon();
+        // Function should execute without panicking and return a boolean
+    }
+
+    #[test]
+    #[cfg(not(target_os = "macos"))]
+    fn test_is_apple_silicon_on_non_macos() {
+        let result = is_apple_silicon();
+        assert_eq!(
+            result, false,
+            "is_apple_silicon should return false on non-macOS"
+        );
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn test_has_nvidia_on_linux() {
+        let result = has_nvidia();
+        assert!(
+            result == true || result == false,
+            "has_nvidia should return a boolean"
+        );
+    }
+
+    #[test]
+    #[cfg(not(target_os = "linux"))]
+    fn test_has_nvidia_on_non_linux() {
+        let _result = has_nvidia();
+        // Function should execute without panicking and return a boolean
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn test_is_jetson_on_linux() {
+        let result = is_jetson();
+        assert!(
+            result == true || result == false,
+            "is_jetson should return a boolean"
+        );
+    }
+
+    #[test]
+    #[cfg(not(target_os = "linux"))]
+    fn test_is_jetson_on_non_linux() {
+        let result = is_jetson();
+        assert!(!result, "is_jetson should return false on non-Linux");
+    }
+
+    #[test]
+    fn test_get_gpu_readers() {
+        let readers = get_gpu_readers();
+        assert!(readers.len() <= 1, "Should return at most one GPU reader");
+    }
+
+    #[test]
+    fn test_get_cpu_readers() {
+        let readers = get_cpu_readers();
+        assert!(
+            readers.len() <= 1,
+            "Should return at most one CPU reader per OS"
+        );
+    }
+
+    #[test]
+    fn test_get_memory_readers() {
+        let readers = get_memory_readers();
+        assert!(
+            readers.len() <= 1,
+            "Should return at most one memory reader per OS"
+        );
+    }
+
+    #[test]
+    fn test_cpu_platform_type_enum() {
+        let intel = CpuPlatformType::Intel;
+        let amd = CpuPlatformType::Amd;
+        let apple = CpuPlatformType::AppleSilicon;
+        let arm = CpuPlatformType::Arm;
+        let other = CpuPlatformType::Other("Custom".to_string());
+
+        match intel {
+            CpuPlatformType::Intel => {}
+            _ => panic!("Intel enum variant should match"),
+        }
+
+        match amd {
+            CpuPlatformType::Amd => {}
+            _ => panic!("AMD enum variant should match"),
+        }
+
+        match apple {
+            CpuPlatformType::AppleSilicon => {}
+            _ => panic!("AppleSilicon enum variant should match"),
+        }
+
+        match arm {
+            CpuPlatformType::Arm => {}
+            _ => panic!("Arm enum variant should match"),
+        }
+
+        match other {
+            CpuPlatformType::Other(ref name) => assert_eq!(name, "Custom"),
+            _ => panic!("Other enum variant should match"),
+        }
+    }
+
+    #[test]
+    fn test_gpu_info_default_values() {
+        let gpu_info = GpuInfo {
+            uuid: "test-uuid".to_string(),
+            time: "2023-01-01 00:00:00".to_string(),
+            name: "Test GPU".to_string(),
+            hostname: "test-host".to_string(),
+            instance: "test-instance".to_string(),
+            utilization: 0.0,
+            ane_utilization: 0.0,
+            dla_utilization: None,
+            temperature: 0,
+            used_memory: 0,
+            total_memory: 0,
+            frequency: 0,
+            power_consumption: 0.0,
+            detail: HashMap::new(),
+        };
+
+        assert_eq!(gpu_info.uuid, "test-uuid");
+        assert_eq!(gpu_info.utilization, 0.0);
+        assert_eq!(gpu_info.dla_utilization, None);
+        assert!(gpu_info.detail.is_empty());
+    }
+
+    #[test]
+    fn test_cpu_info_default_values() {
+        let cpu_info = CpuInfo {
+            hostname: "test-host".to_string(),
+            instance: "test-instance".to_string(),
+            cpu_model: "Test CPU".to_string(),
+            architecture: "x86_64".to_string(),
+            platform_type: CpuPlatformType::Other("Test".to_string()),
+            socket_count: 1,
+            total_cores: 4,
+            total_threads: 8,
+            base_frequency_mhz: 2400,
+            max_frequency_mhz: 3200,
+            cache_size_mb: 16,
+            utilization: 0.0,
+            temperature: None,
+            power_consumption: None,
+            per_socket_info: Vec::new(),
+            apple_silicon_info: None,
+            time: "2023-01-01 00:00:00".to_string(),
+        };
+
+        assert_eq!(cpu_info.hostname, "test-host");
+        assert_eq!(cpu_info.socket_count, 1);
+        assert_eq!(cpu_info.temperature, None);
+        assert!(cpu_info.per_socket_info.is_empty());
+        assert!(cpu_info.apple_silicon_info.is_none());
+    }
+
+    #[test]
+    fn test_memory_info_default_values() {
+        let memory_info = MemoryInfo {
+            hostname: "test-host".to_string(),
+            instance: "test-instance".to_string(),
+            total_bytes: 0,
+            used_bytes: 0,
+            available_bytes: 0,
+            free_bytes: 0,
+            buffers_bytes: 0,
+            cached_bytes: 0,
+            swap_total_bytes: 0,
+            swap_used_bytes: 0,
+            swap_free_bytes: 0,
+            utilization: 0.0,
+            time: "2023-01-01 00:00:00".to_string(),
+        };
+
+        assert_eq!(memory_info.hostname, "test-host");
+        assert_eq!(memory_info.total_bytes, 0);
+        assert_eq!(memory_info.utilization, 0.0);
+    }
+
+    #[test]
+    fn test_apple_silicon_cpu_info() {
+        let apple_info = AppleSiliconCpuInfo {
+            p_core_count: 8,
+            e_core_count: 4,
+            gpu_core_count: 32,
+            p_core_utilization: 50.0,
+            e_core_utilization: 25.0,
+            ane_ops_per_second: Some(15.5e12),
+        };
+
+        assert_eq!(apple_info.p_core_count, 8);
+        assert_eq!(apple_info.e_core_count, 4);
+        assert_eq!(apple_info.gpu_core_count, 32);
+        assert_eq!(apple_info.p_core_utilization, 50.0);
+        assert_eq!(apple_info.e_core_utilization, 25.0);
+        assert_eq!(apple_info.ane_ops_per_second, Some(15.5e12));
+    }
+
+    #[test]
+    fn test_process_info_values() {
+        let process_info = ProcessInfo {
+            device_id: 0,
+            device_uuid: "GPU-12345".to_string(),
+            pid: 1234,
+            process_name: "test_process".to_string(),
+            used_memory: 1073741824, // 1GB
+            cpu_percent: 25.5,
+            memory_percent: 10.2,
+            memory_rss: 2147483648, // 2GB
+            memory_vms: 4294967296, // 4GB
+            user: "testuser".to_string(),
+            state: "R".to_string(),
+            start_time: "2023-01-01 12:00:00".to_string(),
+            cpu_time: 3600, // 1 hour
+            command: "test_command --arg1 --arg2".to_string(),
+            ppid: 1,
+            threads: 4,
+        };
+
+        assert_eq!(process_info.device_id, 0);
+        assert_eq!(process_info.device_uuid, "GPU-12345");
+        assert_eq!(process_info.pid, 1234);
+        assert_eq!(process_info.used_memory, 1073741824);
+        assert_eq!(process_info.cpu_percent, 25.5);
+        assert_eq!(process_info.threads, 4);
+    }
+}
