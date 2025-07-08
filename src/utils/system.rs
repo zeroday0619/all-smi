@@ -8,6 +8,16 @@ pub fn get_hostname() -> String {
     String::from_utf8_lossy(&output.stdout).trim().to_string()
 }
 
+/// Check if the current process already has sudo privileges
+pub fn has_sudo_privileges() -> bool {
+    Command::new("sudo")
+        .arg("-n") // Non-interactive mode
+        .arg("-v") // Validate sudo timestamp
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false)
+}
+
 #[allow(dead_code)] // Used in runner_old.rs (backup file)
 pub fn calculate_adaptive_interval(node_count: usize) -> u64 {
     // Adaptive interval based on node count to prevent overwhelming the network
@@ -40,6 +50,14 @@ pub fn ensure_sudo_permissions_with_fallback() -> bool {
 }
 
 pub fn request_sudo_with_explanation() {
+    // Check if we already have sudo privileges
+    if has_sudo_privileges() {
+        println!("✅ Administrator privileges already available.");
+        println!("   Starting system monitoring...");
+        println!();
+        return;
+    }
+
     println!("🔧 all-smi: System Monitoring Interface");
     println!("============================================");
     println!();
@@ -112,6 +130,14 @@ pub fn request_sudo_with_explanation() {
 }
 
 pub fn request_sudo_with_explanation_and_fallback() -> bool {
+    // Check if we already have sudo privileges
+    if has_sudo_privileges() {
+        println!("✅ Administrator privileges already available.");
+        println!("   Starting local system monitoring...");
+        println!();
+        return true;
+    }
+
     println!("🔧 all-smi: System Monitoring Interface");
     println!("============================================");
     println!();
