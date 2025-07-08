@@ -317,41 +317,33 @@ impl UiLoop {
     }
 
     fn render_remote_devices(&self, buffer: &mut BufferWriter, state: &AppState, width: usize) {
-        // CPU information for remote mode
-        let cpu_info_to_display: Vec<_> =
-            if state.current_tab < state.tabs.len() && state.tabs[state.current_tab] == "All" {
-                state.cpu_info.iter().collect()
-            } else {
-                state
-                    .cpu_info
-                    .iter()
-                    .filter(|info| info.hostname == state.tabs[state.current_tab])
-                    .collect()
-            };
-
-        for (i, cpu_info) in cpu_info_to_display.iter().enumerate() {
-            print_cpu_info(buffer, i, cpu_info, width);
-        }
-
-        // Memory information for remote mode
-        let memory_info_to_display: Vec<_> =
-            if state.current_tab < state.tabs.len() && state.tabs[state.current_tab] == "All" {
-                state.memory_info.iter().collect()
-            } else {
-                state
-                    .memory_info
-                    .iter()
-                    .filter(|info| info.hostname == state.tabs[state.current_tab])
-                    .collect()
-            };
-
-        for (i, memory_info) in memory_info_to_display.iter().enumerate() {
-            print_memory_info(buffer, i, memory_info, width);
-        }
-
-        // Storage information for remote mode (only for specific host tabs)
+        // CPU and Memory information for remote mode (only for specific host tabs, not "All" tab)
         if state.current_tab > 0 && state.current_tab < state.tabs.len() {
             let current_hostname = &state.tabs[state.current_tab];
+
+            // CPU information for specific host
+            let cpu_info_to_display: Vec<_> = state
+                .cpu_info
+                .iter()
+                .filter(|info| info.hostname == *current_hostname)
+                .collect();
+
+            for (i, cpu_info) in cpu_info_to_display.iter().enumerate() {
+                print_cpu_info(buffer, i, cpu_info, width);
+            }
+
+            // Memory information for specific host
+            let memory_info_to_display: Vec<_> = state
+                .memory_info
+                .iter()
+                .filter(|info| info.hostname == *current_hostname)
+                .collect();
+
+            for (i, memory_info) in memory_info_to_display.iter().enumerate() {
+                print_memory_info(buffer, i, memory_info, width);
+            }
+
+            // Storage information for specific host
             let storage_info_to_display: Vec<_> = state
                 .storage_info
                 .iter()

@@ -345,7 +345,7 @@ impl MockNode {
                     e_core_utilization: None,
                 }
             }
-            PlatformType::AMD => {
+            PlatformType::Amd => {
                 let models = [
                     "AMD EPYC 7742",
                     "AMD Ryzen 9 7950X",
@@ -1173,7 +1173,7 @@ fn parse_platform_type(platform_str: &str) -> PlatformType {
         "apple" => PlatformType::Apple,
         "jetson" => PlatformType::Jetson,
         "intel" => PlatformType::Intel,
-        "amd" => PlatformType::AMD,
+        "amd" => PlatformType::Amd,
         _ => {
             eprintln!("Unknown platform '{platform_str}', defaulting to nvidia");
             PlatformType::Nvidia

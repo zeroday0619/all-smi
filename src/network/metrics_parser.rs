@@ -58,7 +58,7 @@ impl MetricsParser {
                         value,
                         host,
                     );
-                } else if metric_name.starts_with("storage_") {
+                } else if metric_name.starts_with("storage_") || metric_name.starts_with("disk_") {
                     self.process_storage_metrics(
                         &mut storage_info_map,
                         metric_name,
@@ -305,8 +305,8 @@ impl MetricsParser {
             });
 
         match metric_name {
-            "storage_total_bytes" => storage_info.total_bytes = value as u64,
-            "storage_available_bytes" => storage_info.available_bytes = value as u64,
+            "disk_total_bytes" => storage_info.total_bytes = value as u64,
+            "disk_available_bytes" => storage_info.available_bytes = value as u64,
             _ => {}
         }
     }
