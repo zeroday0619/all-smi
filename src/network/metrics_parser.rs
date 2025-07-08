@@ -154,6 +154,11 @@ impl MetricsParser {
                     .insert("power_limit_max".to_string(), value.to_string());
             }
             "gpu_info" => {
+                // Extract device type
+                if let Some(device_type) = labels.get("type") {
+                    gpu_info.device_type = device_type.clone();
+                }
+
                 // Extract CUDA and driver info from labels
                 if let Some(cuda_version) = labels.get("cuda_version") {
                     gpu_info

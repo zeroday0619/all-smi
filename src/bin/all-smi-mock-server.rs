@@ -619,6 +619,7 @@ impl MockNode {
                     format!("instance=\"{}\"", instance_name),
                     format!("uuid=\"{}\"", gpu.uuid),
                     format!("index=\"{}\"", i),
+                    format!("type=\"GPU\""), // Default to GPU, can be customized in the future
                 ];
 
                 // Add CUDA-specific labels based on platform
