@@ -49,6 +49,13 @@ struct Args {
         help = "Output CSV file name"
     )]
     o: String,
+
+    #[arg(
+        long,
+        default_value_t = 0,
+        help = "Number of nodes to simulate random failures (0 = no failures)"
+    )]
+    failure_nodes: u32,
 }
 
 #[derive(Clone)]
@@ -119,6 +126,7 @@ struct MockNode {
     disk_total_bytes: u64,
     response_template: String,
     rendered_response: String,
+    is_responding: bool, // Whether this node should respond to requests
 }
 
 // Template placeholders for fast string replacement
@@ -258,6 +266,7 @@ impl MockNode {
             disk_total_bytes,
             response_template,
             rendered_response: String::new(),
+            is_responding: true, // Start with all nodes responding
         };
 
         // Render initial response
@@ -1146,12 +1155,23 @@ async fn handle_request(
     nodes: Arc<Mutex<HashMap<u16, MockNode>>>,
     port: u16,
 ) -> Result<Response<String>, Infallible> {
-    // Copy response data to own it (avoiding lifetime issues)
-    let metrics = {
+    // Check if node is responding and copy response data
+    let (is_responding, metrics) = {
         let nodes_guard = nodes.lock().unwrap();
         let node = nodes_guard.get(&port).unwrap();
-        node.get_response().to_string() // Copy the string to own it
+        (node.is_responding, node.get_response().to_string())
     };
+
+    // If node is not responding, simulate a connection timeout/error
+    if !is_responding {
+        // Return a 503 Service Unavailable to simulate failure
+        let response = Response::builder()
+            .status(503)
+            .header("Content-Type", "text/plain; charset=utf-8")
+            .body("Service temporarily unavailable".to_string())
+            .unwrap();
+        return Ok(response);
+    }
 
     // Build optimized HTTP response with performance headers
     let response = Response::builder()
@@ -1218,6 +1238,51 @@ async fn main() -> Result<()> {
         }
     });
 
+    // Start failure simulation task if failure_nodes > 0
+    let failure_task = if args.failure_nodes > 0 {
+        let nodes_failure = Arc::clone(&nodes);
+        let failure_count = args.failure_nodes;
+        Some(tokio::spawn(async move {
+            let mut interval = interval(Duration::from_secs(10)); // Every 10 seconds
+            loop {
+                interval.tick().await;
+                let mut rng = rand::thread_rng(); // Create RNG inside the loop to avoid Send issues
+                let mut nodes_guard = nodes_failure.lock().unwrap();
+                let port_list: Vec<u16> = nodes_guard.keys().cloned().collect();
+
+                if port_list.len() as u32 >= failure_count {
+                    // Randomly select nodes to fail
+                    let mut selected_ports = Vec::new();
+                    while selected_ports.len() < failure_count as usize {
+                        let port = port_list[rng.gen_range(0..port_list.len())];
+                        if !selected_ports.contains(&port) {
+                            selected_ports.push(port);
+                        }
+                    }
+
+                    // Toggle failure state for all nodes
+                    for (port, node) in nodes_guard.iter_mut() {
+                        if selected_ports.contains(port) {
+                            // Randomly fail/recover selected nodes
+                            node.is_responding = rng.gen_bool(0.3); // 30% chance to be responding
+                        } else {
+                            // Non-selected nodes have higher chance to be responding
+                            node.is_responding = rng.gen_bool(0.9); // 90% chance to be responding
+                        }
+                    }
+
+                    let responding_count = nodes_guard.values().filter(|n| n.is_responding).count();
+                    let total_count = nodes_guard.len();
+                    println!(
+                        "Failure simulation: {responding_count}/{total_count} nodes responding"
+                    );
+                }
+            }
+        }))
+    } else {
+        None
+    };
+
     let mut servers = vec![];
     for port in port_range {
         let nodes_clone = Arc::clone(&nodes);
@@ -1247,14 +1312,26 @@ async fn main() -> Result<()> {
         servers.push(server);
     }
 
-    println!(
-        "Started {} servers with background updater (updates every {}s)",
-        servers.len(),
-        UPDATE_INTERVAL_SECS
-    );
+    if args.failure_nodes > 0 {
+        println!(
+            "Started {} servers with background updater (updates every {}s) and failure simulation ({} nodes)",
+            servers.len(),
+            UPDATE_INTERVAL_SECS,
+            args.failure_nodes
+        );
+    } else {
+        println!(
+            "Started {} servers with background updater (updates every {}s)",
+            servers.len(),
+            UPDATE_INTERVAL_SECS
+        );
+    }
 
-    // Run servers and updater concurrently
+    // Run servers, updater, and failure simulation concurrently
     servers.push(updater_task);
+    if let Some(failure_task) = failure_task {
+        servers.push(failure_task);
+    }
     join_all(servers).await;
 
     Ok(())
