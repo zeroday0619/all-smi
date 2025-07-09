@@ -18,7 +18,7 @@ pub struct PowerMetricsManager {
 
 impl PowerMetricsManager {
     /// Create a new PowerMetricsManager and start the powermetrics process
-    pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
+    fn new() -> Result<Self, Box<dyn std::error::Error>> {
         // Kill any existing powermetrics processes first
         Self::kill_existing_powermetrics_processes();
 
@@ -285,10 +285,12 @@ impl PowerMetricsManager {
     }
 
     /// Determine the output flag based on macOS version
+    #[allow(dead_code)]
     fn get_output_flag(&self) -> String {
         Self::get_output_flag_static()
     }
 
+    #[allow(dead_code)]
     fn get_output_flag_static() -> String {
         // Check macOS version to determine correct flag
         // Older versions use -u, newer use -o
