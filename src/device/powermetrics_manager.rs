@@ -108,6 +108,13 @@ impl PowerMetricsManager {
         .stdout(Stdio::null())
         .stderr(Stdio::null());
 
+        // On Unix, create a new process group so we can kill all children
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            cmd.process_group(0);
+        }
+
         let child = cmd.spawn()?;
 
         let mut process_guard = self.process.lock().unwrap();
@@ -157,6 +164,13 @@ impl PowerMetricsManager {
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
+
+        // On Unix, create a new process group so we can kill all children
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            cmd.process_group(0);
+        }
 
         let child = cmd.spawn()?;
 
@@ -220,47 +234,80 @@ impl PowerMetricsManager {
                     sections[sections.len() - 2]
                 };
 
-                // Debug logging removed to prevent breaking TUI layout
+                // Find the "*** Running tasks ***" section
+                if let Some(tasks_start) = last_complete.find("*** Running tasks ***") {
+                    let tasks_section = &last_complete[tasks_start..];
 
-                // Parse process information from powermetrics output
-                // Format: Name ID CPU ms/s User% Deadlines Wakeups GPU ms/s
-                for line in last_complete.lines() {
-                    // Skip header lines and section markers
-                    if line.contains("***")
-                        || line.contains("Name")
-                        || line.contains("ID")
-                        || line.trim().is_empty()
-                    {
-                        continue;
-                    }
+                    // Find the next section marker or use the rest of the content
+                    let tasks_end = tasks_section[20..]
+                        .find("***")
+                        .unwrap_or(tasks_section.len() - 20)
+                        + 20;
+                    let tasks_content = &tasks_section[..tasks_end];
 
-                    // The GPU ms/s is the last column, so we need to handle lines with spaces in process names
-                    let line = line.trim();
+                    let mut in_header = false;
 
-                    // Split the line and look for the pattern
-                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    // Parse process information from powermetrics output
+                    // Format: Name ID CPU ms/s User% Deadlines Deadlines Wakeups Wakeups GPU ms/s
+                    for line in tasks_content.lines() {
+                        let line = line.trim();
 
-                    // We need at least 8 parts for a valid process line with GPU usage
-                    if parts.len() >= 8 {
-                        // The last part should be GPU ms/s
-                        if let Ok(gpu_ms) = parts[parts.len() - 1].parse::<f64>() {
-                            // Find where the numeric columns start (after process name)
+                        // Skip empty lines and section markers
+                        if line.is_empty() || line.contains("***") {
+                            continue;
+                        }
+
+                        // Detect and skip header line
+                        if line.contains("Name") && line.contains("ID") && line.contains("GPU ms/s")
+                        {
+                            in_header = true;
+                            continue;
+                        }
+
+                        // Skip lines until we're past the header
+                        if in_header {
+                            in_header = false;
+                            continue;
+                        }
+
+                        // Process data lines - the format has fixed column positions
+                        // Name (0-34), ID (35-41), CPU ms/s (42-51), User% (52-58),
+                        // Deadlines (59-66, 67-74), Wakeups (75-82, 83-90), GPU ms/s (91-100)
+
+                        // For robustness, we'll use a different approach:
+                        // Split by whitespace but handle the known column structure
+                        let parts: Vec<&str> = line.split_whitespace().collect();
+
+                        // We need at least 9 parts (name, id, cpu, user%, 2 deadlines, 2 wakeups, gpu)
+                        if parts.len() >= 9 {
+                            // Try to find the PID - it should be an integer after the process name
                             let mut pid_index = None;
                             for (i, part) in parts.iter().enumerate() {
-                                if i > 0 && part.parse::<i32>().is_ok() {
-                                    pid_index = Some(i);
-                                    break;
+                                if i > 0 {
+                                    // Check if this could be a PID (positive integer)
+                                    if let Ok(pid) = part.parse::<u32>() {
+                                        // Verify it's in a reasonable PID range
+                                        if pid > 0 && pid < 100000 {
+                                            pid_index = Some(i);
+                                            break;
+                                        }
+                                    }
                                 }
                             }
 
                             if let Some(idx) = pid_index {
-                                if let Ok(pid) = parts[idx].parse::<u32>() {
-                                    // Reconstruct process name from parts before PID
-                                    let process_name = parts[0..idx].join(" ");
+                                // We expect 8 numeric values after PID
+                                if parts.len() >= idx + 8 {
+                                    if let Ok(pid) = parts[idx].parse::<u32>() {
+                                        // GPU ms/s is the last value
+                                        if let Ok(gpu_ms) = parts[idx + 7].parse::<f64>() {
+                                            // Reconstruct process name from parts before PID
+                                            let process_name = parts[0..idx].join(" ");
 
-                                    // Only include processes with GPU usage > 0
-                                    if gpu_ms > 0.0 {
-                                        processes.push((process_name, pid, gpu_ms));
+                                            // Include all processes for better visibility
+                                            // We'll let the caller decide what to filter
+                                            processes.push((process_name, pid, gpu_ms));
+                                        }
                                     }
                                 }
                             }
@@ -269,6 +316,102 @@ impl PowerMetricsManager {
                 }
             }
         }
+
+        // Sort by GPU usage (highest first)
+        processes.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
+
+        processes
+    }
+
+    /// Get process information with both CPU and GPU metrics
+    pub fn get_process_info_detailed(&self) -> Vec<(String, u32, f64, f64)> {
+        let mut processes = Vec::new();
+
+        if let Ok(contents) = fs::read_to_string(&self.output_file) {
+            // Find the last complete powermetrics output
+            let sections: Vec<&str> = contents.split("*** Sampled system activity").collect();
+
+            if sections.len() >= 2 {
+                let last_complete = if sections.len() == 2 {
+                    sections[1]
+                } else {
+                    sections[sections.len() - 2]
+                };
+
+                // Find the "*** Running tasks ***" section
+                if let Some(tasks_start) = last_complete.find("*** Running tasks ***") {
+                    let tasks_section = &last_complete[tasks_start..];
+
+                    let tasks_end = tasks_section[20..]
+                        .find("***")
+                        .unwrap_or(tasks_section.len() - 20)
+                        + 20;
+                    let tasks_content = &tasks_section[..tasks_end];
+
+                    let mut in_header = false;
+
+                    for line in tasks_content.lines() {
+                        let line = line.trim();
+
+                        if line.is_empty() || line.contains("***") {
+                            continue;
+                        }
+
+                        if line.contains("Name") && line.contains("ID") && line.contains("GPU ms/s")
+                        {
+                            in_header = true;
+                            continue;
+                        }
+
+                        if in_header {
+                            in_header = false;
+                            continue;
+                        }
+
+                        let parts: Vec<&str> = line.split_whitespace().collect();
+
+                        if parts.len() >= 9 {
+                            let mut pid_index = None;
+                            for (i, part) in parts.iter().enumerate() {
+                                if i > 0 {
+                                    if let Ok(pid) = part.parse::<u32>() {
+                                        if pid > 0 && pid < 100000 {
+                                            pid_index = Some(i);
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+
+                            if let Some(idx) = pid_index {
+                                if parts.len() >= idx + 8 {
+                                    if let Ok(pid) = parts[idx].parse::<u32>() {
+                                        // CPU ms/s is at idx + 1
+                                        if let Ok(cpu_ms) = parts[idx + 1].parse::<f64>() {
+                                            // GPU ms/s is at idx + 7
+                                            if let Ok(gpu_ms) = parts[idx + 7].parse::<f64>() {
+                                                let process_name = parts[0..idx].join(" ");
+                                                processes.push((process_name, pid, cpu_ms, gpu_ms));
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Sort by GPU usage first, then by CPU usage
+        processes.sort_by(|a, b| {
+            match b.3.partial_cmp(&a.3).unwrap_or(std::cmp::Ordering::Equal) {
+                std::cmp::Ordering::Equal => {
+                    b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal)
+                }
+                other => other,
+            }
+        });
 
         processes
     }
@@ -312,6 +455,9 @@ impl PowerMetricsManager {
         // Use ps auxww to see full command line without truncation
         if let Ok(output) = Command::new("ps").args(["auxww"]).output() {
             let ps_output = String::from_utf8_lossy(&output.stdout);
+            let mut parent_pids = Vec::new();
+            let mut all_pids = Vec::new();
+
             for line in ps_output.lines() {
                 // Look for parent processes (sudo nice) with our specific output file pattern
                 if line.contains("sudo nice") && line.contains("/tmp/all-smi_powermetrics_") {
@@ -319,13 +465,43 @@ impl PowerMetricsManager {
                     let parts: Vec<&str> = line.split_whitespace().collect();
                     if parts.len() > 1 {
                         if let Ok(pid) = parts[1].parse::<u32>() {
-                            // Kill the process (this will also kill its children)
-                            let _ = Command::new("sudo")
-                                .args(["kill", "-9", &pid.to_string()])
-                                .output();
+                            parent_pids.push(pid);
+                            all_pids.push(pid);
                         }
                     }
                 }
+                // Also look for powermetrics processes that might be orphaned
+                else if line.contains("powermetrics")
+                    && line.contains("--samplers")
+                    && line.contains("cpu_power")
+                    && line.contains("gpu_power")
+                    && !line.contains("grep")
+                {
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    if parts.len() > 1 {
+                        if let Ok(pid) = parts[1].parse::<u32>() {
+                            all_pids.push(pid);
+                        }
+                    }
+                }
+            }
+
+            // Kill parent processes with their process groups first
+            for pid in &parent_pids {
+                // Kill the entire process group (negative PID)
+                let _ = Command::new("sudo")
+                    .args(["kill", "-TERM", &format!("-{pid}")])
+                    .output();
+            }
+
+            // Wait a moment for processes to terminate gracefully
+            thread::sleep(Duration::from_millis(200));
+
+            // Force kill any remaining processes individually
+            for pid in all_pids {
+                let _ = Command::new("sudo")
+                    .args(["kill", "-9", &pid.to_string()])
+                    .output();
             }
         }
     }
@@ -341,6 +517,21 @@ impl Drop for PowerMetricsManager {
         // Kill the powermetrics process
         if let Ok(mut process_guard) = self.process.lock() {
             if let Some(mut child) = process_guard.take() {
+                #[cfg(unix)]
+                {
+                    // Kill the entire process group
+                    let pid = child.id();
+                    // Use negative PID to kill the process group
+                    let _ = Command::new("sudo")
+                        .args(["kill", "-TERM", &format!("-{pid}")])
+                        .output();
+                    thread::sleep(Duration::from_millis(100));
+                    let _ = Command::new("sudo")
+                        .args(["kill", "-9", &format!("-{pid}")])
+                        .output();
+                }
+
+                // Also try normal kill
                 let _ = child.kill();
                 let _ = child.wait();
             }
@@ -445,6 +636,20 @@ pub fn shutdown_powermetrics_manager() {
         // Kill the powermetrics process
         if let Ok(mut process_guard) = manager.process.lock() {
             if let Some(mut child) = process_guard.take() {
+                #[cfg(unix)]
+                {
+                    // Kill the entire process group
+                    let pid = child.id();
+                    // Use negative PID to kill the process group
+                    let _ = Command::new("sudo")
+                        .args(["kill", "-TERM", &format!("-{pid}")])
+                        .output();
+                    thread::sleep(Duration::from_millis(100));
+                    let _ = Command::new("sudo")
+                        .args(["kill", "-9", &format!("-{pid}")])
+                        .output();
+                }
+
                 let _ = child.kill();
                 let _ = child.wait();
             }
@@ -455,6 +660,9 @@ pub fn shutdown_powermetrics_manager() {
     }
 
     *manager_guard = None; // This will trigger Drop
+
+    // Extra cleanup to catch any orphaned processes
+    PowerMetricsManager::kill_existing_powermetrics_processes();
 }
 
 #[cfg(test)]

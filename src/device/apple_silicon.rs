@@ -183,10 +183,25 @@ impl GpuReader for AppleSiliconGpuReader {
 
         // Try to get process info from PowerMetricsManager
         let process_data = if let Some(manager) = get_powermetrics_manager() {
-            manager.get_process_info()
+            let mut data = manager.get_process_info();
+
+            // If no GPU processes, get detailed info and show top CPU users
+            if data.is_empty() || data.iter().all(|(_, _, gpu)| *gpu == 0.0) {
+                // Get detailed process info including CPU usage
+                let detailed = manager.get_process_info_detailed();
+
+                // Take top 20 processes by CPU usage that have some activity
+                data = detailed
+                    .into_iter()
+                    .filter(|(_, _, cpu_ms, _)| *cpu_ms > 1.0) // Filter out idle processes
+                    .take(20)
+                    .map(|(name, pid, _, gpu_ms)| (name, pid, gpu_ms))
+                    .collect();
+            }
+
+            data
         } else {
             // Return empty list if PowerMetricsManager is not available
-            // This avoids spawning additional powermetrics processes
             vec![]
         };
 
