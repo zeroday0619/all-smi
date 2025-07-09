@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 // Type aliases for complex return types
+#[allow(dead_code)]
 pub type ProcessInfoResult = Option<(
     f64,
     f64,
@@ -21,7 +22,7 @@ pub struct GpuInfo {
     pub uuid: String,
     pub time: String,
     pub name: String,
-    pub device_type: String,  // "GPU", "NPU", etc.
+    pub device_type: String, // "GPU", "NPU", etc.
     pub hostname: String,
     pub instance: String,
     pub utilization: f64,
@@ -53,6 +54,7 @@ pub struct ProcessInfo {
     pub command: String,      // Full command line
     pub ppid: u32,            // Parent process ID
     pub threads: u32,         // Number of threads
+    pub uses_gpu: bool,       // Whether the process uses GPU
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -73,7 +75,7 @@ pub struct CpuInfo {
     pub power_consumption: Option<f64>,      // Power consumption in watts (if available)
     pub per_socket_info: Vec<CpuSocketInfo>, // Per-socket information
     pub apple_silicon_info: Option<AppleSiliconCpuInfo>, // Apple Silicon specific info
-    pub time: String, // Timestamp
+    pub time: String,                        // Timestamp
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -81,17 +83,18 @@ pub enum CpuPlatformType {
     Intel,
     Amd,
     AppleSilicon,
+    Arm,
     Other(String), // For unknown or other CPU types
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CpuSocketInfo {
-    pub socket_id: u32,               // Socket identifier
-    pub utilization: f64,             // Per-socket utilization
-    pub cores: u32,                   // Number of cores in this socket
-    pub threads: u32,                 // Number of threads in this socket
-    pub temperature: Option<u32>,     // Socket temperature (if available)
-    pub frequency_mhz: u32,           // Current frequency
+    pub socket_id: u32,           // Socket identifier
+    pub utilization: f64,         // Per-socket utilization
+    pub cores: u32,               // Number of cores in this socket
+    pub threads: u32,             // Number of threads in this socket
+    pub temperature: Option<u32>, // Socket temperature (if available)
+    pub frequency_mhz: u32,       // Current frequency
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
