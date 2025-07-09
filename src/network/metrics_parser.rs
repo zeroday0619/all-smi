@@ -125,6 +125,7 @@ impl MetricsParser {
                 uuid: gpu_uuid.clone(),
                 time: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
                 name: gpu_name,
+                device_type: "GPU".to_string(), // Default to GPU, can be overridden by gpu_info metric
                 hostname: host.split(':').next().unwrap_or_default().to_string(),
                 instance: host.to_string(),
                 utilization: 0.0,
@@ -147,6 +148,40 @@ impl MetricsParser {
             "gpu_power_consumption_watts" => gpu_info.power_consumption = value,
             "gpu_frequency_mhz" => gpu_info.frequency = value as u32,
             "ane_utilization" => gpu_info.ane_utilization = value,
+            "gpu_power_limit_max_watts" => {
+                gpu_info
+                    .detail
+                    .insert("power_limit_max".to_string(), value.to_string());
+            }
+            "gpu_info" => {
+                // Extract device type
+                if let Some(device_type) = labels.get("type") {
+                    gpu_info.device_type = device_type.clone();
+                }
+
+                // Extract CUDA and driver info from labels
+                if let Some(cuda_version) = labels.get("cuda_version") {
+                    gpu_info
+                        .detail
+                        .insert("cuda_version".to_string(), cuda_version.clone());
+                }
+                if let Some(driver_version) = labels.get("driver_version") {
+                    gpu_info
+                        .detail
+                        .insert("driver_version".to_string(), driver_version.clone());
+                }
+                // Also extract other useful info from gpu_info metric
+                if let Some(arch) = labels.get("architecture") {
+                    gpu_info
+                        .detail
+                        .insert("architecture".to_string(), arch.clone());
+                }
+                if let Some(compute_cap) = labels.get("compute_capability") {
+                    gpu_info
+                        .detail
+                        .insert("compute_capability".to_string(), compute_cap.clone());
+                }
+            }
             _ => {}
         }
     }

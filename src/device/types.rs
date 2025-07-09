@@ -21,6 +21,7 @@ pub struct GpuInfo {
     pub uuid: String,
     pub time: String,
     pub name: String,
+    pub device_type: String,  // "GPU", "NPU", etc.
     pub hostname: String,
     pub instance: String,
     pub utilization: f64,

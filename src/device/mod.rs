@@ -51,6 +51,7 @@ pub struct GpuInfo {
     pub uuid: String,
     pub time: String,
     pub name: String,
+    pub device_type: String, // "GPU", "NPU", etc.
     pub hostname: String,
     pub instance: String,
     pub utilization: f64,
@@ -643,6 +644,7 @@ mod tests {
             uuid: "test-uuid".to_string(),
             time: "2023-01-01 00:00:00".to_string(),
             name: "Test GPU".to_string(),
+            device_type: "GPU".to_string(),
             hostname: "test-host".to_string(),
             instance: "test-instance".to_string(),
             utilization: 0.0,
