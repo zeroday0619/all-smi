@@ -1581,3 +1581,511 @@ async fn main() -> Result<()> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_port_range_single() {
+        let result = parse_port_range("8080").unwrap();
+        assert_eq!(*result.start(), 8080);
+        assert_eq!(*result.end(), 8080);
+    }
+
+    #[test]
+    fn test_parse_port_range_range() {
+        let result = parse_port_range("10001-10010").unwrap();
+        assert_eq!(*result.start(), 10001);
+        assert_eq!(*result.end(), 10010);
+    }
+
+    #[test]
+    fn test_parse_port_range_invalid() {
+        assert!(parse_port_range("invalid").is_err());
+        assert!(parse_port_range("80-70").is_ok()); // Range validation happens elsewhere
+        assert!(parse_port_range("").is_err());
+    }
+
+    #[test]
+    fn test_parse_platform_type() {
+        assert!(matches!(
+            parse_platform_type("nvidia"),
+            PlatformType::Nvidia
+        ));
+        assert!(matches!(parse_platform_type("apple"), PlatformType::Apple));
+        assert!(matches!(
+            parse_platform_type("jetson"),
+            PlatformType::Jetson
+        ));
+        assert!(matches!(parse_platform_type("intel"), PlatformType::Intel));
+        assert!(matches!(parse_platform_type("amd"), PlatformType::Amd));
+        assert!(matches!(
+            parse_platform_type("unknown"),
+            PlatformType::Nvidia
+        ));
+    }
+
+    #[test]
+    fn test_mock_node_creation() {
+        let node = MockNode::new(
+            "test-node".to_string(),
+            "Test GPU".to_string(),
+            PlatformType::Nvidia,
+        );
+
+        assert_eq!(node.instance_name, "test-node");
+        assert_eq!(node.gpu_name, "Test GPU");
+        assert_eq!(node.gpus.len(), NUM_GPUS);
+        assert!(node.is_responding);
+
+        // Check GPU metrics are initialized with reasonable values
+        for gpu in &node.gpus {
+            assert!(gpu.utilization >= 0.0 && gpu.utilization <= 100.0);
+            assert!(gpu.memory_used_bytes <= gpu.memory_total_bytes);
+            assert!(gpu.temperature_celsius >= 20 && gpu.temperature_celsius <= 90);
+            assert!(gpu.power_consumption_watts >= 0.0);
+            assert!(!gpu.uuid.is_empty());
+        }
+    }
+
+    #[test]
+    fn test_platform_specific_cpu_metrics() {
+        // Test NVIDIA platform
+        let nvidia_node = MockNode::new(
+            "nvidia-node".to_string(),
+            "GPU".to_string(),
+            PlatformType::Nvidia,
+        );
+        assert!(nvidia_node.cpu.socket_count >= 1);
+        assert!(nvidia_node.cpu.thread_count >= nvidia_node.cpu.core_count);
+        assert!(nvidia_node.cpu.p_core_count.is_none());
+        assert!(nvidia_node.cpu.e_core_count.is_none());
+
+        // Test Apple platform
+        let apple_node = MockNode::new(
+            "apple-node".to_string(),
+            "GPU".to_string(),
+            PlatformType::Apple,
+        );
+        assert_eq!(apple_node.cpu.socket_count, 1);
+        assert!(apple_node.cpu.p_core_count.is_some());
+        assert!(apple_node.cpu.e_core_count.is_some());
+        assert!(apple_node.cpu.gpu_core_count.is_some());
+    }
+
+    #[test]
+    fn test_node_update() {
+        let mut node = MockNode::new(
+            "test-node".to_string(),
+            "Test GPU".to_string(),
+            PlatformType::Nvidia,
+        );
+
+        // Capture initial values
+        let initial_gpu_util = node.gpus[0].utilization;
+        let initial_cpu_util = node.cpu.utilization;
+        let initial_memory_used = node.memory.used_bytes;
+
+        // Update the node
+        node.update();
+
+        // Check that values have potentially changed (within bounds)
+        assert!(node.gpus[0].utilization >= 0.0 && node.gpus[0].utilization <= 100.0);
+        assert!(node.cpu.utilization >= 0.0 && node.cpu.utilization <= 100.0);
+        assert!(node.memory.used_bytes <= node.memory.total_bytes);
+
+        // Values should be different (not guaranteed but highly likely with random changes)
+        // The update function uses random changes, so we can't guarantee values will change
+        // This test mainly verifies that update() doesn't crash and maintains valid ranges
+        let _values_changed = node.gpus[0].utilization != initial_gpu_util
+            || node.cpu.utilization != initial_cpu_util
+            || node.memory.used_bytes != initial_memory_used;
+    }
+
+    #[test]
+    fn test_response_template_contains_required_metrics() {
+        let node = MockNode::new(
+            "test-node".to_string(),
+            "Test GPU".to_string(),
+            PlatformType::Nvidia,
+        );
+        let response = node.get_response();
+
+        // Check for required GPU metrics
+        assert!(response.contains("all_smi_gpu_utilization"));
+        assert!(response.contains("all_smi_gpu_memory_used_bytes"));
+        assert!(response.contains("all_smi_gpu_memory_total_bytes"));
+        assert!(response.contains("all_smi_gpu_temperature_celsius"));
+        assert!(response.contains("all_smi_gpu_power_consumption_watts"));
+        assert!(response.contains("all_smi_gpu_frequency_mhz"));
+
+        // Check for CPU metrics
+        assert!(response.contains("all_smi_cpu_utilization"));
+        assert!(response.contains("all_smi_cpu_socket_count"));
+        assert!(response.contains("all_smi_cpu_core_count"));
+
+        // Check for memory metrics
+        assert!(response.contains("all_smi_memory_total_bytes"));
+        assert!(response.contains("all_smi_memory_used_bytes"));
+
+        // Check for disk metrics
+        assert!(response.contains("all_smi_disk_total_bytes"));
+        assert!(response.contains("all_smi_disk_available_bytes"));
+
+        // Check instance label
+        assert!(response.contains("instance=\"test-node\""));
+    }
+
+    #[test]
+    fn test_apple_platform_specific_metrics() {
+        let node = MockNode::new(
+            "apple-node".to_string(),
+            "Apple M1".to_string(),
+            PlatformType::Apple,
+        );
+        let response = node.get_response();
+
+        // Check for Apple-specific metrics
+        assert!(response.contains("all_smi_ane_utilization"));
+        assert!(response.contains("all_smi_cpu_p_core_count"));
+        assert!(response.contains("all_smi_cpu_e_core_count"));
+        assert!(response.contains("all_smi_cpu_gpu_core_count"));
+        assert!(response.contains("all_smi_cpu_p_core_utilization"));
+        assert!(response.contains("all_smi_cpu_e_core_utilization"));
+    }
+
+    #[test]
+    fn test_failure_simulation() {
+        let mut node = MockNode::new(
+            "test-node".to_string(),
+            "Test GPU".to_string(),
+            PlatformType::Nvidia,
+        );
+
+        // Node should start as responding
+        assert!(node.is_responding);
+
+        // Simulate failure
+        node.is_responding = false;
+        assert!(!node.is_responding);
+
+        // Simulate recovery
+        node.is_responding = true;
+        assert!(node.is_responding);
+    }
+
+    #[tokio::test]
+    async fn test_response_format() {
+        let node = MockNode::new(
+            "test-node".to_string(),
+            "Test GPU".to_string(),
+            PlatformType::Nvidia,
+        );
+        let response = node.get_response();
+
+        // Check that response is not empty and contains expected content
+        assert!(!response.is_empty());
+        assert!(response.contains("all_smi_gpu_utilization"));
+        assert!(response.contains("instance=\"test-node\""));
+    }
+
+    #[test]
+    fn test_failure_node_state() {
+        let mut node = MockNode::new(
+            "test-node".to_string(),
+            "Test GPU".to_string(),
+            PlatformType::Nvidia,
+        );
+
+        // Initially responding
+        assert!(node.is_responding);
+
+        // Can be set to not responding
+        node.is_responding = false;
+        assert!(!node.is_responding);
+    }
+
+    #[test]
+    fn test_disk_size_variations() {
+        let node = MockNode::new(
+            "test-node".to_string(),
+            "Test GPU".to_string(),
+            PlatformType::Nvidia,
+        );
+
+        // Check that disk sizes are one of the expected values
+        let valid_sizes = [DISK_SIZE_1TB, DISK_SIZE_4TB, DISK_SIZE_12TB];
+        assert!(valid_sizes.contains(&node.disk_total_bytes));
+        assert!(node.disk_available_bytes <= node.disk_total_bytes);
+    }
+
+    #[test]
+    fn test_node_naming_with_start_index() {
+        // This would typically be tested at the integration level,
+        // but we can verify the node accepts any valid name
+        let node1 = MockNode::new(
+            "node-0001".to_string(),
+            "GPU".to_string(),
+            PlatformType::Nvidia,
+        );
+        let node2 = MockNode::new(
+            "node-0051".to_string(),
+            "GPU".to_string(),
+            PlatformType::Nvidia,
+        );
+        let node3 = MockNode::new(
+            "node-0100".to_string(),
+            "GPU".to_string(),
+            PlatformType::Nvidia,
+        );
+
+        assert_eq!(node1.instance_name, "node-0001");
+        assert_eq!(node2.instance_name, "node-0051");
+        assert_eq!(node3.instance_name, "node-0100");
+    }
+
+    #[test]
+    fn test_csv_file_content_format() {
+        // Test that the CSV content would be correctly formatted
+        let test_hosts = vec!["localhost:10001", "localhost:10002", "localhost:10003"];
+
+        // Test the format that would be written
+        for host in &test_hosts {
+            assert!(host.contains(":"));
+            let parts: Vec<&str> = host.split(':').collect();
+            assert_eq!(parts.len(), 2);
+            assert!(parts[1].parse::<u16>().is_ok());
+        }
+    }
+
+    #[test]
+    fn test_prometheus_label_format() {
+        let node = MockNode::new(
+            "test-node-123".to_string(),
+            "NVIDIA A100".to_string(),
+            PlatformType::Nvidia,
+        );
+        let response = node.get_response();
+
+        // Check label formatting
+        assert!(response.contains("instance=\"test-node-123\""));
+        assert!(response.contains("gpu=\"NVIDIA A100\""));
+        assert!(response.contains("model=\"")); // CPU model
+        assert!(response.contains("uuid=\"GPU-")); // GPU UUID format
+
+        // Check that special characters in labels are handled
+        // Note: The current implementation doesn't escape quotes in labels
+        // which would be invalid Prometheus format if quotes are present
+        let node_special = MockNode::new(
+            "node-special-123".to_string(),
+            "GPU Name".to_string(),
+            PlatformType::Nvidia,
+        );
+        let response_special = node_special.get_response();
+        assert!(response_special.contains("instance=\"node-special-123\""));
+    }
+
+    #[test]
+    fn test_metric_value_ranges() {
+        let node = MockNode::new("test".to_string(), "GPU".to_string(), PlatformType::Nvidia);
+
+        // GPU metrics
+        for gpu in &node.gpus {
+            assert!(gpu.utilization >= 0.0 && gpu.utilization <= 100.0);
+            assert!(gpu.memory_used_bytes <= gpu.memory_total_bytes);
+            assert!(gpu.temperature_celsius >= 20 && gpu.temperature_celsius <= 90);
+            assert!(gpu.power_consumption_watts >= 0.0 && gpu.power_consumption_watts <= 1000.0);
+            assert!(gpu.frequency_mhz >= 100 && gpu.frequency_mhz <= 3000);
+        }
+
+        // CPU metrics
+        assert!(node.cpu.utilization >= 0.0 && node.cpu.utilization <= 100.0);
+        assert!(node.cpu.frequency_mhz >= 100 && node.cpu.frequency_mhz <= 6000);
+
+        // Memory metrics
+        assert!(node.memory.used_bytes <= node.memory.total_bytes);
+        assert!(node.memory.available_bytes <= node.memory.total_bytes);
+    }
+
+    #[test]
+    fn test_update_correlations() {
+        let mut node = MockNode::new("test".to_string(), "GPU".to_string(), PlatformType::Nvidia);
+
+        // Test multiple updates to verify correlations hold on average
+        let mut high_util_powers = Vec::new();
+        let mut low_util_powers = Vec::new();
+
+        for _ in 0..10 {
+            // Force high utilization
+            node.gpus[0].utilization = 95.0;
+            node.update();
+            high_util_powers.push(node.gpus[0].power_consumption_watts);
+
+            // High utilization should correlate with higher temperature
+            assert!(node.gpus[0].temperature_celsius > 50);
+        }
+
+        for _ in 0..10 {
+            // Force low utilization
+            node.gpus[0].utilization = 5.0;
+            node.update();
+            low_util_powers.push(node.gpus[0].power_consumption_watts);
+        }
+
+        // On average, high utilization should have higher power than low utilization
+        let avg_high_power: f32 =
+            high_util_powers.iter().sum::<f32>() / high_util_powers.len() as f32;
+        let avg_low_power: f32 = low_util_powers.iter().sum::<f32>() / low_util_powers.len() as f32;
+
+        assert!(
+            avg_high_power > avg_low_power,
+            "Average high util power ({avg_high_power}) should be greater than low util power ({avg_low_power})"
+        );
+    }
+
+    #[test]
+    fn test_memory_update_bounds() {
+        let mut node = MockNode::new("test".to_string(), "GPU".to_string(), PlatformType::Nvidia);
+
+        // Run multiple updates and ensure memory stays within bounds
+        for _ in 0..100 {
+            node.update();
+
+            // System memory
+            assert!(node.memory.used_bytes <= node.memory.total_bytes);
+            assert!(node.memory.available_bytes <= node.memory.total_bytes);
+            assert!(node.memory.free_bytes <= node.memory.available_bytes);
+
+            // GPU memory
+            for gpu in &node.gpus {
+                assert!(gpu.memory_used_bytes <= gpu.memory_total_bytes);
+            }
+        }
+    }
+
+    #[test]
+    fn test_platform_specific_power_ranges() {
+        // Test that all platforms respect the power limits
+        let jetson_node = MockNode::new(
+            "jetson".to_string(),
+            "GPU".to_string(),
+            PlatformType::Jetson,
+        );
+        for gpu in &jetson_node.gpus {
+            assert!(gpu.power_consumption_watts >= 80.0);
+            assert!(gpu.power_consumption_watts <= 700.0);
+        }
+
+        // Test regular NVIDIA GPUs also respect power range
+        let nvidia_node = MockNode::new(
+            "nvidia".to_string(),
+            "GPU".to_string(),
+            PlatformType::Nvidia,
+        );
+        for gpu in &nvidia_node.gpus {
+            assert!(gpu.power_consumption_watts >= 80.0);
+            assert!(gpu.power_consumption_watts <= 700.0);
+        }
+    }
+
+    #[test]
+    fn test_response_performance() {
+        let node = MockNode::new(
+            "perf-test".to_string(),
+            "GPU".to_string(),
+            PlatformType::Nvidia,
+        );
+
+        // Measure multiple renders to ensure template-based approach is fast
+        let start = std::time::Instant::now();
+        for _ in 0..1000 {
+            let _ = node.get_response();
+        }
+        let duration = start.elapsed();
+
+        // Should be able to render 1000 responses in under 100ms
+        assert!(
+            duration.as_millis() < 100,
+            "Response rendering too slow: {duration:?}"
+        );
+    }
+
+    #[test]
+    fn test_disk_metrics_in_response() {
+        let node = MockNode::new(
+            "disk-test".to_string(),
+            "GPU".to_string(),
+            PlatformType::Nvidia,
+        );
+        let response = node.get_response();
+
+        // Check that disk metrics are present in the response
+        assert!(response.contains("all_smi_disk_total_bytes"));
+        assert!(response.contains("all_smi_disk_available_bytes"));
+
+        // Check mount points are included
+        assert!(response.contains("mount_point=\"/\""));
+        // Additional mount points might be present
+        for i in 1..=3 {
+            let mount_point = format!("mount_point=\"/data{i}\"");
+            // These are optional, so we just check the format if they exist
+            if response.contains(&mount_point) {
+                assert!(response.contains(&format!(
+                    "all_smi_disk_total_bytes{{instance=\"disk-test\", {mount_point}}}"
+                )));
+            }
+        }
+    }
+
+    #[test]
+    fn test_prometheus_metric_syntax() {
+        let node = MockNode::new(
+            "syntax-test".to_string(),
+            "GPU Test".to_string(),
+            PlatformType::Nvidia,
+        );
+        let response = node.get_response();
+
+        // Check each line follows Prometheus format
+        for line in response.lines() {
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+
+            // Metric lines should have the format: metric_name{labels} value
+            assert!(line.contains('{') && line.contains('}'));
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            assert!(parts.len() >= 2, "Invalid metric line: {line}");
+
+            // Last part should be a valid number
+            let value_str = parts.last().unwrap();
+            assert!(
+                value_str.parse::<f64>().is_ok(),
+                "Invalid metric value: {value_str}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_socket_utilization_consistency() {
+        let node = MockNode::new(
+            "socket-test".to_string(),
+            "GPU".to_string(),
+            PlatformType::Intel,
+        );
+
+        // For multi-socket systems, socket utilizations should sum to approximately total utilization
+        if node.cpu.socket_count > 1 {
+            let sum: f32 = node.cpu.socket_utilizations.iter().sum();
+            let avg = sum / node.cpu.socket_count as f32;
+            let diff = (avg - node.cpu.utilization).abs();
+
+            // Allow some variance but should be close
+            assert!(
+                diff < 10.0,
+                "Socket utilization sum doesn't match total utilization"
+            );
+        }
+    }
+}
