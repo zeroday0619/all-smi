@@ -1,3 +1,4 @@
+#[cfg(target_os = "macos")]
 pub mod apple_silicon;
 pub mod nvidia;
 pub mod nvidia_jetson;
@@ -6,15 +7,21 @@ pub mod nvidia_jetson;
 pub use nvidia::get_nvml_status_message;
 
 // CPU reader modules
+#[cfg(target_os = "linux")]
 pub mod cpu_linux;
+#[cfg(target_os = "macos")]
 pub mod cpu_macos;
 
 // Memory reader modules
+#[cfg(target_os = "linux")]
 pub mod memory_linux;
+#[cfg(target_os = "macos")]
 pub mod memory_macos;
 
 // Powermetrics parser for Apple Silicon
+#[cfg(target_os = "macos")]
 pub mod powermetrics_manager;
+#[cfg(target_os = "macos")]
 pub mod powermetrics_parser;
 
 // Refactored modules
