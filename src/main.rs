@@ -55,7 +55,7 @@ async fn main() {
             #[cfg(target_os = "macos")]
             if is_apple_silicon() {
                 if let Err(e) = initialize_powermetrics_manager() {
-                    eprintln!("Warning: Failed to initialize PowerMetricsManager: {}", e);
+                    eprintln!("Warning: Failed to initialize PowerMetricsManager: {e}");
                 }
             }
 
@@ -69,7 +69,7 @@ async fn main() {
                 #[cfg(target_os = "macos")]
                 if is_apple_silicon() {
                     if let Err(e) = initialize_powermetrics_manager() {
-                        eprintln!("Warning: Failed to initialize PowerMetricsManager: {}", e);
+                        eprintln!("Warning: Failed to initialize PowerMetricsManager: {e}");
                     }
                 }
             }
@@ -82,7 +82,7 @@ async fn main() {
                 #[cfg(target_os = "macos")]
                 if is_apple_silicon() {
                     if let Err(e) = initialize_powermetrics_manager() {
-                        eprintln!("Warning: Failed to initialize PowerMetricsManager: {}", e);
+                        eprintln!("Warning: Failed to initialize PowerMetricsManager: {e}");
                     }
                 }
 

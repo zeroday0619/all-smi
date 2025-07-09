@@ -24,7 +24,7 @@ impl PowerMetricsManager {
 
         // Generate unique filename with timestamp
         let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
-        let output_file = PathBuf::from(format!("/tmp/all-smi_powermetrics_{}", timestamp));
+        let output_file = PathBuf::from(format!("/tmp/all-smi_powermetrics_{timestamp}"));
 
         let manager = Self {
             process: Arc::new(Mutex::new(None)),
@@ -57,7 +57,7 @@ impl PowerMetricsManager {
                             Ok(None) => false, // Still running
                             Err(_e) => {
                                 #[cfg(debug_assertions)]
-                                eprintln!("Error checking powermetrics status: {}", _e);
+                                eprintln!("Error checking powermetrics status: {_e}");
                                 true
                             }
                         }
@@ -76,7 +76,7 @@ impl PowerMetricsManager {
                     // Restart powermetrics
                     if let Err(_e) = Self::restart_powermetrics(&process_arc, &output_file_clone) {
                         #[cfg(debug_assertions)]
-                        eprintln!("Failed to restart powermetrics: {}", _e);
+                        eprintln!("Failed to restart powermetrics: {_e}");
                     }
                 }
             }
@@ -284,7 +284,7 @@ impl PowerMetricsManager {
         if let Ok(output) = Command::new("sw_vers").arg("-productVersion").output() {
             if let Ok(version) = String::from_utf8(output.stdout) {
                 let parts: Vec<&str> = version.trim().split('.').collect();
-                if let Some(major) = parts.get(0).and_then(|v| v.parse::<u32>().ok()) {
+                if let Some(major) = parts.first().and_then(|v| v.parse::<u32>().ok()) {
                     if major >= 13 {
                         return "-o".to_string();
                     }
