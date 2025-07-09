@@ -46,6 +46,7 @@ impl PowerMetricsData {
     }
 
     /// Get GPU utilization as a percentage (0-100)
+    #[allow(dead_code)]
     pub fn gpu_utilization(&self) -> f64 {
         self.gpu_active_residency
     }

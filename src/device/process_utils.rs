@@ -4,6 +4,7 @@ use std::process::Command;
 use crate::device::{platform_detection::get_os_type, types::ProcessInfoResult};
 
 // Helper function to get system process information
+#[allow(dead_code)]
 pub fn get_system_process_info(pid: u32) -> ProcessInfoResult {
     let os_type = get_os_type();
 
@@ -14,6 +15,7 @@ pub fn get_system_process_info(pid: u32) -> ProcessInfoResult {
     }
 }
 
+#[allow(dead_code)]
 fn get_linux_process_info(pid: u32) -> ProcessInfoResult {
     // Read /proc/[pid]/stat for basic process information
     let stat_path = format!("/proc/{pid}/stat");
@@ -91,10 +93,11 @@ fn get_linux_process_info(pid: u32) -> ProcessInfoResult {
     ))
 }
 
+#[allow(dead_code)]
 fn get_macos_process_info(pid: u32) -> ProcessInfoResult {
     // Use ps command to get process information on macOS
     let output = Command::new("ps")
-        .args(&[
+        .args([
             "-p",
             &pid.to_string(),
             "-o",
@@ -169,6 +172,7 @@ fn get_macos_process_info(pid: u32) -> ProcessInfoResult {
     ))
 }
 
+#[allow(dead_code)]
 fn get_username_from_uid(uid: u32) -> String {
     // Try to get username from /etc/passwd
     if let Ok(passwd_content) = fs::read_to_string("/etc/passwd") {
@@ -186,6 +190,7 @@ fn get_username_from_uid(uid: u32) -> String {
     uid.to_string()
 }
 
+#[allow(dead_code)]
 fn get_process_start_time(pid: u32) -> Option<String> {
     let stat_path = format!("/proc/{pid}/stat");
     let stat_content = fs::read_to_string(&stat_path).ok()?;
@@ -222,6 +227,7 @@ fn get_process_start_time(pid: u32) -> Option<String> {
     None
 }
 
+#[allow(dead_code)]
 fn parse_time_to_seconds(time_str: &str) -> u64 {
     // Parse time in format like "0:01.23" or "1:23:45"
     let parts: Vec<&str> = time_str.split(':').collect();

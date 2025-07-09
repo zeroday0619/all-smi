@@ -18,10 +18,10 @@ pub fn print_process_info<W: Write>(
     let width = cols as usize;
 
     // Calculate column widths dynamically based on terminal width
-    let min_widths = [6, 12, 8, 6, 8, 8, 8, 10]; // Minimum widths for each column
-    let total_min_width: usize = min_widths.iter().sum::<usize>() + 7; // 7 spaces between columns
+    let min_widths = [6, 12, 8, 6, 8, 4, 8, 8, 10]; // Minimum widths for each column (added GPU column)
+    let total_min_width: usize = min_widths.iter().sum::<usize>() + 8; // 8 spaces between columns
 
-    let (pid_w, user_w, name_w, cpu_w, mem_w, gpu_mem_w, state_w, command_w) =
+    let (pid_w, user_w, name_w, cpu_w, mem_w, gpu_w, gpu_mem_w, state_w, command_w) =
         if width > total_min_width {
             let extra_space = width - total_min_width;
             // Distribute extra space mainly to name and command columns
@@ -34,9 +34,10 @@ pub fn print_process_info<W: Write>(
                 min_widths[2] + name_extra,    // NAME: 8 + extra
                 min_widths[3],                 // CPU%: 6
                 min_widths[4],                 // MEM%: 8
-                min_widths[5],                 // GPU MEM: 8
-                min_widths[6],                 // STATE: 8
-                min_widths[7] + command_extra, // COMMAND: 10 + extra
+                min_widths[5],                 // GPU: 4
+                min_widths[6],                 // GPU MEM: 8
+                min_widths[7],                 // STATE: 8
+                min_widths[8] + command_extra, // COMMAND: 10 + extra
             )
         } else {
             // Use minimum widths if terminal is too narrow
@@ -49,13 +50,14 @@ pub fn print_process_info<W: Write>(
                 min_widths[5],
                 min_widths[6],
                 min_widths[7],
+                min_widths[8],
             )
         };
 
     // Print header
     let header_format = format!(
-        "{:<pid_w$} {:<user_w$} {:<name_w$} {:<cpu_w$} {:<mem_w$} {:<gpu_mem_w$} {:<state_w$} {:<command_w$}",
-        "PID", "USER", "NAME", "CPU%", "MEM%", "GPU MEM", "STATE", "COMMAND"
+        "{:<pid_w$} {:<user_w$} {:<name_w$} {:<cpu_w$} {:<mem_w$} {:<gpu_w$} {:<gpu_mem_w$} {:<state_w$} {:<command_w$}",
+        "PID", "USER", "NAME", "CPU%", "MEM%", "GPU", "GPU MEM", "STATE", "COMMAND"
     );
     print_colored_text(stdout, &header_format, Color::White, None, None);
     queue!(stdout, Print("\r\n")).unwrap();
@@ -96,14 +98,18 @@ pub fn print_process_info<W: Write>(
             let state = truncate_to_width(&process.state, state_w);
             let command = truncate_to_width(&process.command, command_w);
 
+            // GPU indicator
+            let gpu_indicator = if process.uses_gpu { "Yes" } else { "" };
+
             // Format the complete row
             let row_format = format!(
-                "{:<pid_w$} {:<user_w$} {:<name_w$} {:<cpu_w$} {:<mem_w$} {:<gpu_mem_w$} {:<state_w$} {:<command_w$}",
+                "{:<pid_w$} {:<user_w$} {:<name_w$} {:<cpu_w$} {:<mem_w$} {:<gpu_w$} {:<gpu_mem_w$} {:<state_w$} {:<command_w$}",
                 truncate_to_width(&pid, pid_w),
                 user,
                 name,
                 truncate_to_width(&cpu_percent, cpu_w),
                 truncate_to_width(&mem_percent, mem_w),
+                truncate_to_width(gpu_indicator, gpu_w),
                 truncate_to_width(&gpu_mem, gpu_mem_w),
                 state,
                 command
@@ -118,7 +124,7 @@ pub fn print_process_info<W: Write>(
                     Color::Red
                 } else if process.cpu_percent > 50.0 || process.memory_percent > 50.0 {
                     Color::Yellow
-                } else if process.used_memory > 0 {
+                } else if process.uses_gpu {
                     Color::Green // Has GPU usage
                 } else {
                     Color::White

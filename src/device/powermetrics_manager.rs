@@ -324,6 +324,7 @@ impl PowerMetricsManager {
     }
 
     /// Get process information with both CPU and GPU metrics
+    #[allow(dead_code)]
     pub fn get_process_info_detailed(&self) -> Vec<(String, u32, f64, f64)> {
         let mut processes = Vec::new();
 

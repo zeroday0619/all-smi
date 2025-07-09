@@ -39,6 +39,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "lazy_static",
+ "libc",
  "metal",
  "nvml-wrapper",
  "objc",

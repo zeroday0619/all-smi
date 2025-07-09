@@ -1,8 +1,11 @@
+use crate::device::process_list::{get_all_processes, merge_gpu_processes};
 use crate::device::{GpuInfo, GpuReader, ProcessInfo};
 use crate::utils::get_hostname;
 use chrono::Local;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
+use std::process::Command;
+use sysinfo::System;
 
 pub struct NvidiaJetsonGpuReader;
 
@@ -44,42 +47,49 @@ impl GpuReader for NvidiaJetsonGpuReader {
         let mut detail = HashMap::new();
 
         // Try to get CUDA version from nvidia-smi if available
-        if let Ok(output) = std::process::Command::new("nvidia-smi").output() {
+        if let Ok(output) = Command::new("nvidia-smi").output() {
             if output.status.success() {
                 let output_str = String::from_utf8_lossy(&output.stdout);
                 // Parse CUDA version from header
                 for line in output_str.lines() {
                     if line.contains("CUDA Version:") {
-                        if let Some(version) = line.split("CUDA Version:").nth(1) {
-                            detail.insert("cuda_version".to_string(), version.trim().to_string());
+                        if let Some(version_part) = line.split("CUDA Version:").nth(1) {
+                            let cuda_version = version_part
+                                .split_whitespace()
+                                .next()
+                                .unwrap_or("Unknown")
+                                .to_string();
+                            detail.insert("CUDA Version".to_string(), cuda_version);
                         }
-                    }
-                    if line.contains("Driver Version:") {
-                        if let Some(version) = line.split("Driver Version:").nth(1) {
-                            detail.insert("driver_version".to_string(), version.trim().to_string());
-                        }
+                        break;
                     }
                 }
             }
         }
 
-        // Get Jetson architecture info
-        if let Ok(arch) = fs::read_to_string("/sys/devices/soc0/family") {
-            detail.insert("architecture".to_string(), arch.trim().to_string());
+        // Get JetPack version if available
+        if let Ok(jetpack) = fs::read_to_string("/etc/nv_jetpack_release") {
+            let version = jetpack
+                .lines()
+                .find(|line| line.starts_with("JETPACK_VERSION"))
+                .and_then(|line| line.split('=').nth(1))
+                .map(|v| v.trim().to_string())
+                .unwrap_or_else(|| "Unknown".to_string());
+            detail.insert("JetPack Version".to_string(), version);
         }
 
-        // Get compute capability for Jetson
-        // Jetson Nano/TX2: 5.3, Xavier: 7.2, Orin: 8.7
-        if name.contains("Orin") {
-            detail.insert("compute_capability".to_string(), "8.7".to_string());
-        } else if name.contains("Xavier") {
-            detail.insert("compute_capability".to_string(), "7.2".to_string());
-        } else if name.contains("TX2") || name.contains("Nano") {
-            detail.insert("compute_capability".to_string(), "5.3".to_string());
+        // Get L4T version
+        if let Ok(l4t) = fs::read_to_string("/etc/nv_tegra_release") {
+            if let Some(version) = l4t.split_whitespace().nth(1) {
+                detail.insert("L4T Version".to_string(), version.to_string());
+            }
         }
 
-        gpu_info.push(GpuInfo {
-            uuid: "NVIDIA-Jetson".to_string(),
+        detail.insert("GPU Type".to_string(), "Integrated".to_string());
+        detail.insert("Architecture".to_string(), "Tegra".to_string());
+
+        let info = GpuInfo {
+            uuid: "JetsonGPU".to_string(),
             time: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
             name,
             hostname: get_hostname(),
@@ -93,40 +103,169 @@ impl GpuReader for NvidiaJetsonGpuReader {
             frequency,
             power_consumption,
             detail,
-        });
+        };
 
+        gpu_info.push(info);
         gpu_info
     }
 
     fn get_process_info(&self) -> Vec<ProcessInfo> {
-        Vec::new()
+        // Create a new system instance and refresh it
+        let mut system = System::new_all();
+        system.refresh_all();
+
+        // Get GPU processes and PIDs
+        let (gpu_processes, gpu_pids) = self.get_gpu_processes();
+
+        // Get all system processes
+        let mut all_processes = get_all_processes(&system, &gpu_pids);
+
+        // Merge GPU information into the process list
+        merge_gpu_processes(&mut all_processes, gpu_processes);
+
+        all_processes
+    }
+}
+
+impl NvidiaJetsonGpuReader {
+    /// Get GPU processes for Jetson
+    fn get_gpu_processes(&self) -> (Vec<ProcessInfo>, HashSet<u32>) {
+        let mut gpu_processes = Vec::new();
+        let mut gpu_pids = HashSet::new();
+
+        // Jetson doesn't have a direct way to query GPU processes
+        // We can try nvidia-smi if available (on newer Jetson models)
+        if let Ok(output) = Command::new("nvidia-smi")
+            .args([
+                "--query-compute-apps=pid,used_memory",
+                "--format=csv,noheader,nounits",
+            ])
+            .output()
+        {
+            if output.status.success() {
+                let output_str = String::from_utf8_lossy(&output.stdout);
+                for line in output_str.lines() {
+                    let parts: Vec<&str> = line.split(',').collect();
+                    if parts.len() >= 2 {
+                        if let Ok(pid) = parts[0].trim().parse::<u32>() {
+                            if let Ok(used_memory_mb) = parts[1].trim().parse::<u64>() {
+                                gpu_pids.insert(pid);
+
+                                gpu_processes.push(ProcessInfo {
+                                    device_id: 0,
+                                    device_uuid: "JetsonGPU".to_string(),
+                                    pid,
+                                    process_name: String::new(), // Will be filled by sysinfo
+                                    used_memory: used_memory_mb * 1024 * 1024, // Convert MB to bytes
+                                    cpu_percent: 0.0,    // Will be filled by sysinfo
+                                    memory_percent: 0.0, // Will be filled by sysinfo
+                                    memory_rss: 0,       // Will be filled by sysinfo
+                                    memory_vms: 0,       // Will be filled by sysinfo
+                                    user: String::new(), // Will be filled by sysinfo
+                                    state: String::new(), // Will be filled by sysinfo
+                                    start_time: String::new(), // Will be filled by sysinfo
+                                    cpu_time: 0,         // Will be filled by sysinfo
+                                    command: String::new(), // Will be filled by sysinfo
+                                    ppid: 0,             // Will be filled by sysinfo
+                                    threads: 0,          // Will be filled by sysinfo
+                                    uses_gpu: true,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // If nvidia-smi is not available or doesn't return processes,
+        // we can look for known GPU-using processes by name
+        if gpu_processes.is_empty() {
+            // Look for common GPU applications on Jetson
+            let gpu_process_names = vec![
+                "nvargus-daemon",
+                "nvgstcapture",
+                "deepstream",
+                "tensorrt",
+                "cuda",
+            ];
+
+            let system = System::new_all();
+            for (pid, process) in system.processes() {
+                let process_name = process.name().to_string_lossy().to_lowercase();
+                for gpu_name in &gpu_process_names {
+                    if process_name.contains(gpu_name) {
+                        let pid_u32 = pid.as_u32();
+                        gpu_pids.insert(pid_u32);
+
+                        gpu_processes.push(ProcessInfo {
+                            device_id: 0,
+                            device_uuid: "JetsonGPU".to_string(),
+                            pid: pid_u32,
+                            process_name: String::new(), // Will be filled by sysinfo
+                            used_memory: 0, // Can't determine GPU memory usage without nvidia-smi
+                            cpu_percent: 0.0, // Will be filled by sysinfo
+                            memory_percent: 0.0, // Will be filled by sysinfo
+                            memory_rss: 0,  // Will be filled by sysinfo
+                            memory_vms: 0,  // Will be filled by sysinfo
+                            user: String::new(), // Will be filled by sysinfo
+                            state: String::new(), // Will be filled by sysinfo
+                            start_time: String::new(), // Will be filled by sysinfo
+                            cpu_time: 0,    // Will be filled by sysinfo
+                            command: String::new(), // Will be filled by sysinfo
+                            ppid: 0,        // Will be filled by sysinfo
+                            threads: 0,     // Will be filled by sysinfo
+                            uses_gpu: true,
+                        });
+                        break;
+                    }
+                }
+            }
+        }
+
+        (gpu_processes, gpu_pids)
     }
 }
 
 fn get_memory_info() -> (u64, u64) {
-    let meminfo = fs::read_to_string("/proc/meminfo").unwrap_or_default();
-    let mut total_memory = 0;
-    let mut available_memory = 0;
-
-    for line in meminfo.lines() {
-        if line.starts_with("MemTotal:") {
-            total_memory = line
-                .split_whitespace()
-                .nth(1)
-                .unwrap_or("0")
-                .parse::<u64>()
-                .unwrap_or(0)
-                * 1024;
-        } else if line.starts_with("MemAvailable:") {
-            available_memory = line
-                .split_whitespace()
-                .nth(1)
-                .unwrap_or("0")
-                .parse::<u64>()
-                .unwrap_or(0)
-                * 1024;
+    // Try to get GPU memory from tegrastats
+    if let Ok(output) = Command::new("tegrastats").arg("--once").output() {
+        if output.status.success() {
+            let output_str = String::from_utf8_lossy(&output.stdout);
+            // Parse memory info from tegrastats output
+            // Format: RAM 2298/3964MB (lfb 25x4MB) SWAP 0/1982MB (cached 0MB)
+            if let Some(ram_part) = output_str.split("RAM ").nth(1) {
+                if let Some(ram_info) = ram_part.split("MB").next() {
+                    let parts: Vec<&str> = ram_info.split('/').collect();
+                    if parts.len() == 2 {
+                        let used = parts[0].parse::<u64>().unwrap_or(0) * 1024 * 1024;
+                        let total = parts[1].parse::<u64>().unwrap_or(0) * 1024 * 1024;
+                        return (total, used);
+                    }
+                }
+            }
         }
     }
 
-    (total_memory, total_memory - available_memory)
+    // Fallback to system memory
+    if let Ok(meminfo) = fs::read_to_string("/proc/meminfo") {
+        let mut total = 0;
+        let mut available = 0;
+
+        for line in meminfo.lines() {
+            if line.starts_with("MemTotal:") {
+                if let Some(value) = line.split_whitespace().nth(1) {
+                    total = value.parse::<u64>().unwrap_or(0) * 1024; // Convert KB to bytes
+                }
+            } else if line.starts_with("MemAvailable:") {
+                if let Some(value) = line.split_whitespace().nth(1) {
+                    available = value.parse::<u64>().unwrap_or(0) * 1024; // Convert KB to bytes
+                }
+            }
+        }
+
+        let used = total.saturating_sub(available);
+        (total, used)
+    } else {
+        (0, 0)
+    }
 }
