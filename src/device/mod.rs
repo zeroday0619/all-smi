@@ -13,6 +13,10 @@ pub mod cpu_macos;
 pub mod memory_linux;
 pub mod memory_macos;
 
+// Powermetrics parser for Apple Silicon
+pub mod powermetrics_manager;
+pub mod powermetrics_parser;
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -219,7 +223,7 @@ fn is_jetson() -> bool {
     false
 }
 
-fn is_apple_silicon() -> bool {
+pub fn is_apple_silicon() -> bool {
     let output = Command::new("uname")
         .arg("-m")
         .output()

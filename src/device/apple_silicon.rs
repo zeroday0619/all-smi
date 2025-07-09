@@ -1,3 +1,5 @@
+use crate::device::powermetrics_manager::get_powermetrics_manager;
+use crate::device::powermetrics_parser::get_powermetrics_data;
 use crate::device::{get_system_process_info, GpuInfo, GpuReader, ProcessInfo};
 use crate::utils::get_hostname;
 use chrono::Local;
@@ -18,54 +20,8 @@ impl AppleSiliconGpuReader {
             driver_version,
         }
     }
-}
 
-impl GpuReader for AppleSiliconGpuReader {
-    fn get_gpu_info(&self) -> Vec<GpuInfo> {
-        let mut gpu_info = Vec::<GpuInfo>::new();
-
-        let total_memory = get_total_memory();
-        let used_memory = get_used_memory();
-
-        let current_time = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-
-        // Get the GPU metrics from powermetrics
-        let gpu_metrics = get_gpu_metrics();
-
-        let utilization = gpu_metrics.utilization.unwrap_or(0.0);
-        let ane_utilization = gpu_metrics.ane_utilization.unwrap_or(0.0); // ANE power in watts, 0 if not available
-        let frequency = gpu_metrics.frequency.unwrap_or(0);
-        let power_consumption = gpu_metrics.power_consumption.unwrap_or(0.0);
-        let mut detail = HashMap::new();
-
-        // Add driver version to detail map
-        if let Some(version) = &self.driver_version {
-            detail.insert("driver_version".to_string(), version.clone());
-        }
-
-        gpu_info.push(GpuInfo {
-            uuid: "AppleSiliconGPU".to_string(),
-            time: current_time,
-            name: self.name.clone(),
-            hostname: get_hostname(),
-            instance: get_hostname(),
-            utilization,
-            ane_utilization,
-            dla_utilization: None,
-            temperature: gpu_metrics.thermal_pressure.unwrap_or(0),
-            used_memory,
-            total_memory,
-            frequency,
-            power_consumption,
-            detail,
-        });
-
-        gpu_info
-    }
-
-    fn get_process_info(&self) -> Vec<ProcessInfo> {
-        let mut process_list = Vec::new();
-
+    fn get_process_info_direct(&self) -> Vec<(String, u32, f64)> {
         let output = Command::new("sudo")
             .arg("powermetrics")
             .arg("-n")
@@ -78,6 +34,7 @@ impl GpuReader for AppleSiliconGpuReader {
             .output()
             .expect("Failed to execute powermetrics command");
 
+        let mut processes = Vec::new();
         if output.status.success() {
             let output_str = String::from_utf8_lossy(&output.stdout);
             let lines = output_str.lines();
@@ -88,65 +45,215 @@ impl GpuReader for AppleSiliconGpuReader {
                 }
 
                 let parts: Vec<&str> = line.split_whitespace().collect();
-                if parts.len() >= 2 {
+                if parts.len() >= 3 {
                     let process_name = parts[0].to_string();
                     let pid_str = parts[1];
                     if let Ok(pid) = pid_str.parse::<u32>() {
                         let gpu_usage_str = parts.get(2).unwrap_or(&"0.0");
                         if let Ok(gpu_usage) = gpu_usage_str.parse::<f64>() {
                             if gpu_usage > 0.0 {
-                                // Get additional system process information
-                                let (
-                                    cpu_percent,
-                                    memory_percent,
-                                    memory_rss,
-                                    memory_vms,
-                                    user,
-                                    state,
-                                    start_time,
-                                    cpu_time,
-                                    command,
-                                    ppid,
-                                    threads,
-                                ) = get_system_process_info(pid).unwrap_or((
-                                    0.0,                   // cpu_percent
-                                    0.0,                   // memory_percent
-                                    0,                     // memory_rss
-                                    0,                     // memory_vms
-                                    "unknown".to_string(), // user
-                                    "?".to_string(),       // state
-                                    "unknown".to_string(), // start_time
-                                    0,                     // cpu_time
-                                    process_name.clone(),  // command (fallback to process_name)
-                                    0,                     // ppid
-                                    1,                     // threads
-                                ));
-
-                                process_list.push(ProcessInfo {
-                                    device_id: 0,
-                                    device_uuid: "AppleSiliconGPU".to_string(),
-                                    pid,
-                                    process_name,
-                                    used_memory: gpu_usage as u64, // Using GPU ms/s as a proxy for memory
-                                    cpu_percent,
-                                    memory_percent,
-                                    memory_rss,
-                                    memory_vms,
-                                    user,
-                                    state,
-                                    start_time,
-                                    cpu_time,
-                                    command,
-                                    ppid,
-                                    threads,
-                                });
+                                processes.push((process_name, pid, gpu_usage));
                             }
                         }
                     }
                 }
             }
         } else {
+            #[cfg(debug_assertions)]
             eprintln!("powermetrics command failed with status: {}", output.status);
+        }
+        processes
+    }
+}
+
+impl GpuReader for AppleSiliconGpuReader {
+    fn get_gpu_info(&self) -> Vec<GpuInfo> {
+        let mut gpu_info = Vec::<GpuInfo>::new();
+
+        let total_memory = get_total_memory();
+        let used_memory = get_used_memory();
+
+        let current_time = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+        // Get comprehensive metrics from PowerMetricsManager or enhanced parser
+        let metrics = if let Some(manager) = get_powermetrics_manager() {
+            match manager.get_latest_data() {
+                Ok(data) => data,
+                Err(_) => {
+                    // Fallback to spawning powermetrics if manager fails
+                    match get_powermetrics_data() {
+                        Ok(data) => data,
+                        Err(_) => {
+                            // Final fallback to old method
+                            let gpu_metrics = get_gpu_metrics();
+                            let mut detail = HashMap::new();
+                            if let Some(version) = &self.driver_version {
+                                detail.insert("driver_version".to_string(), version.clone());
+                            }
+
+                            gpu_info.push(GpuInfo {
+                                uuid: "AppleSiliconGPU".to_string(),
+                                time: current_time,
+                                name: self.name.clone(),
+                                hostname: get_hostname(),
+                                instance: get_hostname(),
+                                utilization: gpu_metrics.utilization.unwrap_or(0.0),
+                                ane_utilization: gpu_metrics.ane_utilization.unwrap_or(0.0),
+                                dla_utilization: None,
+                                temperature: gpu_metrics.thermal_pressure.unwrap_or(0),
+                                used_memory,
+                                total_memory,
+                                frequency: gpu_metrics.frequency.unwrap_or(0),
+                                power_consumption: gpu_metrics.power_consumption.unwrap_or(0.0),
+                                detail,
+                            });
+                            return gpu_info;
+                        }
+                    }
+                }
+            }
+        } else {
+            // Manager not initialized, fall back to direct call
+            match get_powermetrics_data() {
+                Ok(data) => data,
+                Err(_) => {
+                    // Final fallback to old method
+                    let gpu_metrics = get_gpu_metrics();
+                    let mut detail = HashMap::new();
+                    if let Some(version) = &self.driver_version {
+                        detail.insert("driver_version".to_string(), version.clone());
+                    }
+
+                    gpu_info.push(GpuInfo {
+                        uuid: "AppleSiliconGPU".to_string(),
+                        time: current_time,
+                        name: self.name.clone(),
+                        hostname: get_hostname(),
+                        instance: get_hostname(),
+                        utilization: gpu_metrics.utilization.unwrap_or(0.0),
+                        ane_utilization: gpu_metrics.ane_utilization.unwrap_or(0.0),
+                        dla_utilization: None,
+                        temperature: gpu_metrics.thermal_pressure.unwrap_or(0),
+                        used_memory,
+                        total_memory,
+                        frequency: gpu_metrics.frequency.unwrap_or(0),
+                        power_consumption: gpu_metrics.power_consumption.unwrap_or(0.0),
+                        detail,
+                    });
+                    return gpu_info;
+                }
+            }
+        };
+
+        let mut detail = HashMap::new();
+
+        // Add driver version to detail map
+        if let Some(version) = &self.driver_version {
+            detail.insert("driver_version".to_string(), version.clone());
+        }
+
+        // Add CPU metrics to detail for comprehensive monitoring
+        detail.insert(
+            "cpu_utilization".to_string(),
+            format!("{:.1}%", metrics.cpu_utilization()),
+        );
+        detail.insert(
+            "e_cluster_active".to_string(),
+            format!("{:.1}%", metrics.e_cluster_active_residency),
+        );
+        detail.insert(
+            "p_cluster_active".to_string(),
+            format!("{:.1}%", metrics.p_cluster_active_residency),
+        );
+        detail.insert(
+            "cpu_power".to_string(),
+            format!("{:.1}W", metrics.cpu_power_mw / 1000.0),
+        );
+
+        gpu_info.push(GpuInfo {
+            uuid: "AppleSiliconGPU".to_string(),
+            time: current_time,
+            name: self.name.clone(),
+            hostname: get_hostname(),
+            instance: get_hostname(),
+            utilization: metrics.gpu_utilization(),
+            ane_utilization: metrics.ane_power_mw / 1000.0, // Convert mW to W
+            dla_utilization: None,
+            temperature: metrics.thermal_pressure.unwrap_or(0),
+            used_memory,
+            total_memory,
+            frequency: metrics.gpu_frequency,
+            power_consumption: metrics.gpu_power_mw / 1000.0, // Convert mW to W
+            detail,
+        });
+
+        gpu_info
+    }
+
+    fn get_process_info(&self) -> Vec<ProcessInfo> {
+        let mut process_list = Vec::new();
+
+        // Try to get process info from PowerMetricsManager first
+        let process_data = if let Some(manager) = get_powermetrics_manager() {
+            let manager_processes = manager.get_process_info();
+            // If manager returns empty, fall back to direct call
+            if manager_processes.is_empty() {
+                self.get_process_info_direct()
+            } else {
+                manager_processes
+            }
+        } else {
+            // Fall back to direct call
+            self.get_process_info_direct()
+        };
+
+        // Convert process data to ProcessInfo
+        for (process_name, pid, gpu_usage) in process_data {
+            // Get additional system process information
+            let (
+                cpu_percent,
+                memory_percent,
+                memory_rss,
+                memory_vms,
+                user,
+                state,
+                start_time,
+                cpu_time,
+                command,
+                ppid,
+                threads,
+            ) = get_system_process_info(pid).unwrap_or((
+                0.0,                   // cpu_percent
+                0.0,                   // memory_percent
+                0,                     // memory_rss
+                0,                     // memory_vms
+                "unknown".to_string(), // user
+                "?".to_string(),       // state
+                "unknown".to_string(), // start_time
+                0,                     // cpu_time
+                process_name.clone(),  // command (fallback to process_name)
+                0,                     // ppid
+                1,                     // threads
+            ));
+
+            process_list.push(ProcessInfo {
+                device_id: 0,
+                device_uuid: "AppleSiliconGPU".to_string(),
+                pid,
+                process_name,
+                used_memory: gpu_usage as u64, // Using GPU ms/s as a proxy for memory
+                cpu_percent,
+                memory_percent,
+                memory_rss,
+                memory_vms,
+                user,
+                state,
+                start_time,
+                cpu_time,
+                command,
+                ppid,
+                threads,
+            });
         }
 
         process_list
@@ -211,7 +318,7 @@ fn get_gpu_metrics() -> GpuMetrics {
                     .parse::<u32>()
                     .ok();
             }
-        } else if line.contains("GPU Power:") {
+        } else if line.contains("GPU Power:") && !line.contains("CPU + GPU") {
             if let Some(power_str) = line.split(':').nth(1) {
                 power_consumption = power_str
                     .split_whitespace()

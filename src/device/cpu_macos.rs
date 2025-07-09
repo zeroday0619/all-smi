@@ -346,22 +346,55 @@ impl MacOsCpuReader {
 
     fn get_cpu_utilization_powermetrics(&self) -> Result<f64, Box<dyn std::error::Error>> {
         // Use a short sampling period for powermetrics
-        let output = Command::new("powermetrics")
-            .args(["--samplers", "cpu_power", "-n", "1", "-i", "1000"])
+        let output = Command::new("sudo")
+            .args([
+                "powermetrics",
+                "--samplers",
+                "cpu_power",
+                "-n",
+                "1",
+                "-i",
+                "1000",
+            ])
             .output()?;
 
         let powermetrics_output = String::from_utf8_lossy(&output.stdout);
 
-        // Parse CPU utilization from powermetrics output
+        let mut e_cluster_active = 0.0;
+        let mut p_cluster_active = 0.0;
+        let mut e_cluster_found = false;
+        let mut p_cluster_found = false;
+
+        // Parse cluster utilization from powermetrics output
         for line in powermetrics_output.lines() {
-            if line.contains("CPU Average frequency as fraction of nominal") {
-                // This is a rough approximation
-                if let Some(value_str) = line.split(':').nth(1) {
-                    if let Ok(fraction) = value_str.trim().parse::<f64>() {
-                        return Ok(fraction * 100.0);
+            if line.contains("E-Cluster HW active residency:") {
+                if let Some(residency_str) = line.split(':').nth(1) {
+                    if let Some(percent_str) = residency_str.split_whitespace().next() {
+                        e_cluster_active = percent_str
+                            .trim_end_matches('%')
+                            .parse::<f64>()
+                            .unwrap_or(0.0);
+                        e_cluster_found = true;
+                    }
+                }
+            } else if line.contains("P-Cluster HW active residency:") {
+                if let Some(residency_str) = line.split(':').nth(1) {
+                    if let Some(percent_str) = residency_str.split_whitespace().next() {
+                        p_cluster_active = percent_str
+                            .trim_end_matches('%')
+                            .parse::<f64>()
+                            .unwrap_or(0.0);
+                        p_cluster_found = true;
                     }
                 }
             }
+        }
+
+        if e_cluster_found || p_cluster_found {
+            // Calculate weighted average based on cluster utilization
+            // Assuming P-cores have more weight in overall system utilization
+            let total_active = e_cluster_active * 0.3 + p_cluster_active * 0.7;
+            return Ok(total_active);
         }
 
         // Fallback to iostat if powermetrics doesn't work
@@ -397,13 +430,46 @@ impl MacOsCpuReader {
     }
 
     fn get_apple_silicon_core_utilization(&self) -> Result<(f64, f64), Box<dyn std::error::Error>> {
-        // This is a simplified implementation
-        // In practice, getting separate P-core and E-core utilization requires more complex parsing
-        let overall_util = self.get_cpu_utilization_powermetrics()?;
+        let output = Command::new("sudo")
+            .args([
+                "powermetrics",
+                "--samplers",
+                "cpu_power",
+                "-n",
+                "1",
+                "-i",
+                "1000",
+            ])
+            .output()?;
 
-        // For now, assume equal distribution (this is not accurate)
-        // A more sophisticated implementation would parse detailed powermetrics output
-        Ok((overall_util * 0.6, overall_util * 0.4))
+        let powermetrics_output = String::from_utf8_lossy(&output.stdout);
+
+        let mut p_core_active = 0.0;
+        let mut e_core_active = 0.0;
+
+        for line in powermetrics_output.lines() {
+            if line.contains("P-Cluster HW active residency:") {
+                if let Some(residency_str) = line.split(':').nth(1) {
+                    if let Some(percent_str) = residency_str.split_whitespace().next() {
+                        p_core_active = percent_str
+                            .trim_end_matches('%')
+                            .parse::<f64>()
+                            .unwrap_or(0.0);
+                    }
+                }
+            } else if line.contains("E-Cluster HW active residency:") {
+                if let Some(residency_str) = line.split(':').nth(1) {
+                    if let Some(percent_str) = residency_str.split_whitespace().next() {
+                        e_core_active = percent_str
+                            .trim_end_matches('%')
+                            .parse::<f64>()
+                            .unwrap_or(0.0);
+                    }
+                }
+            }
+        }
+
+        Ok((p_core_active, e_core_active))
     }
 
     fn get_cpu_base_frequency(&self) -> Result<u32, Box<dyn std::error::Error>> {
@@ -434,18 +500,26 @@ impl MacOsCpuReader {
 
     fn get_cpu_power_consumption(&self) -> Option<f64> {
         // Power consumption from powermetrics (simplified)
-        if let Ok(output) = Command::new("powermetrics")
-            .args(["--samplers", "cpu_power", "-n", "1", "-i", "1000"])
+        if let Ok(output) = Command::new("sudo")
+            .args([
+                "powermetrics",
+                "--samplers",
+                "cpu_power",
+                "-n",
+                "1",
+                "-i",
+                "1000",
+            ])
             .output()
         {
             let powermetrics_output = String::from_utf8_lossy(&output.stdout);
 
             for line in powermetrics_output.lines() {
-                if line.contains("CPU Power:") {
+                if line.contains("CPU Power:") && !line.contains("GPU") {
                     if let Some(value_str) = line.split(':').nth(1) {
-                        if let Some(watts_str) = value_str.split_whitespace().next() {
-                            if let Ok(watts) = watts_str.parse::<f64>() {
-                                return Some(watts);
+                        if let Some(power_str) = value_str.split_whitespace().next() {
+                            if let Ok(milliwatts) = power_str.parse::<f64>() {
+                                return Some(milliwatts / 1000.0); // Convert mW to W
                             }
                         }
                     }
