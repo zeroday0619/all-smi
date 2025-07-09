@@ -15,11 +15,13 @@ use std::ops::RangeInclusive;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::net::TcpListener;
+use tokio::sync::Semaphore;
 use tokio::time::interval;
 
 const DEFAULT_GPU_NAME: &str = "NVIDIA H200 141GB HBM3";
 const NUM_GPUS: usize = 8;
 const UPDATE_INTERVAL_SECS: u64 = 3;
+const MAX_CONNECTIONS_PER_SERVER: usize = 10;
 
 // Disk size options in bytes
 const DISK_SIZE_1TB: u64 = 1024 * 1024 * 1024 * 1024;
@@ -1512,22 +1514,37 @@ async fn main() -> Result<()> {
         println!("Listening on http://{addr}");
 
         let server = tokio::spawn(async move {
+            // Create builder once per server, not per connection
+            let builder = Arc::new(Builder::new(hyper_util::rt::TokioExecutor::new()));
+            // Limit concurrent connections per server
+            let semaphore = Arc::new(Semaphore::new(MAX_CONNECTIONS_PER_SERVER));
+
             loop {
-                let (tcp, _) = listener.accept().await.unwrap();
-                let io = TokioIo::new(tcp);
-                let nodes_clone = Arc::clone(&nodes_clone);
+                match listener.accept().await {
+                    Ok((tcp, _)) => {
+                        let io = TokioIo::new(tcp);
+                        let nodes_clone = Arc::clone(&nodes_clone);
+                        let builder_clone = Arc::clone(&builder);
+                        let permit = semaphore.clone().acquire_owned().await.unwrap();
 
-                let service =
-                    service_fn(move |req| handle_request(req, Arc::clone(&nodes_clone), port));
+                        let service = service_fn(move |req| {
+                            handle_request(req, Arc::clone(&nodes_clone), port)
+                        });
 
-                tokio::spawn(async move {
-                    let builder = Builder::new(hyper_util::rt::TokioExecutor::new());
-                    let conn = builder.serve_connection(io, service);
+                        tokio::spawn(async move {
+                            let conn = builder_clone.serve_connection(io, service);
 
-                    if let Err(err) = conn.await {
-                        eprintln!("Connection failed: {err:?}");
+                            if let Err(err) = conn.await {
+                                eprintln!("Connection failed: {err:?}");
+                            }
+                            drop(permit); // Release semaphore permit
+                        });
                     }
-                });
+                    Err(e) => {
+                        eprintln!("Failed to accept connection: {e}");
+                        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+                    }
+                }
             }
         });
         servers.push(server);

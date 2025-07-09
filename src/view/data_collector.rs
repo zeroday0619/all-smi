@@ -110,7 +110,9 @@ impl DataCollector {
         }
 
         let client = self.create_http_client();
-        let semaphore = Arc::new(tokio::sync::Semaphore::new(std::cmp::min(hosts.len(), 64)));
+        let semaphore = Arc::new(tokio::sync::Semaphore::new(
+            EnvConfig::max_concurrent_connections(hosts.len()),
+        ));
         let re = Regex::new(r"^all_smi_([^\{]+)\{([^}]+)\} ([\d\.]+)$").unwrap();
 
         loop {

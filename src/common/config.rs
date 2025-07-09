@@ -9,7 +9,7 @@ impl AppConfig {
     pub const SCROLL_UPDATE_FREQUENCY: u64 = 2; // Every 2 frames
 
     // Network Configuration
-    pub const MAX_CONCURRENT_CONNECTIONS: usize = 64;
+    pub const MAX_CONCURRENT_CONNECTIONS: usize = 128;
     pub const CONNECTION_TIMEOUT_SECS: u64 = 5;
     pub const POOL_IDLE_TIMEOUT_SECS: u64 = 60;
     pub const POOL_MAX_IDLE_PER_HOST: usize = 200;
@@ -153,8 +153,9 @@ mod tests {
         assert_eq!(EnvConfig::max_concurrent_connections(10), 10);
         assert_eq!(EnvConfig::max_concurrent_connections(50), 50);
         assert_eq!(EnvConfig::max_concurrent_connections(64), 64);
-        assert_eq!(EnvConfig::max_concurrent_connections(100), 64);
-        assert_eq!(EnvConfig::max_concurrent_connections(200), 64);
+        assert_eq!(EnvConfig::max_concurrent_connections(100), 100);
+        assert_eq!(EnvConfig::max_concurrent_connections(128), 128);
+        assert_eq!(EnvConfig::max_concurrent_connections(200), 128);
     }
 
     #[test]
@@ -219,7 +220,7 @@ mod tests {
     fn test_app_config_constants() {
         assert_eq!(AppConfig::MIN_RENDER_INTERVAL_MS, 33);
         assert_eq!(AppConfig::EVENT_POLL_TIMEOUT_MS, 50);
-        assert_eq!(AppConfig::MAX_CONCURRENT_CONNECTIONS, 64);
+        assert_eq!(AppConfig::MAX_CONCURRENT_CONNECTIONS, 128);
         assert_eq!(AppConfig::CONNECTION_TIMEOUT_SECS, 5);
         assert_eq!(AppConfig::RETRY_ATTEMPTS, 3);
         assert_eq!(AppConfig::RETRY_BASE_DELAY_MS, 50);
