@@ -58,6 +58,13 @@ struct Args {
         help = "Number of nodes to simulate random failures (0 = no failures)"
     )]
     failure_nodes: u32,
+
+    #[arg(
+        long,
+        default_value_t = 1,
+        help = "Starting index for node naming (e.g., 51 for node-0051)"
+    )]
+    start_index: u32,
 }
 
 #[derive(Clone)]
@@ -1436,7 +1443,7 @@ async fn main() -> Result<()> {
     let platform_type = parse_platform_type(&args.platform);
     let nodes = Arc::new(Mutex::new(HashMap::new()));
     let mut file = File::create(&args.o)?;
-    let mut instance_counter = 1;
+    let mut instance_counter = args.start_index;
 
     for port in port_range.clone() {
         let instance_name = format!("node-{instance_counter:04}");

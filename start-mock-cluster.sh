@@ -152,7 +152,10 @@ for i in $(seq 0 $((NUM_PROCESSES - 1))); do
     fi
     
     if [ $PROCESS_START -le $MAX_PORT ]; then
-        echo "Starting process $((i + 1)): ports $PROCESS_START-$PROCESS_END"
+        # Calculate start index for this process
+        NODE_START_INDEX=$((1 + i * PORTS_PER_PROCESS))
+        
+        echo "Starting process $((i + 1)): ports $PROCESS_START-$PROCESS_END (nodes starting from node-$(printf %04d $NODE_START_INDEX))"
         
         # Build command with all arguments
         CMD="./target/release/all-smi-mock-server"
@@ -160,6 +163,7 @@ for i in $(seq 0 $((NUM_PROCESSES - 1))); do
         CMD="$CMD --gpu-name \"$GPU_NAME\""
         CMD="$CMD --platform $PLATFORM"
         CMD="$CMD -o hosts_$i.csv"
+        CMD="$CMD --start-index $NODE_START_INDEX"
         
         # Only add failure-nodes to first process to avoid conflicts
         if [ $i -eq 0 ] && [ $FAILURE_NODES -gt 0 ]; then

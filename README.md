@@ -11,6 +11,10 @@
 The application presents a terminal-based user interface with cluster overview, interactive sorting, and both local and remote monitoring capabilities. It also provides an API mode for Prometheus metrics integration.
 
 ![screenshot](screenshots/all-smi-all-tab.png)
+All-node view (remote mode)
+
+![screenshot](screenshots/all-smi-node-tab.png)
+Node view (remote mode)
 
 ## Features
 
@@ -44,12 +48,12 @@ The application presents a terminal-based user interface with cluster overview, 
 - **System Integration:** Full process details from system information
 
 ### Cross-Platform Support
-- **Linux:** Supports NVIDIA GPUs via `nvidia-smi` command
+- **Linux:** Supports NVIDIA GPUs via `NVML` and `nvidia-smi`(fallback) command
 - **macOS:** Supports Apple Silicon GPUs via `powermetrics` and Metal framework
 - **NVIDIA Jetson:** Special support for Tegra-based systems with DLA (Deep Learning Accelerator)
 
 ### Remote Monitoring
-- **Multi-Host Support:** Monitor up to 128+ remote systems simultaneously
+- **Multi-Host Support:** Monitor up to 256+ remote systems simultaneously
 - **Connection Management:** Optimized networking with connection pooling and retry logic
 - **Storage Monitoring:** Disk usage information for remote hosts
 - **High Availability:** Resilient to connection failures with automatic retry
@@ -102,7 +106,7 @@ Download the latest release from the [GitHub releases page](https://github.com/i
 ### Prerequisites
 
 - **Rust:** Version 1.75 or later with Cargo
-- **Linux (NVIDIA):** `nvidia-smi` command must be available
+- **Linux (NVIDIA):** `CUDA`, `nvidia-smi` command must be available
 - **macOS:** Requires `sudo` privileges for `powermetrics` access
 - **Network:** For remote monitoring functionality
 
@@ -344,7 +348,7 @@ all-smi view --hostfile mixed-cluster.csv --interval 2
 
 ### Platform Support
 
-- **NVIDIA GPUs:** Via `nvidia-smi` command parsing
+- **NVIDIA GPUs:** Via `NVML` direct query (default) and `nvidia-smi` (fallback) command parsing
 - **Apple Silicon:** Via `powermetrics` and Metal framework integration
 - **NVIDIA Jetson:** Specialized Tegra platform support with DLA monitoring
 
