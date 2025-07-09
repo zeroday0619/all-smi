@@ -10,7 +10,7 @@
 
 The application presents a terminal-based user interface with cluster overview, interactive sorting, and both local and remote monitoring capabilities. It also provides an API mode for Prometheus metrics integration.
 
-![screenshot](screenshots/all-smi-all-tab.jpg)
+![screenshot](screenshots/all-smi-all-tab.png)
 
 ## Features
 
