@@ -317,10 +317,12 @@ GPU HW active residency: 20.0%
 
     #[test]
     fn test_powermetrics_data_utilization_methods() {
-        let mut data = PowerMetricsData::default();
-        data.e_cluster_active_residency = 30.0;
-        data.p_cluster_active_residency = 70.0;
-        data.gpu_active_residency = 50.0;
+        let data = PowerMetricsData {
+            e_cluster_active_residency: 30.0,
+            p_cluster_active_residency: 70.0,
+            gpu_active_residency: 50.0,
+            ..Default::default()
+        };
 
         // Test CPU utilization (weighted average)
         let cpu_util = data.cpu_utilization();

@@ -581,15 +581,17 @@ pub fn initialize_powermetrics_manager() -> Result<(), Box<dyn std::error::Error
 
 /// Clean up stale powermetrics temporary files
 pub fn cleanup_stale_powermetrics_files() {
-    // Use find and xargs with sudo to remove all matching files
-    let result = Command::new("sudo")
+    // Try to clean up files without sudo first
+    // Only files we own can be deleted without sudo
+    let result = Command::new("find")
         .args([
-            "find",
             "/tmp",
             "-name",
             "all-smi_powermetrics_*",
             "-type",
             "f",
+            "-user",
+            &std::env::var("USER").unwrap_or_else(|_| "nobody".to_string()),
             "-exec",
             "rm",
             "-f",

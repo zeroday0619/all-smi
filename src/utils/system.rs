@@ -37,7 +37,14 @@ pub fn calculate_adaptive_interval(node_count: usize) -> u64 {
 
 pub fn ensure_sudo_permissions() {
     if cfg!(target_os = "macos") {
+        // Force flush any pending output before showing our messages
+        let _ = io::stdout().flush();
+        let _ = io::stderr().flush();
+
         request_sudo_with_explanation();
+    } else {
+        // For non-macOS systems, we might need different handling
+        eprintln!("Note: This platform may not require sudo for hardware monitoring.");
     }
 }
 
@@ -50,15 +57,8 @@ pub fn ensure_sudo_permissions_with_fallback() -> bool {
 }
 
 pub fn request_sudo_with_explanation() {
-    // Check if we already have sudo privileges
-    if has_sudo_privileges() {
-        println!("✅ Administrator privileges already available.");
-        println!("   Starting system monitoring...");
-        println!();
-        return;
-    }
-
-    println!("🔧 all-smi: System Monitoring Interface");
+    // Always show the explanation and ask for consent before requesting sudo
+    println!("\n🔧 all-smi: System Monitoring Interface");
     println!("============================================");
     println!();
     println!("This application monitors GPU, CPU, and memory usage on your system.");
@@ -99,10 +99,28 @@ pub fn request_sudo_with_explanation() {
         std::process::exit(0);
     }
 
+    // Check if we already have sudo privileges
+    if has_sudo_privileges() {
+        println!();
+        println!("✅ Administrator privileges already available.");
+        println!("   Starting system monitoring...");
+        println!();
+
+        // Add a small delay so user can see the message before terminal is cleared
+        std::thread::sleep(std::time::Duration::from_millis(1000));
+        return;
+    }
+
     println!();
     println!("🔑 Requesting administrator privileges...");
     println!("   (You may be prompted for your password)");
     println!();
+
+    // Flush output to ensure all messages are displayed before sudo prompt
+    io::stdout().flush().unwrap();
+
+    // Add a small pause to ensure messages are visible
+    std::thread::sleep(std::time::Duration::from_millis(500));
 
     // Attempt to get sudo privileges
     let status = Command::new("sudo")
@@ -127,16 +145,13 @@ pub fn request_sudo_with_explanation() {
     println!("✅ Administrator privileges granted successfully.");
     println!("   Starting system monitoring...");
     println!();
+
+    // Add a small delay so user can see the message before terminal is cleared
+    std::thread::sleep(std::time::Duration::from_millis(1500));
 }
 
 pub fn request_sudo_with_explanation_and_fallback() -> bool {
-    // Check if we already have sudo privileges
-    if has_sudo_privileges() {
-        println!("✅ Administrator privileges already available.");
-        println!("   Starting local system monitoring...");
-        println!();
-        return true;
-    }
+    // Always show the explanation first, regardless of sudo status
 
     println!("🔧 all-smi: System Monitoring Interface");
     println!("============================================");
@@ -213,6 +228,12 @@ pub fn request_sudo_with_explanation_and_fallback() -> bool {
     println!("   (You may be prompted for your password)");
     println!();
 
+    // Flush output to ensure all messages are displayed before sudo prompt
+    io::stdout().flush().unwrap();
+
+    // Add a small pause to ensure messages are visible
+    std::thread::sleep(std::time::Duration::from_millis(500));
+
     // Attempt to get sudo privileges
     let status = Command::new("sudo")
         .arg("-v")
@@ -236,6 +257,10 @@ pub fn request_sudo_with_explanation_and_fallback() -> bool {
     println!("✅ Administrator privileges granted successfully.");
     println!("   Starting local system monitoring...");
     println!();
+
+    // Add a small delay so user can see the message before terminal is cleared
+    std::thread::sleep(std::time::Duration::from_millis(1500));
+
     true // User granted sudo permissions
 }
 
