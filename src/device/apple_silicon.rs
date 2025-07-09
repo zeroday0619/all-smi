@@ -102,6 +102,7 @@ impl GpuReader for AppleSiliconGpuReader {
             uuid: "AppleSiliconGPU".to_string(),
             time: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
             name: self.name.clone(),
+            device_type: "GPU".to_string(),
             hostname: get_hostname(),
             instance: get_hostname(),
             utilization: metrics.utilization.unwrap_or(0.0),

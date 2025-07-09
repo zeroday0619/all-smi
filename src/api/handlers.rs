@@ -78,28 +78,27 @@ pub async fn metrics_handler(State(state): State<SharedState>) -> String {
             ));
         }
 
-        // Add GPU vendor info metric with all detail fields as labels
-        if !info.detail.is_empty() {
-            metrics.push_str("# HELP all_smi_gpu_info GPU vendor-specific information\n");
-            metrics.push_str("# TYPE all_smi_gpu_info info\n");
+        // Add GPU info metric with device type and vendor-specific information
+        metrics.push_str("# HELP all_smi_gpu_info GPU device information\n");
+        metrics.push_str("# TYPE all_smi_gpu_info info\n");
 
-            // Build label string from detail HashMap
-            let mut labels = vec![
-                format!("gpu=\"{}\"", info.name),
-                format!("instance=\"{}\"", info.instance),
-                format!("uuid=\"{}\"", info.uuid),
-                format!("index=\"{}\"", i),
-            ];
+        // Build label string
+        let mut labels = vec![
+            format!("gpu=\"{}\"", info.name),
+            format!("instance=\"{}\"", info.instance),
+            format!("uuid=\"{}\"", info.uuid),
+            format!("index=\"{}\"", i),
+            format!("type=\"{}\"", info.device_type),
+        ];
 
-            // Add all detail fields as labels
-            for (key, value) in &info.detail {
-                // Escape quotes in values for Prometheus format
-                let escaped_value = value.replace('"', "\\\"");
-                labels.push(format!("{key}=\"{escaped_value}\""));
-            }
-
-            metrics.push_str(&format!("all_smi_gpu_info{{{}}} 1\n", labels.join(", ")));
+        // Add all detail fields as labels
+        for (key, value) in &info.detail {
+            // Escape quotes in values for Prometheus format
+            let escaped_value = value.replace('"', "\\\"");
+            labels.push(format!("{key}=\"{escaped_value}\""));
         }
+
+        metrics.push_str(&format!("all_smi_gpu_info{{{}}} 1\n", labels.join(", ")));
 
         // Add individual metrics for important CUDA fields
         if let Some(pcie_gen) = info.detail.get("pcie_gen_current") {

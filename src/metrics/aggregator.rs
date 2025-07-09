@@ -268,6 +268,7 @@ mod tests {
             uuid: "test-uuid".to_string(),
             time: "2024-01-01 00:00:00".to_string(),
             name: "Test GPU".to_string(),
+            device_type: "GPU".to_string(),
             hostname: "test-host".to_string(),
             instance: "test-instance".to_string(),
             utilization: 75.0,

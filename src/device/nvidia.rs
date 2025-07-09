@@ -222,10 +222,109 @@ impl NvidiaGpuReader {
                         detail.insert("PCIe Width".to_string(), format!("x{pcie_width}"));
                     }
 
+                    // Compute mode
+                    if let Ok(compute_mode) = device.compute_mode() {
+                        detail.insert("compute_mode".to_string(), format!("{compute_mode:?}"));
+                    }
+
+                    // PCIe max information
+                    if let Ok(pcie_gen_max) = device.max_pcie_link_gen() {
+                        detail.insert("pcie_gen_max".to_string(), pcie_gen_max.to_string());
+                    }
+                    if let Ok(pcie_width_max) = device.max_pcie_link_width() {
+                        detail.insert("pcie_width_max".to_string(), pcie_width_max.to_string());
+                    }
+
+                    // Performance state
+                    if let Ok(perf_state) = device.performance_state() {
+                        detail.insert("performance_state".to_string(), format!("{perf_state:?}"));
+                    }
+
+                    // Power limits
+                    if let Ok(power_limit) = device.power_management_limit() {
+                        detail.insert(
+                            "power_limit_current".to_string(),
+                            format!("{:.2}", power_limit as f64 / 1000.0),
+                        );
+                    }
+                    if let Ok(power_limit_default) = device.power_management_limit_default() {
+                        detail.insert(
+                            "power_limit_default".to_string(),
+                            format!("{:.2}", power_limit_default as f64 / 1000.0),
+                        );
+                    }
+                    if let Ok(constraints) = device.power_management_limit_constraints() {
+                        detail.insert(
+                            "power_limit_min".to_string(),
+                            format!("{:.2}", constraints.min_limit as f64 / 1000.0),
+                        );
+                        detail.insert(
+                            "power_limit_max".to_string(),
+                            format!("{:.2}", constraints.max_limit as f64 / 1000.0),
+                        );
+                    }
+
+                    // Max clocks - need to import Clock enum
+                    use nvml_wrapper::enum_wrappers::device::Clock;
+                    if let Ok(max_graphics_clock) = device.max_customer_boost_clock(Clock::Graphics)
+                    {
+                        detail.insert(
+                            "clock_graphics_max".to_string(),
+                            max_graphics_clock.to_string(),
+                        );
+                    }
+                    if let Ok(max_memory_clock) = device.max_customer_boost_clock(Clock::Memory) {
+                        detail.insert("clock_memory_max".to_string(), max_memory_clock.to_string());
+                    }
+
+                    // ECC mode
+                    if let Ok(ecc_enabled) = device.is_ecc_enabled() {
+                        detail.insert(
+                            "ecc_mode_current".to_string(),
+                            if ecc_enabled.currently_enabled {
+                                "Enabled"
+                            } else {
+                                "Disabled"
+                            }
+                            .to_string(),
+                        );
+                        if ecc_enabled.currently_enabled != ecc_enabled.pending_enabled {
+                            detail.insert(
+                                "ecc_mode_pending".to_string(),
+                                if ecc_enabled.pending_enabled {
+                                    "Enabled"
+                                } else {
+                                    "Disabled"
+                                }
+                                .to_string(),
+                            );
+                        }
+                    }
+
+                    // MIG mode
+                    if let Ok(mig_mode) = device.mig_mode() {
+                        detail.insert(
+                            "mig_mode_current".to_string(),
+                            format!("{:?}", mig_mode.current),
+                        );
+                        if mig_mode.current != mig_mode.pending {
+                            detail.insert(
+                                "mig_mode_pending".to_string(),
+                                format!("{:?}", mig_mode.pending),
+                            );
+                        }
+                    }
+
+                    // VBIOS version
+                    if let Ok(vbios) = device.vbios_version() {
+                        detail.insert("vbios_version".to_string(), vbios);
+                    }
+
                     let info = GpuInfo {
                         uuid: device.uuid().unwrap_or_else(|_| format!("GPU-{i}")),
                         time: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
                         name: device.name().unwrap_or_else(|_| "Unknown GPU".to_string()),
+                        device_type: "GPU".to_string(),
                         hostname: get_hostname(),
                         instance: get_hostname(),
                         utilization: device
@@ -324,6 +423,7 @@ impl NvidiaGpuReader {
                             },
                             time: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
                             name,
+                            device_type: "GPU".to_string(),
                             hostname: get_hostname(),
                             instance: get_hostname(),
                             utilization,
