@@ -11,10 +11,12 @@
 The application presents a terminal-based user interface with cluster overview, interactive sorting, and both local and remote monitoring capabilities. It also provides an API mode for Prometheus metrics integration.
 
 ![screenshot](screenshots/all-smi-all-tab.png)
-All-node view (remote mode)
+
+<p align="center">All-node view (remote mode)</p>
 
 ![screenshot](screenshots/all-smi-node-tab.png)
-Node view (remote mode)
+
+<p align="center">Node view (remote mode)</p>
 
 ## Features
 
@@ -55,6 +57,9 @@ Node view (remote mode)
 ### Remote Monitoring
 - **Multi-Host Support:** Monitor up to 256+ remote systems simultaneously
 - **Connection Management:** Optimized networking with connection pooling and retry logic
+  - Supports up to 128 concurrent connections
+  - Automatic retry with exponential backoff
+  - TCP keepalive for persistent connections
 - **Storage Monitoring:** Disk usage information for remote hosts
 - **High Availability:** Resilient to connection failures with automatic retry
 
@@ -259,7 +264,24 @@ Metrics available at `http://localhost:9090/metrics` include:
 
 ### Mock Server for Testing
 
-The included mock server simulates realistic GPU and CPU clusters for development and testing:
+The included mock server simulates realistic GPU and CPU clusters for development and testing.
+
+#### Mock Server Options
+
+```bash
+all-smi-mock-server [OPTIONS]
+
+OPTIONS:
+    --port-range <range>        Port range, e.g., 10001-10010 or 10001
+    --gpu-name <name>           GPU name (default: "NVIDIA H200 141GB HBM3")
+    --platform <type>           Platform type: nvidia, apple, jetson, intel, amd (default: nvidia)
+    -o, --output <file>         Output CSV file name (default: hosts.csv)
+    --failure-nodes <count>     Number of nodes to simulate random failures (default: 0)
+    --start-index <num>         Starting index for node naming (default: 1)
+    -h, --help                  Print help
+```
+
+#### Basic Usage
 
 ```bash
 # Build mock server (requires mock feature)
@@ -274,6 +296,14 @@ cargo build --release --bin all-smi-mock-server --features mock
 # Custom GPU configuration
 ./target/release/all-smi-mock-server --port-range 10001-10005 \
   --gpu-name "NVIDIA H100 80GB HBM3" -o test-hosts.csv
+
+# Start with custom node naming index
+./target/release/all-smi-mock-server --port-range 10001-10050 \
+  --start-index 51 -o hosts.csv  # Creates node-0051 to node-0100
+
+# Simulate node failures for testing
+./target/release/all-smi-mock-server --port-range 10001-10010 \
+  --failure-nodes 3 -o hosts.csv  # 3 nodes will randomly fail/recover
 ```
 
 #### Platform-Specific Testing
@@ -316,12 +346,40 @@ Mock server features:
 - **Randomized values** that change over time
 - **Storage simulation** with various disk sizes (1TB/4TB/12TB)
 - **Template-based responses** for performance
-- **Instance naming** with node-XXXX format
+- **Instance naming** with node-XXXX format (customizable with --start-index)
+- **Failure simulation** for testing high availability (--failure-nodes)
+- **Automatic node naming** prevents duplicates across multiple instances
 
 ### Testing High-Scale Scenarios
 
+#### Using the Mock Cluster Script (Recommended)
+
+For large deployments, use the included `start-mock-cluster.sh` script:
+
 ```bash
-# Start 128 mock servers
+# Start 200 mock servers across 4 processes (50 ports each)
+./start-mock-cluster.sh --port-range 10001-10200
+
+# Start with custom configuration
+./start-mock-cluster.sh --port-range 10001-10150 \
+  --gpu-name "NVIDIA A100" \
+  --failure-nodes 5 \
+  --ports-per-process 30
+
+# Stop all mock servers
+./start-mock-cluster.sh stop
+```
+
+The script automatically:
+- Calculates optimal process distribution
+- Sets proper file descriptor limits
+- Prevents duplicate node names across processes
+- Combines all host files into a single `hosts.csv`
+
+#### Manual High-Scale Testing
+
+```bash
+# Start 128 mock servers manually
 ./target/release/all-smi-mock-server --port-range 10001-10128 -o large-cluster.csv &
 
 # Monitor large cluster
@@ -354,10 +412,11 @@ all-smi view --hostfile mixed-cluster.csv --interval 2
 
 ### Performance Optimizations
 
-- **Connection Management:** 64 concurrent connections with retry logic
+- **Connection Management:** 128 concurrent connections with retry logic
 - **Adaptive Intervals:** 2-6 second refresh based on cluster size
 - **Memory Efficiency:** Stream processing and connection pooling
 - **Rendering:** Double buffering to prevent display flickering
+- **File Descriptor Management:** Automatic handling for large-scale deployments
 
 ## Contributing
 
@@ -377,6 +436,7 @@ This project is licensed under the MIT License. See the LICENSE file for details
 ## Changelog
 
 ### Recent Updates
+- **v0.4.1 (2025/07/10):** Mock server improvements, efficient Apple Silicon and NVidia GPU support
 - **v0.4.0 (2025/07/08):** Architectural refactoring, Smart sudo detection and comprehensive unit testing
 - **v0.3.3 (2025/07/07):** CPU, Memory, and ANE support, and UI fixes
 - **v0.3.2 (2025/07/06):** Cargo.toml for publishing and release process
