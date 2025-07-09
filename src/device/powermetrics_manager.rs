@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -126,7 +126,7 @@ impl PowerMetricsManager {
     /// Restart the powermetrics process
     fn restart_powermetrics(
         process_arc: &Arc<Mutex<Option<Child>>>,
-        output_file: &PathBuf,
+        output_file: &Path,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // Kill existing process if any
         {
