@@ -261,7 +261,16 @@ impl DataCollector {
         let final_storage_info: Vec<StorageInfo> = deduplicated_storage.into_values().collect();
 
         let mut state = self.app_state.lock().await;
-        state.gpu_info = all_gpu_info;
+
+        // Only update GPU info if we have valid data (not empty and has memory info)
+        if !all_gpu_info.is_empty() && all_gpu_info.iter().any(|gpu| gpu.total_memory > 0) {
+            state.gpu_info = all_gpu_info;
+        } else if state.gpu_info.is_empty() {
+            // If we don't have any existing GPU info and the new data is invalid,
+            // still update to show something (but history won't be updated due to the check)
+            state.gpu_info = all_gpu_info;
+        }
+
         state.cpu_info = all_cpu_info;
         state.memory_info = all_memory_info;
         state.storage_info = final_storage_info;
@@ -313,7 +322,8 @@ impl DataCollector {
     }
 
     fn update_utilization_history(&self, state: &mut AppState) {
-        if !state.gpu_info.is_empty() {
+        // Only update history if we have valid GPU data
+        if !state.gpu_info.is_empty() && state.gpu_info.iter().any(|gpu| gpu.total_memory > 0) {
             let avg_utilization = state
                 .gpu_info
                 .iter()

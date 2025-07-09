@@ -23,6 +23,11 @@ use device::powermetrics_manager::{
     cleanup_stale_powermetrics_files, initialize_powermetrics_manager,
     shutdown_powermetrics_manager,
 };
+#[cfg(target_os = "macos")]
+use std::sync::atomic::{AtomicBool, Ordering};
+
+#[cfg(target_os = "macos")]
+static POWERMETRICS_INITIALIZED: AtomicBool = AtomicBool::new(false);
 
 #[tokio::main]
 async fn main() {
@@ -40,7 +45,9 @@ async fn main() {
     tokio::spawn(async {
         signal::ctrl_c().await.expect("Failed to listen for Ctrl+C");
         #[cfg(target_os = "macos")]
-        shutdown_powermetrics_manager();
+        if POWERMETRICS_INITIALIZED.load(Ordering::Relaxed) {
+            shutdown_powermetrics_manager();
+        }
         std::process::exit(0);
     });
 
@@ -51,17 +58,11 @@ async fn main() {
             .expect("Failed to listen for SIGTERM");
         sigterm.recv().await;
         #[cfg(target_os = "macos")]
-        shutdown_powermetrics_manager();
+        if POWERMETRICS_INITIALIZED.load(Ordering::Relaxed) {
+            shutdown_powermetrics_manager();
+        }
         std::process::exit(0);
     });
-
-    // Initialize PowerMetricsManager for macOS if we're running locally
-    #[cfg(target_os = "macos")]
-    let _needs_manager = match &cli.command {
-        Some(Commands::Api(_)) => true,
-        Some(Commands::View(args)) => args.hosts.is_none() && args.hostfile.is_none(),
-        None => true,
-    };
 
     match cli.command {
         Some(Commands::Api(args)) => {
@@ -72,6 +73,8 @@ async fn main() {
             if is_apple_silicon() {
                 if let Err(e) = initialize_powermetrics_manager() {
                     eprintln!("Warning: Failed to initialize PowerMetricsManager: {e}");
+                } else {
+                    POWERMETRICS_INITIALIZED.store(true, Ordering::Relaxed);
                 }
             }
 
@@ -116,7 +119,9 @@ async fn main() {
 
     // Cleanup PowerMetricsManager on exit
     #[cfg(target_os = "macos")]
-    shutdown_powermetrics_manager();
+    if POWERMETRICS_INITIALIZED.load(Ordering::Relaxed) {
+        shutdown_powermetrics_manager();
+    }
 }
 
 // Set up a panic handler to ensure cleanup
@@ -125,7 +130,9 @@ fn setup_panic_handler() {
     let default_panic = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |panic_info| {
         // Clean up PowerMetricsManager before panicking
-        device::powermetrics_manager::shutdown_powermetrics_manager();
+        if POWERMETRICS_INITIALIZED.load(Ordering::Relaxed) {
+            device::powermetrics_manager::shutdown_powermetrics_manager();
+        }
         default_panic(panic_info);
     }));
 }
