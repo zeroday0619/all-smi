@@ -215,4 +215,120 @@ GPU HW active residency:   9.85%
         assert_eq!(data.gpu_frequency, 444);
         assert_eq!(data.gpu_active_residency, 9.85);
     }
+
+    #[test]
+    fn test_parse_powermetrics_with_cores() {
+        let test_output = r#"
+E-Cluster HW active frequency: 1020 MHz
+E-Cluster HW active residency: 25.5%
+CPU 0 frequency: 1020 MHz
+CPU 0 active residency: 12.5%
+CPU 1 frequency: 1020 MHz
+CPU 1 active residency: 13.0%
+
+P-Cluster HW active frequency: 3000 MHz
+P-Cluster HW active residency: 75.5%
+CPU 4 frequency: 3000 MHz
+CPU 4 active residency: 50.0%
+CPU 5 frequency: 3000 MHz
+CPU 5 active residency: 25.5%
+
+GPU HW active frequency: 1200 MHz
+GPU HW active residency: 45.5%
+
+CPU Power: 1500 mW
+GPU Power: 2500 mW
+ANE Power: 100 mW
+Combined Power (CPU + GPU + ANE): 4100 mW
+"#;
+
+        let data = parse_powermetrics_output(test_output).unwrap();
+
+        // Check cluster data
+        assert_eq!(data.e_cluster_frequency, 1020);
+        assert_eq!(data.e_cluster_active_residency, 25.5);
+        assert_eq!(data.p_cluster_frequency, 3000);
+        assert_eq!(data.p_cluster_active_residency, 75.5);
+
+        // Check GPU data
+        assert_eq!(data.gpu_frequency, 1200);
+        assert_eq!(data.gpu_active_residency, 45.5);
+
+        // Check power data
+        assert_eq!(data.cpu_power_mw, 1500.0);
+        assert_eq!(data.gpu_power_mw, 2500.0);
+        assert_eq!(data.ane_power_mw, 100.0);
+        assert_eq!(data.combined_power_mw, 4100.0);
+
+        // Check core data
+        assert_eq!(data.core_frequencies.len(), 4);
+        assert_eq!(data.core_active_residencies.len(), 4);
+        assert_eq!(data.core_cluster_types.len(), 4);
+
+        // E-cores
+        assert_eq!(data.core_frequencies[0], 1020);
+        assert_eq!(data.core_frequencies[1], 1020);
+        assert_eq!(data.core_cluster_types[0], CoreType::Efficiency);
+        assert_eq!(data.core_cluster_types[1], CoreType::Efficiency);
+
+        // P-cores
+        assert_eq!(data.core_frequencies[2], 3000);
+        assert_eq!(data.core_frequencies[3], 3000);
+        assert_eq!(data.core_cluster_types[2], CoreType::Performance);
+        assert_eq!(data.core_cluster_types[3], CoreType::Performance);
+    }
+
+    #[test]
+    fn test_parse_powermetrics_with_missing_fields() {
+        // Test with minimal output
+        let test_output = r#"
+GPU HW active frequency: 1000 MHz
+GPU HW active residency: 20.0%
+"#;
+
+        let data = parse_powermetrics_output(test_output).unwrap();
+
+        assert_eq!(data.gpu_active_residency, 20.0);
+        assert_eq!(data.gpu_frequency, 1000);
+        assert_eq!(data.e_cluster_active_residency, 0.0);
+        assert_eq!(data.p_cluster_active_residency, 0.0);
+        assert_eq!(data.core_frequencies.len(), 0);
+    }
+
+    #[test]
+    fn test_parse_invalid_output() {
+        let invalid_output = "not a valid powermetrics output";
+        let result = parse_powermetrics_output(invalid_output);
+        // Should return default values, not error
+        assert!(result.is_ok());
+        let data = result.unwrap();
+        assert_eq!(data.gpu_active_residency, 0.0);
+        assert_eq!(data.e_cluster_active_residency, 0.0);
+    }
+
+    #[test]
+    fn test_coretype_equality() {
+        assert_eq!(CoreType::Efficiency, CoreType::Efficiency);
+        assert_eq!(CoreType::Performance, CoreType::Performance);
+        assert_ne!(CoreType::Efficiency, CoreType::Performance);
+    }
+
+    #[test]
+    fn test_powermetrics_data_utilization_methods() {
+        let mut data = PowerMetricsData::default();
+        data.e_cluster_active_residency = 30.0;
+        data.p_cluster_active_residency = 70.0;
+        data.gpu_active_residency = 50.0;
+
+        // Test CPU utilization (weighted average)
+        let cpu_util = data.cpu_utilization();
+        assert_eq!(cpu_util, 30.0 * 0.3 + 70.0 * 0.7); // 9 + 49 = 58
+
+        // Test GPU utilization
+        let gpu_util = data.gpu_utilization();
+        assert_eq!(gpu_util, 50.0);
+    }
 }
+
+// Note: The get_powermetrics_data function is already defined above at line 55
+// It returns Result<PowerMetricsData, Box<dyn std::error::Error>>

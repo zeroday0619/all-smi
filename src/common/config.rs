@@ -240,6 +240,27 @@ mod tests {
         };
         assert_eq!(EnvConfig::adaptive_interval(0), expected_local);
         assert_eq!(EnvConfig::adaptive_interval(usize::MAX), 6);
+    }
+
+    #[test]
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    fn test_apple_silicon_adaptive_interval() {
+        // On Apple Silicon Macs, local monitoring should use 1 second interval
+        assert_eq!(EnvConfig::adaptive_interval(0), 1);
+        assert_eq!(EnvConfig::adaptive_interval(1), 1);
+        // Remote monitoring should follow standard intervals
+        assert_eq!(EnvConfig::adaptive_interval(2), 3);
+        assert_eq!(EnvConfig::adaptive_interval(10), 3);
+    }
+
+    #[test]
+    #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+    fn test_non_apple_silicon_adaptive_interval() {
+        // On non-Apple Silicon systems, use standard intervals
+        assert_eq!(EnvConfig::adaptive_interval(0), 2);
+        assert_eq!(EnvConfig::adaptive_interval(1), 2);
+        assert_eq!(EnvConfig::adaptive_interval(2), 3);
+        assert_eq!(EnvConfig::adaptive_interval(10), 3);
 
         assert_eq!(EnvConfig::connection_stagger_delay(0, 1), 0);
         assert_eq!(EnvConfig::connection_stagger_delay(1000, 1000), 500);

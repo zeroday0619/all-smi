@@ -167,7 +167,7 @@ impl PowerMetricsManager {
     }
 
     /// Get the latest powermetrics data
-    pub fn get_latest_data(&self) -> Result<PowerMetricsData, Box<dyn std::error::Error>> {
+    fn get_latest_data_internal(&self) -> Result<PowerMetricsData, Box<dyn std::error::Error>> {
         // Try to read from the file
         if let Ok(contents) = fs::read_to_string(&self.output_file) {
             // Find the last complete powermetrics output in the file
@@ -271,6 +271,17 @@ impl PowerMetricsManager {
         }
 
         processes
+    }
+
+    /// Get latest data as Option (for test compatibility)
+    #[cfg(test)]
+    pub fn get_latest_data(&self) -> Option<PowerMetricsData> {
+        self.get_latest_data_result().ok()
+    }
+
+    /// Get latest data as Result
+    pub fn get_latest_data_result(&self) -> Result<PowerMetricsData, Box<dyn std::error::Error>> {
+        self.get_latest_data_internal()
     }
 
     /// Determine the output flag based on macOS version
@@ -377,4 +388,162 @@ pub fn get_powermetrics_manager() -> Option<Arc<PowerMetricsManager>> {
 pub fn shutdown_powermetrics_manager() {
     let mut manager_guard = POWERMETRICS_MANAGER.lock().unwrap();
     *manager_guard = None; // This will trigger Drop
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs::File;
+    use std::io::Write;
+
+    #[test]
+    fn test_get_output_flag_static() {
+        // Test that get_output_flag_static returns a valid flag
+        let flag = PowerMetricsManager::get_output_flag_static();
+        assert!(flag == "-o" || flag == "-u");
+    }
+
+    #[test]
+    fn test_powermetrics_data_cache() {
+        let manager = PowerMetricsManager {
+            process: Arc::new(Mutex::new(None)),
+            output_file: PathBuf::from("/tmp/test_powermetrics"),
+            last_data: Arc::new(Mutex::new(None)),
+            is_running: Arc::new(Mutex::new(false)),
+        };
+
+        // Test initial state - no data
+        assert!(manager.get_latest_data().is_none());
+
+        // Create test data
+        let test_data = PowerMetricsData {
+            e_cluster_active_residency: 25.5,
+            p_cluster_active_residency: 75.5,
+            e_cluster_frequency: 1020,
+            p_cluster_frequency: 3000,
+            cpu_power_mw: 1500.0,
+            core_active_residencies: vec![],
+            core_frequencies: vec![],
+            core_cluster_types: vec![],
+            gpu_active_residency: 45.5,
+            gpu_frequency: 1200,
+            gpu_power_mw: 2500.0,
+            ane_power_mw: 100.0,
+            combined_power_mw: 4100.0,
+            thermal_pressure: Some(0),
+        };
+
+        // Set cached data
+        {
+            let mut last_data = manager.last_data.lock().unwrap();
+            *last_data = Some(test_data.clone());
+        }
+
+        // Verify cached data
+        let cached = manager.get_latest_data();
+        assert!(cached.is_some());
+        let cached_data = cached.unwrap();
+        assert_eq!(cached_data.gpu_active_residency, 45.5);
+        assert_eq!(cached_data.gpu_frequency, 1200);
+        assert_eq!(cached_data.e_cluster_active_residency, 25.5);
+        assert_eq!(cached_data.p_cluster_active_residency, 75.5);
+    }
+
+    #[test]
+    fn test_singleton_instance() {
+        // Clean up any existing instance
+        shutdown_powermetrics_manager();
+
+        // Initialize the manager
+        let _ = initialize_powermetrics_manager();
+
+        // Test that we get the same instance
+        let manager1 = get_powermetrics_manager();
+        let manager2 = get_powermetrics_manager();
+
+        assert!(manager1.is_some());
+        assert!(manager2.is_some());
+
+        // Both should return the same Arc pointer
+        assert!(Arc::ptr_eq(&manager1.unwrap(), &manager2.unwrap()));
+
+        // Clean up
+        shutdown_powermetrics_manager();
+    }
+
+    #[test]
+    fn test_get_latest_data_from_file() {
+        use std::path::PathBuf;
+
+        // Create a test file path
+        let test_file = PathBuf::from("/tmp/test_powermetrics_test.txt");
+
+        // Write test powermetrics output that matches expected format
+        let test_output = r#"*** Sampled system activity (Fri Nov 15 10:00:00 2024 -0800) (1000ms elapsed) ***
+
+*** Processor usage ***
+E-Cluster HW active frequency: 1020 MHz
+E-Cluster HW active residency: 25.5%
+
+P-Cluster HW active frequency: 3000 MHz  
+P-Cluster HW active residency: 75.5%
+
+CPU Power: 1500 mW
+
+*** GPU usage ***
+GPU HW active frequency: 1200 MHz
+GPU HW active residency: 45.5%
+GPU Power: 2500 mW
+
+ANE Power: 100 mW
+Combined Power (CPU + GPU + ANE): 4100 mW
+
+*** Sampled system activity"#;
+
+        if let Ok(mut file) = File::create(&test_file) {
+            let _ = file.write_all(test_output.as_bytes());
+        }
+
+        let manager = PowerMetricsManager {
+            process: Arc::new(Mutex::new(None)),
+            output_file: test_file.clone(),
+            last_data: Arc::new(Mutex::new(None)),
+            is_running: Arc::new(Mutex::new(false)),
+        };
+
+        // Get data from file
+        let result = manager.get_latest_data_result();
+
+        // Check that data was parsed
+        assert!(result.is_ok());
+        let data = result.unwrap();
+        assert_eq!(data.e_cluster_frequency, 1020);
+        assert_eq!(data.e_cluster_active_residency, 25.5);
+        assert_eq!(data.p_cluster_frequency, 3000);
+        assert_eq!(data.p_cluster_active_residency, 75.5);
+
+        // Clean up
+        let _ = std::fs::remove_file(&test_file);
+    }
+
+    #[test]
+    fn test_cleanup_stale_files() {
+        // Create test files in /tmp directly
+        let stale_file1 = PathBuf::from("/tmp/all-smi_powermetrics_test_12345");
+        let stale_file2 = PathBuf::from("/tmp/all-smi_powermetrics_test_67890");
+
+        // Create test files
+        let _ = File::create(&stale_file1);
+        let _ = File::create(&stale_file2);
+
+        // Call cleanup - it will clean up all stale powermetrics files
+        cleanup_stale_powermetrics_files();
+
+        // The test files might or might not be cleaned depending on timing
+        // Just ensure the function doesn't panic
+
+        // Clean up our test files if they still exist
+        let _ = std::fs::remove_file(&stale_file1);
+        let _ = std::fs::remove_file(&stale_file2);
+    }
 }

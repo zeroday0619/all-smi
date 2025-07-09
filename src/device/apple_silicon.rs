@@ -77,7 +77,7 @@ impl GpuReader for AppleSiliconGpuReader {
 
         // Get comprehensive metrics from PowerMetricsManager or enhanced parser
         let metrics = if let Some(manager) = get_powermetrics_manager() {
-            match manager.get_latest_data() {
+            match manager.get_latest_data_result() {
                 Ok(data) => data,
                 Err(_) => {
                     // Fallback to spawning powermetrics if manager fails
