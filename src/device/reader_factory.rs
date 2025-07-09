@@ -1,11 +1,11 @@
 use crate::device::{
     nvidia, nvidia_jetson,
-    platform_detection::{get_os_type, has_nvidia, is_apple_silicon, is_jetson},
+    platform_detection::{get_os_type, has_nvidia, is_jetson},
     traits::{CpuReader, GpuReader, MemoryReader},
 };
 
 #[cfg(target_os = "macos")]
-use crate::device::{apple_silicon, cpu_macos, memory_macos};
+use crate::device::{apple_silicon, cpu_macos, memory_macos, platform_detection::is_apple_silicon};
 
 #[cfg(target_os = "linux")]
 use crate::device::{cpu_linux, memory_linux};
