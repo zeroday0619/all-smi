@@ -509,6 +509,7 @@ impl PowerMetricsManager {
 
 impl Drop for PowerMetricsManager {
     fn drop(&mut self) {
+        // Debug: PowerMetricsManager Drop called
         // Stop the monitoring flag
         if let Ok(mut is_running) = self.is_running.lock() {
             *is_running = false;
@@ -537,8 +538,25 @@ impl Drop for PowerMetricsManager {
             }
         }
 
-        // Clean up the temporary file
-        let _ = fs::remove_file(&self.output_file);
+        // Clean up the temporary file (use sudo since file is owned by root)
+        let result = Command::new("sudo")
+            .args(["rm", "-f", &self.output_file.to_string_lossy()])
+            .output();
+
+        if let Err(e) = result {
+            eprintln!(
+                "Failed to execute sudo rm for {:?}: {}",
+                self.output_file, e
+            );
+        } else if let Ok(output) = result {
+            if !output.status.success() {
+                eprintln!(
+                    "Failed to remove powermetrics temp file {:?}: {}",
+                    self.output_file,
+                    String::from_utf8_lossy(&output.stderr)
+                );
+            }
+        }
     }
 }
 
@@ -562,13 +580,35 @@ pub fn initialize_powermetrics_manager() -> Result<(), Box<dyn std::error::Error
 
 /// Clean up stale powermetrics temporary files
 pub fn cleanup_stale_powermetrics_files() {
-    if let Ok(entries) = fs::read_dir("/tmp") {
-        for entry in entries.flatten() {
-            if let Some(filename) = entry.file_name().to_str() {
-                if filename.starts_with("all-smi_powermetrics_") {
-                    let _ = fs::remove_file(entry.path());
-                }
+    // Use find and xargs with sudo to remove all matching files
+    let result = Command::new("sudo")
+        .args([
+            "find",
+            "/tmp",
+            "-name",
+            "all-smi_powermetrics_*",
+            "-type",
+            "f",
+            "-exec",
+            "rm",
+            "-f",
+            "{}",
+            ";",
+        ])
+        .output();
+
+    match result {
+        Ok(output) => {
+            if !output.status.success() {
+                // Only show errors, not success messages
+                eprintln!(
+                    "Failed to clean up stale files: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
             }
+        }
+        Err(e) => {
+            eprintln!("Failed to execute cleanup command: {e}");
         }
     }
 }
@@ -603,16 +643,16 @@ pub fn terminate_all_smi_powermetrics_processes() {
                 .is_ok()
             {
                 killed_count += 1;
-                println!("Terminated all-smi powermetrics process with PID: {pid}");
+                // Debug: Terminated all-smi powermetrics process with PID
             }
         }
 
         if killed_count > 0 {
-            println!("Terminated {killed_count} all-smi powermetrics process(es)");
+            // Debug: Terminated powermetrics processes
             // Also clean up any stale temp files
             cleanup_stale_powermetrics_files();
         } else {
-            println!("No all-smi powermetrics processes found");
+            // Debug: No all-smi powermetrics processes found
         }
     }
 }
@@ -624,10 +664,18 @@ pub fn get_powermetrics_manager() -> Option<Arc<PowerMetricsManager>> {
 
 /// Shutdown the global PowerMetricsManager
 pub fn shutdown_powermetrics_manager() {
-    let mut manager_guard = POWERMETRICS_MANAGER.lock().unwrap();
+    // Debug: shutdown_powermetrics_manager called
 
-    // Explicitly clean up before dropping
-    if let Some(manager) = manager_guard.as_ref() {
+    // Take the manager out to ensure Drop is called
+    let manager_arc = {
+        let mut manager_guard = POWERMETRICS_MANAGER.lock().unwrap();
+        manager_guard.take()
+    };
+
+    // If we had a manager, clean it up
+    if let Some(manager) = manager_arc {
+        // Debug: Shutting down PowerMetricsManager
+
         // Stop the monitoring flag
         if let Ok(mut is_running) = manager.is_running.lock() {
             *is_running = false;
@@ -655,14 +703,18 @@ pub fn shutdown_powermetrics_manager() {
             }
         }
 
-        // Clean up the temporary file
-        let _ = fs::remove_file(&manager.output_file);
+        // Don't remove file here - let Drop handle it
+        // The Arc will be dropped when this function ends
     }
-
-    *manager_guard = None; // This will trigger Drop
 
     // Extra cleanup to catch any orphaned processes
     PowerMetricsManager::kill_existing_powermetrics_processes();
+
+    // Give Drop a moment to execute
+    thread::sleep(Duration::from_millis(100));
+
+    // Final cleanup of any remaining temp files
+    cleanup_stale_powermetrics_files();
 }
 
 #[cfg(test)]
