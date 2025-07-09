@@ -20,11 +20,16 @@ use utils::{ensure_sudo_permissions, ensure_sudo_permissions_with_fallback};
 use device::is_apple_silicon;
 #[cfg(target_os = "macos")]
 use device::powermetrics_manager::{
-    initialize_powermetrics_manager, shutdown_powermetrics_manager,
+    cleanup_stale_powermetrics_files, initialize_powermetrics_manager,
+    shutdown_powermetrics_manager,
 };
 
 #[tokio::main]
 async fn main() {
+    // Clean up any stale powermetrics files from previous runs
+    #[cfg(target_os = "macos")]
+    cleanup_stale_powermetrics_files();
+
     // Set up panic handler for cleanup
     #[cfg(target_os = "macos")]
     setup_panic_handler();
@@ -34,6 +39,17 @@ async fn main() {
     // Set up signal handler for clean shutdown
     tokio::spawn(async {
         signal::ctrl_c().await.expect("Failed to listen for Ctrl+C");
+        #[cfg(target_os = "macos")]
+        shutdown_powermetrics_manager();
+        std::process::exit(0);
+    });
+
+    // Also handle SIGTERM on Unix systems
+    #[cfg(unix)]
+    tokio::spawn(async {
+        let mut sigterm = signal::unix::signal(signal::unix::SignalKind::terminate())
+            .expect("Failed to listen for SIGTERM");
+        sigterm.recv().await;
         #[cfg(target_os = "macos")]
         shutdown_powermetrics_manager();
         std::process::exit(0);

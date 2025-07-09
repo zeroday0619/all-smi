@@ -1,3 +1,4 @@
+use crate::device::powermetrics_manager::get_powermetrics_manager;
 use crate::device::{AppleSiliconCpuInfo, CpuInfo, CpuPlatformType, CpuReader, CpuSocketInfo};
 use crate::utils::system::get_hostname;
 use chrono::Local;
@@ -70,9 +71,24 @@ impl MacOsCpuReader {
         let cpu_utilization = self.get_cpu_utilization_powermetrics()?;
         let (p_core_utilization, e_core_utilization) = self.get_apple_silicon_core_utilization()?;
 
-        // Get CPU frequency information
-        let base_frequency = self.get_cpu_base_frequency()?;
-        let max_frequency = self.get_cpu_max_frequency()?;
+        // Get CPU frequency information from PowerMetricsManager if available
+        let (base_frequency, max_frequency) = if let Some(manager) = get_powermetrics_manager() {
+            if let Ok(data) = manager.get_latest_data_result() {
+                // Use actual frequencies from powermetrics
+                let avg_freq = (data.p_cluster_frequency + data.e_cluster_frequency) / 2;
+                (avg_freq, data.p_cluster_frequency) // P-cluster frequency as max
+            } else {
+                (
+                    self.get_cpu_base_frequency()?,
+                    self.get_cpu_max_frequency()?,
+                )
+            }
+        } else {
+            (
+                self.get_cpu_base_frequency()?,
+                self.get_cpu_max_frequency()?,
+            )
+        };
 
         // Get CPU temperature (may not be available)
         let temperature = self.get_cpu_temperature();
@@ -345,59 +361,14 @@ impl MacOsCpuReader {
     }
 
     fn get_cpu_utilization_powermetrics(&self) -> Result<f64, Box<dyn std::error::Error>> {
-        // Use a short sampling period for powermetrics
-        let output = Command::new("sudo")
-            .args([
-                "powermetrics",
-                "--samplers",
-                "cpu_power",
-                "-n",
-                "1",
-                "-i",
-                "1000",
-            ])
-            .output()?;
-
-        let powermetrics_output = String::from_utf8_lossy(&output.stdout);
-
-        let mut e_cluster_active = 0.0;
-        let mut p_cluster_active = 0.0;
-        let mut e_cluster_found = false;
-        let mut p_cluster_found = false;
-
-        // Parse cluster utilization from powermetrics output
-        for line in powermetrics_output.lines() {
-            if line.contains("E-Cluster HW active residency:") {
-                if let Some(residency_str) = line.split(':').nth(1) {
-                    if let Some(percent_str) = residency_str.split_whitespace().next() {
-                        e_cluster_active = percent_str
-                            .trim_end_matches('%')
-                            .parse::<f64>()
-                            .unwrap_or(0.0);
-                        e_cluster_found = true;
-                    }
-                }
-            } else if line.contains("P-Cluster HW active residency:") {
-                if let Some(residency_str) = line.split(':').nth(1) {
-                    if let Some(percent_str) = residency_str.split_whitespace().next() {
-                        p_cluster_active = percent_str
-                            .trim_end_matches('%')
-                            .parse::<f64>()
-                            .unwrap_or(0.0);
-                        p_cluster_found = true;
-                    }
-                }
+        // Try to get data from the PowerMetricsManager first
+        if let Some(manager) = get_powermetrics_manager() {
+            if let Ok(data) = manager.get_latest_data_result() {
+                return Ok(data.cpu_utilization());
             }
         }
 
-        if e_cluster_found || p_cluster_found {
-            // Calculate weighted average based on cluster utilization
-            // Assuming P-cores have more weight in overall system utilization
-            let total_active = e_cluster_active * 0.3 + p_cluster_active * 0.7;
-            return Ok(total_active);
-        }
-
-        // Fallback to iostat if powermetrics doesn't work
+        // Fallback to iostat if PowerMetricsManager is not available
         self.get_cpu_utilization_iostat()
     }
 
@@ -430,46 +401,18 @@ impl MacOsCpuReader {
     }
 
     fn get_apple_silicon_core_utilization(&self) -> Result<(f64, f64), Box<dyn std::error::Error>> {
-        let output = Command::new("sudo")
-            .args([
-                "powermetrics",
-                "--samplers",
-                "cpu_power",
-                "-n",
-                "1",
-                "-i",
-                "1000",
-            ])
-            .output()?;
-
-        let powermetrics_output = String::from_utf8_lossy(&output.stdout);
-
-        let mut p_core_active = 0.0;
-        let mut e_core_active = 0.0;
-
-        for line in powermetrics_output.lines() {
-            if line.contains("P-Cluster HW active residency:") {
-                if let Some(residency_str) = line.split(':').nth(1) {
-                    if let Some(percent_str) = residency_str.split_whitespace().next() {
-                        p_core_active = percent_str
-                            .trim_end_matches('%')
-                            .parse::<f64>()
-                            .unwrap_or(0.0);
-                    }
-                }
-            } else if line.contains("E-Cluster HW active residency:") {
-                if let Some(residency_str) = line.split(':').nth(1) {
-                    if let Some(percent_str) = residency_str.split_whitespace().next() {
-                        e_core_active = percent_str
-                            .trim_end_matches('%')
-                            .parse::<f64>()
-                            .unwrap_or(0.0);
-                    }
-                }
+        // Try to get data from the PowerMetricsManager first
+        if let Some(manager) = get_powermetrics_manager() {
+            if let Ok(data) = manager.get_latest_data_result() {
+                return Ok((
+                    data.p_cluster_active_residency,
+                    data.e_cluster_active_residency,
+                ));
             }
         }
 
-        Ok((p_core_active, e_core_active))
+        // Return default values if PowerMetricsManager is not available
+        Ok((0.0, 0.0))
     }
 
     fn get_cpu_base_frequency(&self) -> Result<u32, Box<dyn std::error::Error>> {
@@ -499,31 +442,10 @@ impl MacOsCpuReader {
     }
 
     fn get_cpu_power_consumption(&self) -> Option<f64> {
-        // Power consumption from powermetrics (simplified)
-        if let Ok(output) = Command::new("sudo")
-            .args([
-                "powermetrics",
-                "--samplers",
-                "cpu_power",
-                "-n",
-                "1",
-                "-i",
-                "1000",
-            ])
-            .output()
-        {
-            let powermetrics_output = String::from_utf8_lossy(&output.stdout);
-
-            for line in powermetrics_output.lines() {
-                if line.contains("CPU Power:") && !line.contains("GPU") {
-                    if let Some(value_str) = line.split(':').nth(1) {
-                        if let Some(power_str) = value_str.split_whitespace().next() {
-                            if let Ok(milliwatts) = power_str.parse::<f64>() {
-                                return Some(milliwatts / 1000.0); // Convert mW to W
-                            }
-                        }
-                    }
-                }
+        // Try to get data from the PowerMetricsManager first
+        if let Some(manager) = get_powermetrics_manager() {
+            if let Ok(data) = manager.get_latest_data_result() {
+                return Some(data.cpu_power_mw / 1000.0); // Convert mW to W
             }
         }
         None

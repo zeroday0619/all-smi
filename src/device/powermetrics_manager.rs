@@ -309,16 +309,17 @@ impl PowerMetricsManager {
 
     /// Kill any existing powermetrics processes spawned by all-smi
     fn kill_existing_powermetrics_processes() {
-        if let Ok(output) = Command::new("ps").args(["aux"]).output() {
+        // Use ps auxww to see full command line without truncation
+        if let Ok(output) = Command::new("ps").args(["auxww"]).output() {
             let ps_output = String::from_utf8_lossy(&output.stdout);
             for line in ps_output.lines() {
-                // Look for powermetrics processes with our specific arguments
-                if line.contains("powermetrics") && line.contains("all-smi_powermetrics") {
+                // Look for parent processes (sudo nice) with our specific output file pattern
+                if line.contains("sudo nice") && line.contains("/tmp/all-smi_powermetrics_") {
                     // Extract PID (second column)
                     let parts: Vec<&str> = line.split_whitespace().collect();
                     if parts.len() > 1 {
                         if let Ok(pid) = parts[1].parse::<u32>() {
-                            // Kill the process
+                            // Kill the process (this will also kill its children)
                             let _ = Command::new("sudo")
                                 .args(["kill", "-9", &pid.to_string()])
                                 .output();
@@ -369,7 +370,7 @@ pub fn initialize_powermetrics_manager() -> Result<(), Box<dyn std::error::Error
 }
 
 /// Clean up stale powermetrics temporary files
-fn cleanup_stale_powermetrics_files() {
+pub fn cleanup_stale_powermetrics_files() {
     if let Ok(entries) = fs::read_dir("/tmp") {
         for entry in entries.flatten() {
             if let Some(filename) = entry.file_name().to_str() {
@@ -377,6 +378,50 @@ fn cleanup_stale_powermetrics_files() {
                     let _ = fs::remove_file(entry.path());
                 }
             }
+        }
+    }
+}
+
+/// Kill all powermetrics processes spawned by all-smi
+#[allow(dead_code)]
+pub fn terminate_all_smi_powermetrics_processes() {
+    // Use ps auxww to see full command line without truncation
+    if let Ok(output) = Command::new("ps").args(["auxww"]).output() {
+        let ps_output = String::from_utf8_lossy(&output.stdout);
+        let mut pids_to_kill = Vec::new();
+
+        // First, find all parent processes (sudo nice) with our output file pattern
+        for line in ps_output.lines() {
+            if line.contains("sudo nice") && line.contains("/tmp/all-smi_powermetrics_") {
+                // Extract PID (second column)
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() > 1 {
+                    if let Ok(pid) = parts[1].parse::<u32>() {
+                        pids_to_kill.push(pid);
+                    }
+                }
+            }
+        }
+
+        // Kill the parent processes (which will also kill their children)
+        let mut killed_count = 0;
+        for pid in pids_to_kill {
+            if Command::new("sudo")
+                .args(["kill", "-9", &pid.to_string()])
+                .output()
+                .is_ok()
+            {
+                killed_count += 1;
+                println!("Terminated all-smi powermetrics process with PID: {pid}");
+            }
+        }
+
+        if killed_count > 0 {
+            println!("Terminated {killed_count} all-smi powermetrics process(es)");
+            // Also clean up any stale temp files
+            cleanup_stale_powermetrics_files();
+        } else {
+            println!("No all-smi powermetrics processes found");
         }
     }
 }
@@ -389,6 +434,26 @@ pub fn get_powermetrics_manager() -> Option<Arc<PowerMetricsManager>> {
 /// Shutdown the global PowerMetricsManager
 pub fn shutdown_powermetrics_manager() {
     let mut manager_guard = POWERMETRICS_MANAGER.lock().unwrap();
+
+    // Explicitly clean up before dropping
+    if let Some(manager) = manager_guard.as_ref() {
+        // Stop the monitoring flag
+        if let Ok(mut is_running) = manager.is_running.lock() {
+            *is_running = false;
+        }
+
+        // Kill the powermetrics process
+        if let Ok(mut process_guard) = manager.process.lock() {
+            if let Some(mut child) = process_guard.take() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+        }
+
+        // Clean up the temporary file
+        let _ = fs::remove_file(&manager.output_file);
+    }
+
     *manager_guard = None; // This will trigger Drop
 }
 

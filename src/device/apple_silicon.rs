@@ -1,5 +1,4 @@
 use crate::device::powermetrics_manager::get_powermetrics_manager;
-use crate::device::powermetrics_parser::get_powermetrics_data;
 use crate::device::{get_system_process_info, GpuInfo, GpuReader, ProcessInfo};
 use crate::utils::get_hostname;
 use chrono::Local;
@@ -21,6 +20,7 @@ impl AppleSiliconGpuReader {
         }
     }
 
+    #[allow(dead_code)]
     fn get_process_info_direct(&self) -> Vec<(String, u32, f64)> {
         let output = Command::new("sudo")
             .arg("powermetrics")
@@ -80,44 +80,7 @@ impl GpuReader for AppleSiliconGpuReader {
             match manager.get_latest_data_result() {
                 Ok(data) => data,
                 Err(_) => {
-                    // Fallback to spawning powermetrics if manager fails
-                    match get_powermetrics_data() {
-                        Ok(data) => data,
-                        Err(_) => {
-                            // Final fallback to old method
-                            let gpu_metrics = get_gpu_metrics();
-                            let mut detail = HashMap::new();
-                            if let Some(version) = &self.driver_version {
-                                detail.insert("driver_version".to_string(), version.clone());
-                            }
-
-                            gpu_info.push(GpuInfo {
-                                uuid: "AppleSiliconGPU".to_string(),
-                                time: current_time,
-                                name: self.name.clone(),
-                                hostname: get_hostname(),
-                                instance: get_hostname(),
-                                utilization: gpu_metrics.utilization.unwrap_or(0.0),
-                                ane_utilization: gpu_metrics.ane_utilization.unwrap_or(0.0),
-                                dla_utilization: None,
-                                temperature: gpu_metrics.thermal_pressure.unwrap_or(0),
-                                used_memory,
-                                total_memory,
-                                frequency: gpu_metrics.frequency.unwrap_or(0),
-                                power_consumption: gpu_metrics.power_consumption.unwrap_or(0.0),
-                                detail,
-                            });
-                            return gpu_info;
-                        }
-                    }
-                }
-            }
-        } else {
-            // Manager not initialized, fall back to direct call
-            match get_powermetrics_data() {
-                Ok(data) => data,
-                Err(_) => {
-                    // Final fallback to old method
+                    // Use old method without spawning new powermetrics processes
                     let gpu_metrics = get_gpu_metrics();
                     let mut detail = HashMap::new();
                     if let Some(version) = &self.driver_version {
@@ -143,6 +106,31 @@ impl GpuReader for AppleSiliconGpuReader {
                     return gpu_info;
                 }
             }
+        } else {
+            // Use old method without spawning new powermetrics processes
+            let gpu_metrics = get_gpu_metrics();
+            let mut detail = HashMap::new();
+            if let Some(version) = &self.driver_version {
+                detail.insert("driver_version".to_string(), version.clone());
+            }
+
+            gpu_info.push(GpuInfo {
+                uuid: "AppleSiliconGPU".to_string(),
+                time: current_time,
+                name: self.name.clone(),
+                hostname: get_hostname(),
+                instance: get_hostname(),
+                utilization: gpu_metrics.utilization.unwrap_or(0.0),
+                ane_utilization: gpu_metrics.ane_utilization.unwrap_or(0.0),
+                dla_utilization: None,
+                temperature: gpu_metrics.thermal_pressure.unwrap_or(0),
+                used_memory,
+                total_memory,
+                frequency: gpu_metrics.frequency.unwrap_or(0),
+                power_consumption: gpu_metrics.power_consumption.unwrap_or(0.0),
+                detail,
+            });
+            return gpu_info;
         };
 
         let mut detail = HashMap::new();
@@ -193,18 +181,13 @@ impl GpuReader for AppleSiliconGpuReader {
     fn get_process_info(&self) -> Vec<ProcessInfo> {
         let mut process_list = Vec::new();
 
-        // Try to get process info from PowerMetricsManager first
+        // Try to get process info from PowerMetricsManager
         let process_data = if let Some(manager) = get_powermetrics_manager() {
-            let manager_processes = manager.get_process_info();
-            // If manager returns empty, fall back to direct call
-            if manager_processes.is_empty() {
-                self.get_process_info_direct()
-            } else {
-                manager_processes
-            }
+            manager.get_process_info()
         } else {
-            // Fall back to direct call
-            self.get_process_info_direct()
+            // Return empty list if PowerMetricsManager is not available
+            // This avoids spawning additional powermetrics processes
+            vec![]
         };
 
         // Convert process data to ProcessInfo

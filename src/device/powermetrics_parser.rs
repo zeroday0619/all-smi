@@ -52,6 +52,7 @@ impl PowerMetricsData {
 }
 
 /// Run powermetrics and parse the output
+#[allow(dead_code)]
 pub fn get_powermetrics_data() -> Result<PowerMetricsData, Box<dyn std::error::Error>> {
     let output = Command::new("sudo")
         .args([
