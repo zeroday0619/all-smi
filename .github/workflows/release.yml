@@ -32,6 +32,7 @@ jobs:
             artifact_name: all-smi
             asset_name: all-smi-linux-x86_64
             cross: false
+            archive_ext: ".tar.gz"
 
           # Linux x86_64 musl (static)
           - target: x86_64-unknown-linux-musl
@@ -39,6 +40,7 @@ jobs:
             artifact_name: all-smi
             asset_name: all-smi-linux-x86_64-musl
             cross: true
+            archive_ext: ".tar.gz"
 
           # Linux ARM64
           - target: aarch64-unknown-linux-gnu
@@ -46,6 +48,7 @@ jobs:
             artifact_name: all-smi
             asset_name: all-smi-linux-aarch64
             cross: true
+            archive_ext: ".tar.gz"
 
           # Linux ARM64 musl (static)
           - target: aarch64-unknown-linux-musl
@@ -53,6 +56,7 @@ jobs:
             artifact_name: all-smi
             asset_name: all-smi-linux-aarch64-musl
             cross: true
+            archive_ext: ".tar.gz"
 
           # macOS ARM64 (Apple Silicon)
           - target: aarch64-apple-darwin
@@ -60,6 +64,8 @@ jobs:
             artifact_name: all-smi
             asset_name: all-smi-macos-aarch64
             cross: false
+            archive_ext: ".zip"
+
         # ────────────────────────────────────────────────────────
 
     # Shared env – visible to all steps
@@ -90,8 +96,10 @@ jobs:
     # 3. Optionally install `cross` for cross compilation
     #-----------------------------------------------------------------
     - name: Install cross
-      if: matrix.cross == 'true'
-      run: cargo install cross --git https://github.com/cross-rs/cross
+      if: matrix.cross
+      run: |
+        cargo install cross --locked
+        echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"   # make sure PATH contains it
 
     #-----------------------------------------------------------------
     # 4. Build
@@ -122,12 +130,21 @@ jobs:
                  --sign "Developer ID Application" "$BIN"
 
     #-----------------------------------------------------------------
-    # 6. Package as tar.gz
+    # 6. Package
     #-----------------------------------------------------------------
-    - name: Package artefact
+    - name: Package tar.gz
+      if: runner.os == 'Linux'
       run: |
         BIN_DIR=target/${{ matrix.target }}/release
         tar -C "$BIN_DIR" -czf ${{ matrix.asset_name }}.tar.gz ${{ matrix.artifact_name }}
+
+    - name: Package zip
+      if: runner.os == 'macOS'
+      run: |
+        BIN="target/${{ matrix.target }}/release/${{ matrix.artifact_name }}"
+        ASSET="${{ matrix.asset_name }}.zip"
+        # --sequesterRsrc / --keepParent keeps xattrs & puts binary in its own folder
+        ditto -c -k --sequesterRsrc --keepParent "$BIN" "$ASSET"
 
     #-----------------------------------------------------------------
     # 7. macOS-specific: notarize & staple
@@ -150,4 +167,4 @@ jobs:
       if: github.event_name == 'release'
       uses: softprops/action-gh-release@v2
       with:
-        files: ${{ matrix.asset_name }}.tar.gz
+        files: ${{ matrix.asset_name }}${{ matrix.archive_ext }}
