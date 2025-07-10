@@ -88,9 +88,18 @@ The application presents a terminal-based user interface with cluster overview, 
 
 ## Installation
 
-### Option 1: Install from Cargo (Recommended)
+### Option 1: Install via Homebrew (macOS/Linux)
 
-The easiest way to install all-smi is through Cargo:
+The easiest way to install all-smi on macOS and Linux is through Homebrew:
+
+```bash
+brew tap lablup/tap
+brew install lablup/tap/all-smi
+```
+
+### Option 2: Install from Cargo
+
+Install all-smi through Cargo:
 
 ```bash
 cargo install all-smi
@@ -98,7 +107,7 @@ cargo install all-smi
 
 After installation, the binary will be available in your `$PATH` as `all-smi`.
 
-### Option 2: Download Pre-built Binary
+### Option 3: Download Pre-built Binary
 
 Download the latest release from the [GitHub releases page](https://github.com/inureyes/all-smi/releases):
 
@@ -106,7 +115,7 @@ Download the latest release from the [GitHub releases page](https://github.com/i
 2. Download the appropriate binary for your platform
 3. Extract the archive and place the binary in your `$PATH`
 
-### Option 3: Build from Source
+### Option 4: Build from Source
 
 ### Prerequisites
 
@@ -436,6 +445,7 @@ This project is licensed under the MIT License. See the LICENSE file for details
 ## Changelog
 
 ### Recent Updates
+- **v0.4.2 (2025/07/12):** Eliminate PowerMetrics temp file growth with in-memory buffer, Homebrew installation support
 - **v0.4.1 (2025/07/10):** Mock server improvements, efficient Apple Silicon and NVidia GPU support
 - **v0.4.0 (2025/07/08):** Architectural refactoring, Smart sudo detection and comprehensive unit testing
 - **v0.3.3 (2025/07/07):** CPU, Memory, and ANE support, and UI fixes
