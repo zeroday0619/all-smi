@@ -445,6 +445,7 @@ This project is licensed under the MIT License. See the LICENSE file for details
 ## Changelog
 
 ### Recent Updates
+- **v0.4.3 (2025/07/14):** Fix P-CPU/E-CPU gauges for all Apple Silicon variants including M1 Pro hybrid format
 - **v0.4.2 (2025/07/12):** Eliminate PowerMetrics temp file growth with in-memory buffer, Homebrew installation support
 - **v0.4.1 (2025/07/10):** Mock server improvements, efficient Apple Silicon and NVidia GPU support
 - **v0.4.0 (2025/07/08):** Architectural refactoring, Smart sudo detection and comprehensive unit testing
