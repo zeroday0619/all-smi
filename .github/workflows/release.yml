@@ -164,17 +164,15 @@ jobs:
       uses: softprops/action-gh-release@v2
       with:
         files: ${{ matrix.asset_name }}${{ matrix.archive_ext }}
-
-  bump-formula:
-    name: Bump Homebrew Formula
-    runs-on: ubuntu-latest
-    needs: build
-    if: ${{ github.event_name == 'release' || github.event_name == 'workflow_dispatch' }}
-    steps:
-      - name: Bump formula in lablup/homebrew-tap
-        uses: dawidd6/action-homebrew-bump-formula@v5
-        with:
-          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-          tap: lablup/homebrew-tap
-          formula: all-smi
-          livecheck: true
+    - name: Update Homebrew formula
+      uses: dawidd6/action-homebrew-bump-formula@v5
+      with:
+        # Required, custom GitHub access token with the 'public_repo' and 'workflow' scopes
+        token: ${{secrets.HOMEBREW_TAP_TOKEN}}
+        # Optional, use the origin repository instead of forking
+        no_fork: true
+        # Optional, defaults to homebrew/core
+        tap: lablup/homebrew-tap
+        # Formula name, required
+        formula: all-smi
+    
