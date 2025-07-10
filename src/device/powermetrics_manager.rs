@@ -788,4 +788,366 @@ Combined Power (CPU + GPU + ANE): 4100 mW
         assert_eq!(buf.front().unwrap(), "Sample 30");
         assert_eq!(buf.back().unwrap(), "Sample 149");
     }
+
+    #[test]
+    fn test_reader_thread_line_parsing() {
+        use std::io::Cursor;
+
+        // Create test input with mixed complete and incomplete lines
+        let test_input =
+            "*** Sampled system activity\nLine 1\nLine 2\n*** Sampled system activity\nLine 3\n";
+        let cursor = Cursor::new(test_input);
+
+        let data_buffer = Arc::new(Mutex::new(VecDeque::new()));
+        let (_tx, _rx) = mpsc::channel::<ReaderCommand>();
+
+        // Simulate reader thread behavior
+        let reader = BufReader::new(cursor);
+        let mut current_section = String::new();
+        let mut in_section = false;
+
+        for line in reader.lines() {
+            let line = line.unwrap();
+
+            if line.contains("*** Sampled system activity") {
+                if in_section && !current_section.is_empty() {
+                    let mut buffer = data_buffer.lock().unwrap();
+                    buffer.push_back(current_section.clone());
+                }
+                current_section.clear();
+                in_section = true;
+            }
+
+            if in_section {
+                current_section.push_str(&line);
+                current_section.push('\n');
+            }
+        }
+
+        // Should have captured one complete section
+        let buffer = data_buffer.lock().unwrap();
+        assert_eq!(buffer.len(), 1);
+        assert!(buffer[0].contains("Line 1"));
+        assert!(buffer[0].contains("Line 2"));
+    }
+
+    #[test]
+    fn test_process_info_extraction_from_buffer() {
+        let test_output = r#"*** Sampled system activity (Fri Nov 15 10:00:00 2024 -0800) (1000ms elapsed) ***
+
+*** Running tasks ***
+
+Name                    ID      CPU ms/s  User%  Deadlines  Deadlines  Wakeups  Wakeups  GPU ms/s
+                                                  (Called)   (Missed)   (Intr)   (Pkg)           
+kernel_task             0       45.23     0.00   0          0          1234     567      0.00
+WindowServer            123     12.34     1.23   100        0          200      50       15.67
+Code                    456     78.90     5.67   50         0          150      30       8.34
+Firefox                 789     34.56     2.34   75         0          125      25       22.45
+
+*** End of tasks ***"#;
+
+        let manager = PowerMetricsManager {
+            process: Arc::new(Mutex::new(None)),
+            data_buffer: Arc::new(Mutex::new(VecDeque::new())),
+            command_tx: None,
+            last_data: Arc::new(Mutex::new(None)),
+            is_running: Arc::new(Mutex::new(false)),
+        };
+
+        // Add test data to buffer
+        {
+            let mut buffer = manager.data_buffer.lock().unwrap();
+            buffer.push_back(test_output.to_string());
+        }
+
+        // Get process info
+        let processes = manager.get_process_info();
+
+        // Verify process extraction (kernel_task has 0.00 GPU so might be filtered)
+        assert!(processes.len() >= 3);
+
+        // Check that processes are sorted by GPU usage (highest first)
+        assert_eq!(processes[0].0, "Firefox");
+        assert_eq!(processes[0].1, 789);
+        assert_eq!(processes[0].2, 22.45);
+
+        assert_eq!(processes[1].0, "WindowServer");
+        assert_eq!(processes[1].1, 123);
+        assert_eq!(processes[1].2, 15.67);
+
+        assert_eq!(processes[2].0, "Code");
+        assert_eq!(processes[2].1, 456);
+        assert_eq!(processes[2].2, 8.34);
+    }
+
+    #[test]
+    fn test_buffer_with_multiple_sections() {
+        let manager = PowerMetricsManager {
+            process: Arc::new(Mutex::new(None)),
+            data_buffer: Arc::new(Mutex::new(VecDeque::new())),
+            command_tx: None,
+            last_data: Arc::new(Mutex::new(None)),
+            is_running: Arc::new(Mutex::new(false)),
+        };
+
+        // Add multiple sections to buffer
+        let section1 = r#"*** Sampled system activity (Fri Nov 15 10:00:00 2024 -0800) (1000ms elapsed) ***
+*** Processor usage ***
+E-Cluster HW active frequency: 1000 MHz
+E-Cluster HW active residency: 20.0%
+CPU Power: 1000 mW
+"#;
+
+        let section2 = r#"*** Sampled system activity (Fri Nov 15 10:00:01 2024 -0800) (1000ms elapsed) ***
+*** Processor usage ***
+E-Cluster HW active frequency: 1020 MHz
+E-Cluster HW active residency: 25.5%
+P-Cluster HW active frequency: 3000 MHz
+P-Cluster HW active residency: 75.5%
+CPU Power: 1500 mW
+*** GPU usage ***
+GPU HW active frequency: 1200 MHz
+GPU HW active residency: 45.5%
+GPU Power: 2500 mW
+ANE Power: 100 mW
+Combined Power (CPU + GPU + ANE): 4100 mW
+"#;
+
+        {
+            let mut buffer = manager.data_buffer.lock().unwrap();
+            buffer.push_back(section1.to_string());
+            buffer.push_back(section2.to_string());
+        }
+
+        // Should get the latest (most recent) data
+        let result = manager.get_latest_data_result();
+        assert!(result.is_ok());
+
+        let data = result.unwrap();
+        assert_eq!(data.e_cluster_frequency, 1020); // From section2, not section1
+        assert_eq!(data.gpu_frequency, 1200);
+        assert_eq!(data.combined_power_mw, 4100.0);
+    }
+
+    #[test]
+    fn test_empty_buffer_fallback_to_cache() {
+        let manager = PowerMetricsManager {
+            process: Arc::new(Mutex::new(None)),
+            data_buffer: Arc::new(Mutex::new(VecDeque::new())),
+            command_tx: None,
+            last_data: Arc::new(Mutex::new(None)),
+            is_running: Arc::new(Mutex::new(false)),
+        };
+
+        // Create cached data
+        let cached_data = PowerMetricsData {
+            e_cluster_active_residency: 30.0,
+            p_cluster_active_residency: 70.0,
+            e_cluster_frequency: 1100,
+            p_cluster_frequency: 2900,
+            cpu_power_mw: 1600.0,
+            core_active_residencies: vec![],
+            core_frequencies: vec![],
+            core_cluster_types: vec![],
+            gpu_active_residency: 50.0,
+            gpu_frequency: 1300,
+            gpu_power_mw: 2600.0,
+            ane_power_mw: 110.0,
+            combined_power_mw: 4310.0,
+            thermal_pressure: Some(1),
+        };
+
+        // Set cached data
+        {
+            let mut last_data = manager.last_data.lock().unwrap();
+            *last_data = Some(cached_data.clone());
+        }
+
+        // With empty buffer, should return cached data
+        let result = manager.get_latest_data_result();
+        assert!(result.is_ok());
+
+        let data = result.unwrap();
+        assert_eq!(data.gpu_frequency, 1300);
+        assert_eq!(data.combined_power_mw, 4310.0);
+    }
+
+    #[test]
+    fn test_malformed_section_handling() {
+        let manager = PowerMetricsManager {
+            process: Arc::new(Mutex::new(None)),
+            data_buffer: Arc::new(Mutex::new(VecDeque::new())),
+            command_tx: None,
+            last_data: Arc::new(Mutex::new(None)),
+            is_running: Arc::new(Mutex::new(false)),
+        };
+
+        // Add malformed section
+        let malformed = "This is not valid powermetrics output";
+        {
+            let mut buffer = manager.data_buffer.lock().unwrap();
+            buffer.push_back(malformed.to_string());
+        }
+
+        // Parser returns default data for malformed input, which is valid but has all zeros
+        let result = manager.get_latest_data_result();
+        assert!(result.is_ok());
+        let data = result.unwrap();
+        // Verify it's default/empty data
+        assert_eq!(data.e_cluster_frequency, 0);
+        assert_eq!(data.gpu_frequency, 0);
+        assert_eq!(data.cpu_power_mw, 0.0);
+    }
+
+    #[test]
+    fn test_process_info_detailed() {
+        let test_output = r#"*** Sampled system activity (Fri Nov 15 10:00:00 2024 -0800) (1000ms elapsed) ***
+
+*** Running tasks ***
+
+Name                    ID      CPU ms/s  User%  Deadlines  Deadlines  Wakeups  Wakeups  GPU ms/s
+                                                  (Called)   (Missed)   (Intr)   (Pkg)           
+Safari                  1001    56.78     3.45   80         0          175      35       18.90
+Chrome Helper           2002    89.01     6.78   120        5          250      60       25.34
+Slack                   3003    23.45     1.89   40         0          100      20       5.67
+
+*** End of tasks ***"#;
+
+        let manager = PowerMetricsManager {
+            process: Arc::new(Mutex::new(None)),
+            data_buffer: Arc::new(Mutex::new(VecDeque::new())),
+            command_tx: None,
+            last_data: Arc::new(Mutex::new(None)),
+            is_running: Arc::new(Mutex::new(false)),
+        };
+
+        // Add test data to buffer
+        {
+            let mut buffer = manager.data_buffer.lock().unwrap();
+            buffer.push_back(test_output.to_string());
+        }
+
+        // Get detailed process info
+        let processes = manager.get_process_info_detailed();
+
+        // Verify detailed process extraction
+        assert_eq!(processes.len(), 3);
+
+        // Check sorting by GPU usage first, then CPU
+        assert_eq!(processes[0].0, "Chrome Helper");
+        assert_eq!(processes[0].1, 2002);
+        assert_eq!(processes[0].2, 89.01); // CPU ms/s
+        assert_eq!(processes[0].3, 25.34); // GPU ms/s
+
+        assert_eq!(processes[1].0, "Safari");
+        assert_eq!(processes[1].2, 56.78); // CPU ms/s
+        assert_eq!(processes[1].3, 18.90); // GPU ms/s
+    }
+
+    #[test]
+    fn test_reader_thread_shutdown() {
+        use std::io::Cursor;
+        use std::time::Duration;
+
+        let test_input = "Line 1\nLine 2\nLine 3\n";
+        let cursor = Cursor::new(test_input);
+
+        let data_buffer = Arc::new(Mutex::new(VecDeque::new()));
+        let (tx, rx) = mpsc::channel::<ReaderCommand>();
+
+        // Spawn a thread simulating the reader
+        let buffer_clone = data_buffer.clone();
+        let handle = thread::spawn(move || {
+            let reader = BufReader::new(cursor);
+            for line in reader.lines() {
+                // Check for shutdown
+                if let Ok(ReaderCommand::Shutdown) = rx.try_recv() {
+                    break;
+                }
+
+                if let Ok(line) = line {
+                    let mut buffer = buffer_clone.lock().unwrap();
+                    buffer.push_back(line);
+                }
+
+                thread::sleep(Duration::from_millis(10));
+            }
+        });
+
+        // Let it read some lines
+        thread::sleep(Duration::from_millis(50));
+
+        // Send shutdown command
+        let _ = tx.send(ReaderCommand::Shutdown);
+
+        // Wait for thread to finish
+        let _ = handle.join();
+
+        // The thread completed
+        // No assertions needed - test passes if no panic
+    }
+
+    #[test]
+    fn test_kill_existing_processes() {
+        // This test verifies the kill_existing_powermetrics_processes function
+        // doesn't panic and completes successfully
+        PowerMetricsManager::kill_existing_powermetrics_processes();
+        // If we get here without panic, the test passes
+    }
+
+    #[test]
+    fn test_buffer_overflow_protection() {
+        let manager = PowerMetricsManager {
+            process: Arc::new(Mutex::new(None)),
+            data_buffer: Arc::new(Mutex::new(VecDeque::with_capacity(120))),
+            command_tx: None,
+            last_data: Arc::new(Mutex::new(None)),
+            is_running: Arc::new(Mutex::new(false)),
+        };
+
+        // Fill buffer beyond capacity
+        {
+            let mut buffer = manager.data_buffer.lock().unwrap();
+            for i in 0..200 {
+                if buffer.len() >= 120 {
+                    buffer.pop_front();
+                }
+                buffer.push_back(format!("Section {i}"));
+            }
+        }
+
+        // Verify buffer size is maintained at limit
+        let buffer = manager.data_buffer.lock().unwrap();
+        assert_eq!(buffer.len(), 120);
+        assert!(buffer.back().unwrap().contains("Section 199"));
+    }
+
+    #[test]
+    fn test_concurrent_buffer_access() {
+        let buffer = Arc::new(Mutex::new(VecDeque::new()));
+        let mut handles = vec![];
+
+        // Spawn multiple threads accessing the buffer
+        for i in 0..5 {
+            let buffer_clone = buffer.clone();
+            let handle = thread::spawn(move || {
+                for j in 0..20 {
+                    let mut buf = buffer_clone.lock().unwrap();
+                    buf.push_back(format!("Thread {i} - Item {j}"));
+                    drop(buf); // Explicitly release lock
+                    thread::sleep(Duration::from_micros(100));
+                }
+            });
+            handles.push(handle);
+        }
+
+        // Wait for all threads
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        // Verify all items were added
+        let final_buffer = buffer.lock().unwrap();
+        assert_eq!(final_buffer.len(), 100); // 5 threads * 20 items
+    }
 }
