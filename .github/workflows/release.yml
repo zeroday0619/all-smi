@@ -151,14 +151,14 @@ jobs:
     #-----------------------------------------------------------------
     - name: Notarize + staple
       if: runner.os == 'macOS'
-      uses: love-actions/xcode-notarizer@v1
+      uses: lando/notarize-action@v2
       with:
-        product-path:   "${{ matrix.asset_name }}${{ matrix.archive_ext }}"
-        key-content:    ${{ secrets.AC_API_PRIVATE_KEY_P8 }}
-        key-id:         ${{ secrets.AC_API_KEY_ID }}
-        issuer-id:      ${{ secrets.AC_API_ISSUER_ID }}
-        primary-bundle-id: ${{ env.BUNDLE_ID }}
+        product-path:  "${{ matrix.asset_name }}${{ matrix.archive_ext }}"
+        api-key:       ${{ secrets.AC_API_PRIVATE_KEY_P8 }}
+        api-key-id:    ${{ secrets.AC_API_KEY_ID }}
+        api-issuer-id: ${{ secrets.AC_API_ISSUER_ID }}
         staple: true
+        tool: "notarytool"
 
     #-----------------------------------------------------------------
     # 8. Upload this file to the current Release
