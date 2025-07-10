@@ -149,16 +149,16 @@ jobs:
     #-----------------------------------------------------------------
     # 7. macOS-specific: notarize & staple
     #-----------------------------------------------------------------
-    - name: Notarize + staple
-      if: runner.os == 'macOS'
-      uses: lando/notarize-action@v2
-      with:
-        product-path:  "${{ matrix.asset_name }}${{ matrix.archive_ext }}"
-        api-key:       ${{ secrets.AC_API_PRIVATE_KEY_P8 }}
-        api-key-id:    ${{ secrets.AC_API_KEY_ID }}
-        api-issuer-id: ${{ secrets.AC_API_ISSUER_ID }}
-        staple: true
-        tool: "notarytool"
+    #- name: Notarize + staple
+    #  if: runner.os == 'macOS'
+    #  uses: lando/notarize-action@v2
+    #  with:
+    #    product-path:  "${{ matrix.asset_name }}${{ matrix.archive_ext }}"
+    #    api-key:       ${{ secrets.AC_API_PRIVATE_KEY_P8 }}
+    #    api-key-id:    ${{ secrets.AC_API_KEY_ID }}
+    #    api-issuer-id: ${{ secrets.AC_API_ISSUER_ID }}
+    #    staple: true
+    #    tool: "notarytool"
 
     #-----------------------------------------------------------------
     # 8. Upload this file to the current Release
@@ -168,3 +168,21 @@ jobs:
       uses: softprops/action-gh-release@v2
       with:
         files: ${{ matrix.asset_name }}${{ matrix.archive_ext }}
+
+    bump-formula:
+      name: Bump Homebrew Formula
+      runs-on: ubuntu-latest
+      needs: build
+      if: github.event_name == 'release'
+      steps:
+        - name: Bump formula in lablup/homebrew-tap
+          uses: dawidd6/action-homebrew-bump-formula@v4
+          with:
+            token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+            homebrew_owner: lablup
+            formula_name: all-smi
+
+            tag:     ${{ github.event.release.tag_name }}
+            revision: ${{ github.event.release.target_commitish }}
+            
+            url: https://github.com/${{ github.repository }}/releases/download/${{ github.event.release.tag_name }}/all-smi-macos-aarch64.zip
