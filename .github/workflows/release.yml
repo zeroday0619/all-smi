@@ -106,7 +106,11 @@ jobs:
     #-----------------------------------------------------------------
     - name: Build binary
       run: |
-        cross build --release --target ${{ matrix.target }} --locked
+        if [[ "${{ matrix.cross }}" == "true" ]]; then
+          cross build --release --target ${{ matrix.target }} --locked
+        else
+          cargo build --release --target ${{ matrix.target }} --locked
+        fi
 
     #-----------------------------------------------------------------
     # 5. macOS-specific: import certificate, codesign, notarize
