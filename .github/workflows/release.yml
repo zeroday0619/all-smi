@@ -176,13 +176,9 @@ jobs:
     if: github.event_name == 'release'
     steps:
       - name: Bump formula in lablup/homebrew-tap
-        uses: dawidd6/action-homebrew-bump-formula@v4
+        uses: dawidd6/action-homebrew-bump-formula@v5
         with:
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-          homebrew_owner: lablup
-          formula_name: all-smi
-
-          tag:     ${{ github.event.release.tag_name }}
-          revision: ${{ github.event.release.target_commitish }}
-          
-          url: https://github.com/${{ github.repository }}/releases/download/${{ github.event.release.tag_name }}/all-smi-macos-aarch64.zip
+          tap: lablup/homebrew-tap
+          formula: all-smi
+          livecheck: true
