@@ -173,7 +173,7 @@ jobs:
     name: Bump Homebrew Formula
     runs-on: ubuntu-latest
     needs: build
-    if: github.event_name == 'release'
+    if: github.event_name == 'release' || github.event.action == 'workflow_dispatch'
     steps:
       - name: Bump formula in lablup/homebrew-tap
         uses: dawidd6/action-homebrew-bump-formula@v5
