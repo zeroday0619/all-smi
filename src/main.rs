@@ -20,8 +20,7 @@ use utils::{ensure_sudo_permissions, ensure_sudo_permissions_with_fallback};
 use device::is_apple_silicon;
 #[cfg(target_os = "macos")]
 use device::powermetrics_manager::{
-    cleanup_stale_powermetrics_files, initialize_powermetrics_manager,
-    shutdown_powermetrics_manager,
+    initialize_powermetrics_manager, shutdown_powermetrics_manager,
 };
 #[cfg(target_os = "macos")]
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -31,10 +30,6 @@ static POWERMETRICS_INITIALIZED: AtomicBool = AtomicBool::new(false);
 
 #[tokio::main]
 async fn main() {
-    // Clean up any stale powermetrics files from previous runs
-    #[cfg(target_os = "macos")]
-    cleanup_stale_powermetrics_files();
-
     // Set up panic handler for cleanup
     #[cfg(target_os = "macos")]
     setup_panic_handler();
