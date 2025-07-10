@@ -1,0 +1,149 @@
+# .github/workflows/release.yml
+name: release
+
+# ─────────────────────────────────────────────────────────────
+# Run whenever a Release is published (Draft → Published)
+# ─────────────────────────────────────────────────────────────
+on:
+  release:
+    types: [published]
+
+# Needed by softprops/action-gh-release
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+
+    # Make the Environment-level vars/secrets from “packaging” available
+    environment: packaging
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux x86_64
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            artifact_name: all-smi
+            asset_name: all-smi-linux-x86_64
+            cross: false
+
+          # Linux x86_64 musl (static)
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            artifact_name: all-smi
+            asset_name: all-smi-linux-x86_64-musl
+            cross: true
+
+          # Linux ARM64
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            artifact_name: all-smi
+            asset_name: all-smi-linux-aarch64
+            cross: true
+
+          # Linux ARM64 musl (static)
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-latest
+            artifact_name: all-smi
+            asset_name: all-smi-linux-aarch64-musl
+            cross: true
+
+          # macOS ARM64 (Apple Silicon)
+          - target: aarch64-apple-darwin
+            os: macos-14
+            artifact_name: all-smi
+            asset_name: all-smi-macos-aarch64
+            cross: false
+        # ────────────────────────────────────────────────────────
+
+    # Shared env – visible to all steps
+    env:
+      BIN_NAME: all-smi
+      BUNDLE_ID: ${{ vars.BUNDLE_ID }}   # set in “packaging” environment
+
+    steps:
+    #-----------------------------------------------------------------
+    # 1. Check out the commit attached to this Release
+    #-----------------------------------------------------------------
+    - uses: actions/checkout@v4
+
+    #-----------------------------------------------------------------
+    # 2. Install Rust toolchain
+    #-----------------------------------------------------------------
+    - uses: actions-rs/toolchain@v1
+      with:
+        profile: minimal
+        toolchain: stable
+        override: true
+
+    # Add the requested compilation target
+    - name: Add Rust target
+      run: rustup target add ${{ matrix.target }}
+
+    #-----------------------------------------------------------------
+    # 3. Optionally install `cross` for cross compilation
+    #-----------------------------------------------------------------
+    - name: Install cross
+      if: matrix.cross == 'true'
+      run: cargo install cross --git https://github.com/cross-rs/cross
+
+    #-----------------------------------------------------------------
+    # 4. Build
+    #-----------------------------------------------------------------
+    - name: Build binary
+      run: |
+        if [[ "${{ matrix.cross }}" == "true" ]]; then
+          cross build --release --target ${{ matrix.target }} --locked
+        else
+          cargo build --release --target ${{ matrix.target }} --locked
+        fi
+
+    #-----------------------------------------------------------------
+    # 5. macOS-specific: import certificate, codesign, notarize
+    #-----------------------------------------------------------------
+    - name: Import Developer-ID certificate
+      if: runner.os == 'macOS'
+      uses: apple-actions/import-codesign-certs@v3
+      with:
+        p12-file-base64: ${{ secrets.DEV_ID_CERT_P12 }}
+        p12-password:   ${{ secrets.DEV_ID_CERT_PASSWORD }}
+
+    - name: Codesign binary
+      if: runner.os == 'macOS'
+      run: |
+        BIN=target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
+        codesign --force --timestamp --options runtime \
+                 --sign "Developer ID Application" "$BIN"
+
+    #-----------------------------------------------------------------
+    # 6. Package as tar.gz
+    #-----------------------------------------------------------------
+    - name: Package artefact
+      run: |
+        BIN_DIR=target/${{ matrix.target }}/release
+        tar -C "$BIN_DIR" -czf ${{ matrix.asset_name }}.tar.gz ${{ matrix.artifact_name }}
+
+    #-----------------------------------------------------------------
+    # 7. macOS-specific: notarize & staple
+    #-----------------------------------------------------------------
+    - name: Notarize + staple
+      if: runner.os == 'macOS'
+      uses: love-actions/xcode-notarizer@v1
+      with:
+        product-path:   "${{ matrix.asset_name }}.tar.gz"
+        key-content:    ${{ secrets.AC_API_PRIVATE_KEY_P8 }}
+        key-id:         ${{ secrets.AC_API_KEY_ID }}
+        issuer-id:      ${{ secrets.AC_API_ISSUER_ID }}
+        primary-bundle-id: ${{ env.BUNDLE_ID }}
+        staple: true
+
+    #-----------------------------------------------------------------
+    # 8. Upload this file to the current Release
+    #-----------------------------------------------------------------
+    - uses: softprops/action-gh-release@v2
+      with:
+        files: ${{ matrix.asset_name }}.tar.gz
