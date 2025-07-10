@@ -153,7 +153,7 @@ jobs:
       if: runner.os == 'macOS'
       uses: love-actions/xcode-notarizer@v1
       with:
-        product-path:   "${{ matrix.asset_name }}.tar.gz"
+        product-path:   "${{ matrix.asset_name }}${{ matrix.archive_ext }}"
         key-content:    ${{ secrets.AC_API_PRIVATE_KEY_P8 }}
         key-id:         ${{ secrets.AC_API_KEY_ID }}
         issuer-id:      ${{ secrets.AC_API_ISSUER_ID }}
