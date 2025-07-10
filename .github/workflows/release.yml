@@ -8,7 +8,9 @@ on:
   release:
     types: [published]
 
-# Needed by softprops/action-gh-release
+  workflow_dispatch:         # ← add this block (no inputs needed)
+
+  # Needed by softprops/action-gh-release
 permissions:
   contents: write
 
@@ -144,6 +146,8 @@ jobs:
     #-----------------------------------------------------------------
     # 8. Upload this file to the current Release
     #-----------------------------------------------------------------
-    - uses: softprops/action-gh-release@v2
+    - name: Artifact upload
+      if: github.event_name == 'release'
+      uses: softprops/action-gh-release@v2
       with:
         files: ${{ matrix.asset_name }}.tar.gz
