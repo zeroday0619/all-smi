@@ -17,6 +17,7 @@ pub struct PowerMetricsManager {
     command_tx: Option<Sender<ReaderCommand>>,
     last_data: Arc<Mutex<Option<PowerMetricsData>>>,
     is_running: Arc<Mutex<bool>>,
+    interval_ms: u64, // Interval in milliseconds for powermetrics collection
 }
 
 #[derive(Debug)]
@@ -26,11 +27,12 @@ enum ReaderCommand {
 
 impl PowerMetricsManager {
     /// Create a new PowerMetricsManager and start the powermetrics process
-    fn new() -> Result<Self, Box<dyn std::error::Error>> {
+    fn new(interval_secs: u64) -> Result<Self, Box<dyn std::error::Error>> {
         // Kill any existing powermetrics processes first
         Self::kill_existing_powermetrics_processes();
 
         let (command_tx, command_rx) = mpsc::channel();
+        let interval_ms = interval_secs * 1000; // Convert seconds to milliseconds
 
         let manager = Self {
             process: Arc::new(Mutex::new(None)),
@@ -38,6 +40,7 @@ impl PowerMetricsManager {
             command_tx: Some(command_tx),
             last_data: Arc::new(Mutex::new(None)),
             is_running: Arc::new(Mutex::new(false)),
+            interval_ms,
         };
 
         manager.start_powermetrics(command_rx)?;
@@ -46,6 +49,7 @@ impl PowerMetricsManager {
         let process_arc = manager.process.clone();
         let data_buffer = manager.data_buffer.clone();
         let is_running = manager.is_running.clone();
+        let interval_ms = manager.interval_ms;
         thread::spawn(move || {
             loop {
                 thread::sleep(Duration::from_secs(5));
@@ -83,7 +87,8 @@ impl PowerMetricsManager {
                     let (_new_tx, new_rx) = mpsc::channel();
 
                     // Restart powermetrics
-                    if let Err(_e) = Self::restart_powermetrics(&process_arc, &data_buffer, new_rx)
+                    if let Err(_e) =
+                        Self::restart_powermetrics(&process_arc, &data_buffer, new_rx, interval_ms)
                     {
                         #[cfg(debug_assertions)]
                         eprintln!("Failed to restart powermetrics: {_e}");
@@ -110,7 +115,7 @@ impl PowerMetricsManager {
             "cpu_power,gpu_power,ane_power,thermal,tasks",
             "--show-process-gpu",
             "-i",
-            "1000", // 1 second interval
+            &self.interval_ms.to_string(), // Use configurable interval
         ])
         .stdin(Stdio::null())
         .stdout(Stdio::piped()) // Capture stdout instead of writing to file
@@ -192,6 +197,7 @@ impl PowerMetricsManager {
         process_arc: &Arc<Mutex<Option<Child>>>,
         data_buffer: &Arc<Mutex<VecDeque<String>>>,
         command_rx: Receiver<ReaderCommand>,
+        interval_ms: u64,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // Kill existing process if any
         {
@@ -212,7 +218,7 @@ impl PowerMetricsManager {
             "cpu_power,gpu_power,ane_power,thermal,tasks",
             "--show-process-gpu",
             "-i",
-            "1000",
+            &interval_ms.to_string(),
         ])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -570,10 +576,12 @@ static POWERMETRICS_MANAGER: Lazy<Mutex<Option<Arc<PowerMetricsManager>>>> =
     Lazy::new(|| Mutex::new(None));
 
 /// Initialize the global PowerMetricsManager
-pub fn initialize_powermetrics_manager() -> Result<(), Box<dyn std::error::Error>> {
+pub fn initialize_powermetrics_manager(
+    interval_secs: u64,
+) -> Result<(), Box<dyn std::error::Error>> {
     let mut manager_guard = POWERMETRICS_MANAGER.lock().unwrap();
     if manager_guard.is_none() {
-        let manager = PowerMetricsManager::new()?;
+        let manager = PowerMetricsManager::new(interval_secs)?;
         *manager_guard = Some(Arc::new(manager));
     }
     Ok(())
@@ -652,6 +660,7 @@ mod tests {
             command_tx: None,
             last_data: Arc::new(Mutex::new(None)),
             is_running: Arc::new(Mutex::new(false)),
+            interval_ms: 1000, // 1 second for testing
         };
 
         // Test initial state - no data
@@ -702,8 +711,8 @@ mod tests {
             return;
         }
 
-        // Initialize the manager
-        let _ = initialize_powermetrics_manager();
+        // Initialize the manager with 1 second interval for testing
+        let _ = initialize_powermetrics_manager(1);
 
         // Test that we get the same instance
         let manager1 = get_powermetrics_manager();
@@ -749,6 +758,7 @@ Combined Power (CPU + GPU + ANE): 4100 mW
             command_tx: None,
             last_data: Arc::new(Mutex::new(None)),
             is_running: Arc::new(Mutex::new(false)),
+            interval_ms: 1000,
         };
 
         // Add test data to buffer
@@ -852,6 +862,7 @@ Firefox                 789     34.56     2.34   75         0          125      
             command_tx: None,
             last_data: Arc::new(Mutex::new(None)),
             is_running: Arc::new(Mutex::new(false)),
+            interval_ms: 1000,
         };
 
         // Add test data to buffer
@@ -888,6 +899,7 @@ Firefox                 789     34.56     2.34   75         0          125      
             command_tx: None,
             last_data: Arc::new(Mutex::new(None)),
             is_running: Arc::new(Mutex::new(false)),
+            interval_ms: 1000,
         };
 
         // Add multiple sections to buffer
@@ -937,6 +949,7 @@ Combined Power (CPU + GPU + ANE): 4100 mW
             command_tx: None,
             last_data: Arc::new(Mutex::new(None)),
             is_running: Arc::new(Mutex::new(false)),
+            interval_ms: 1000,
         };
 
         // Create cached data
@@ -980,6 +993,7 @@ Combined Power (CPU + GPU + ANE): 4100 mW
             command_tx: None,
             last_data: Arc::new(Mutex::new(None)),
             is_running: Arc::new(Mutex::new(false)),
+            interval_ms: 1000,
         };
 
         // Add malformed section
@@ -1019,6 +1033,7 @@ Slack                   3003    23.45     1.89   40         0          100      
             command_tx: None,
             last_data: Arc::new(Mutex::new(None)),
             is_running: Arc::new(Mutex::new(false)),
+            interval_ms: 1000,
         };
 
         // Add test data to buffer
@@ -1103,6 +1118,7 @@ Slack                   3003    23.45     1.89   40         0          100      
             command_tx: None,
             last_data: Arc::new(Mutex::new(None)),
             is_running: Arc::new(Mutex::new(false)),
+            interval_ms: 1000,
         };
 
         // Fill buffer beyond capacity

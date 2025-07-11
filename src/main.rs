@@ -66,7 +66,7 @@ async fn main() {
             // Initialize PowerMetricsManager after getting sudo
             #[cfg(target_os = "macos")]
             if is_apple_silicon() {
-                if let Err(e) = initialize_powermetrics_manager() {
+                if let Err(e) = initialize_powermetrics_manager(args.interval) {
                     eprintln!("Warning: Failed to initialize PowerMetricsManager: {e}");
                 } else {
                     POWERMETRICS_INITIALIZED.store(true, Ordering::Relaxed);
@@ -82,7 +82,9 @@ async fn main() {
                 // Initialize PowerMetricsManager after getting sudo
                 #[cfg(target_os = "macos")]
                 if is_apple_silicon() {
-                    if let Err(e) = initialize_powermetrics_manager() {
+                    // Use specified interval or default to 1 second for local view mode
+                    let interval = args.interval.unwrap_or(1);
+                    if let Err(e) = initialize_powermetrics_manager(interval) {
                         eprintln!("Warning: Failed to initialize PowerMetricsManager: {e}");
                     }
                 }
@@ -95,7 +97,8 @@ async fn main() {
                 // Initialize PowerMetricsManager after getting sudo
                 #[cfg(target_os = "macos")]
                 if is_apple_silicon() {
-                    if let Err(e) = initialize_powermetrics_manager() {
+                    // Default to 1 second for local view mode
+                    if let Err(e) = initialize_powermetrics_manager(1) {
                         eprintln!("Warning: Failed to initialize PowerMetricsManager: {e}");
                     }
                 }

@@ -55,7 +55,8 @@ pub struct EnvConfig;
 impl EnvConfig {
     pub fn adaptive_interval(node_count: usize) -> u64 {
         match node_count {
-            0..=1 => {
+            0 => {
+                // Local monitoring only (no remote nodes)
                 // Use 1 second interval for Apple Silicon local monitoring
                 if cfg!(target_os = "macos") && crate::device::is_apple_silicon() {
                     1
@@ -63,7 +64,7 @@ impl EnvConfig {
                     2
                 }
             }
-            2..=10 => 3,
+            1..=10 => 3, // 1-10 remote nodes: 3 seconds
             11..=50 => 4,
             51..=100 => 5,
             _ => 6,
@@ -132,7 +133,7 @@ mod tests {
             2
         };
         assert_eq!(EnvConfig::adaptive_interval(0), expected_local);
-        assert_eq!(EnvConfig::adaptive_interval(1), expected_local);
+        assert_eq!(EnvConfig::adaptive_interval(1), 3); // 1 remote node: 3 seconds
         assert_eq!(EnvConfig::adaptive_interval(2), 3);
         assert_eq!(EnvConfig::adaptive_interval(5), 3);
         assert_eq!(EnvConfig::adaptive_interval(10), 3);
@@ -248,7 +249,8 @@ mod tests {
     fn test_apple_silicon_adaptive_interval() {
         // On Apple Silicon Macs, local monitoring should use 1 second interval
         assert_eq!(EnvConfig::adaptive_interval(0), 1);
-        assert_eq!(EnvConfig::adaptive_interval(1), 1);
+        // Remote monitoring should use 3 seconds for 1 node
+        assert_eq!(EnvConfig::adaptive_interval(1), 3);
         // Remote monitoring should follow standard intervals
         assert_eq!(EnvConfig::adaptive_interval(2), 3);
         assert_eq!(EnvConfig::adaptive_interval(10), 3);
@@ -259,7 +261,8 @@ mod tests {
     fn test_non_apple_silicon_adaptive_interval() {
         // On non-Apple Silicon systems, use standard intervals
         assert_eq!(EnvConfig::adaptive_interval(0), 2);
-        assert_eq!(EnvConfig::adaptive_interval(1), 2);
+        // Remote monitoring should use 3 seconds for 1 node
+        assert_eq!(EnvConfig::adaptive_interval(1), 3);
         assert_eq!(EnvConfig::adaptive_interval(2), 3);
         assert_eq!(EnvConfig::adaptive_interval(10), 3);
 
