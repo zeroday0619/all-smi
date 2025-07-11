@@ -1,63 +1,81 @@
 # .github/workflows/release.yml
 name: release
 
-# ─────────────────────────────────────────────────────────────
-# Run whenever a Release is published (Draft → Published)
-# ─────────────────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════
+# Workflow Triggers
+# ═══════════════════════════════════════════════════════════════
+# This workflow runs when:
+# 1. A GitHub Release is published (Draft → Published)
+# 2. Manually triggered via workflow_dispatch
+# ───────────────────────────────────────────────────────────────
 on:
   release:
     types: [published]
+  
+  workflow_dispatch:  # Allow manual triggering
+    inputs:
+      update_homebrew:
+        description: 'Update Homebrew formula after build'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
 
-  workflow_dispatch:         # ← add this block (no inputs needed)
-
-  # Needed by softprops/action-gh-release
+# Required permissions for release uploads
 permissions:
   contents: write
 
 jobs:
+  # ═══════════════════════════════════════════════════════════════
+  # Job: Build Release Binaries
+  # ═══════════════════════════════════════════════════════════════
+  # Builds release binaries for multiple platforms and architectures
+  # ───────────────────────────────────────────────────────────────
   build:
     name: Build ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
-
-    # Make the Environment-level vars/secrets from “packaging” available
+    
+    # Access secrets from "packaging" environment
     environment: packaging
-
+    
     strategy:
       fail-fast: false
       matrix:
         include:
-          # Linux x86_64
+          # Linux x86_64 (glibc)
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
             artifact_name: all-smi
             asset_name: all-smi-linux-x86_64
             cross: false
             archive_ext: ".tar.gz"
-
-          # Linux x86_64 musl (static)
+          
+          # Linux x86_64 (musl - static binary)
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
             artifact_name: all-smi
             asset_name: all-smi-linux-x86_64-musl
             cross: true
             archive_ext: ".tar.gz"
-
-          # Linux ARM64
+          
+          # Linux ARM64 (glibc)
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-24.04-arm
             artifact_name: all-smi
             asset_name: all-smi-linux-aarch64
             cross: false
             archive_ext: ".tar.gz"
-
-          # Linux ARM64 musl (static)
+          
+          # Linux ARM64 (musl - static binary)
           - target: aarch64-unknown-linux-musl
             os: ubuntu-24.04-arm
             artifact_name: all-smi
             asset_name: all-smi-linux-aarch64-musl
             cross: false
             archive_ext: ".tar.gz"
-
+          
           # macOS ARM64 (Apple Silicon)
           - target: aarch64-apple-darwin
             os: macos-14
@@ -65,118 +83,146 @@ jobs:
             asset_name: all-smi-macos-aarch64
             cross: false
             archive_ext: ".zip"
-
-        # ────────────────────────────────────────────────────────
-
-    # Shared env – visible to all steps
+    
+    # Environment variables shared across all steps
     env:
       BIN_NAME: all-smi
-      BUNDLE_ID: ${{ vars.BUNDLE_ID }}   # set in “packaging” environment
-
+      BUNDLE_ID: ${{ vars.BUNDLE_ID }}  # From "packaging" environment
+    
     steps:
-    #-----------------------------------------------------------------
-    # 1. Check out the commit attached to this Release
-    #-----------------------------------------------------------------
-    - uses: actions/checkout@v4
-
-    #-----------------------------------------------------------------
-    # 2. Install Rust toolchain
-    #-----------------------------------------------------------------
-    - uses: actions-rs/toolchain@v1
+    # ───────────────────────────────────────────────────────────────
+    # Step 1: Checkout source code
+    # ───────────────────────────────────────────────────────────────
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    # ───────────────────────────────────────────────────────────────
+    # Step 2: Install system dependencies for cross-compilation
+    # ───────────────────────────────────────────────────────────────
+    - name: Install ARM64 musl cross-compilation tools
+      if: matrix.asset_name == 'all-smi-linux-aarch64-musl'
+      run: |
+        sudo apt update
+        sudo apt install -y musl-tools gcc-aarch64-linux-gnu
+    
+    # ───────────────────────────────────────────────────────────────
+    # Step 3: Setup Rust toolchain
+    # ───────────────────────────────────────────────────────────────
+    - name: Install Rust toolchain
+      uses: actions-rs/toolchain@v1
       with:
         profile: minimal
         toolchain: stable
         override: true
-
-    # Add the requested compilation target
-    - name: Add Rust target
+    
+    - name: Add target architecture
       run: rustup target add ${{ matrix.target }}
-
-    #-----------------------------------------------------------------
-    # 3. Optionally install `cross` for cross compilation
-    #-----------------------------------------------------------------
+    
+    # ───────────────────────────────────────────────────────────────
+    # Step 4: Install cross-compilation tool (if needed)
+    # ───────────────────────────────────────────────────────────────
     - name: Install cross
       if: matrix.cross
       run: |
         cargo install cross --locked
-        echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"   # make sure PATH contains it
-
-    #-----------------------------------------------------------------
-    # 4. Build
-    #-----------------------------------------------------------------
-    - name: Build binary
+        echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+    
+    # ───────────────────────────────────────────────────────────────
+    # Step 5: Build the binary
+    # ───────────────────────────────────────────────────────────────
+    - name: Build release binary
       run: |
         if [[ "${{ matrix.cross }}" == "true" ]]; then
           cross build --release --target ${{ matrix.target }} --locked
         else
           cargo build --release --target ${{ matrix.target }} --locked
         fi
-
-    #-----------------------------------------------------------------
-    # 5. macOS-specific: import certificate, codesign, notarize
-    #-----------------------------------------------------------------
-    - name: Import Developer-ID certificate
+    
+    # ───────────────────────────────────────────────────────────────
+    # Step 6: macOS code signing
+    # ───────────────────────────────────────────────────────────────
+    - name: Import Developer ID certificate
       if: runner.os == 'macOS'
       uses: apple-actions/import-codesign-certs@v3
       with:
         p12-file-base64: ${{ secrets.DEV_ID_CERT_P12 }}
-        p12-password:   ${{ secrets.DEV_ID_CERT_PASSWORD }}
-
-    - name: Codesign binary
+        p12-password: ${{ secrets.DEV_ID_CERT_PASSWORD }}
+    
+    - name: Code sign macOS binary
       if: runner.os == 'macOS'
       run: |
         BIN=target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
         codesign --force --timestamp --options runtime \
                  --sign "Developer ID Application" "$BIN"
-
-    #-----------------------------------------------------------------
-    # 6. Package
-    #-----------------------------------------------------------------
-    - name: Package tar.gz
+    
+    # ───────────────────────────────────────────────────────────────
+    # Step 7: Package the binary
+    # ───────────────────────────────────────────────────────────────
+    - name: Package Linux binary (tar.gz)
       if: runner.os == 'Linux'
       run: |
         BIN_DIR=target/${{ matrix.target }}/release
         tar -C "$BIN_DIR" -czf ${{ matrix.asset_name }}.tar.gz ${{ matrix.artifact_name }}
-
-    - name: Package zip
+    
+    - name: Package macOS binary (zip)
       if: runner.os == 'macOS'
       run: |
         BIN="target/${{ matrix.target }}/release/${{ matrix.artifact_name }}"
         ASSET="${{ matrix.asset_name }}.zip"
-        # --sequesterRsrc / --keepParent keeps xattrs & puts binary in its own folder
+        # Preserve extended attributes and create proper structure
         ditto -c -k --sequesterRsrc --keepParent "$BIN" "$ASSET"
-
-    #-----------------------------------------------------------------
-    # 7. macOS-specific: notarize & staple
-    #-----------------------------------------------------------------
-    #- name: Notarize + staple
+    
+    # ───────────────────────────────────────────────────────────────
+    # Step 8: macOS notarization (currently disabled)
+    # ───────────────────────────────────────────────────────────────
+    # TODO: Enable once Apple Developer notarization is configured
+    #- name: Notarize and staple macOS binary
     #  if: runner.os == 'macOS'
     #  uses: lando/notarize-action@v2
     #  with:
-    #    product-path:  "${{ matrix.asset_name }}${{ matrix.archive_ext }}"
-    #    api-key:       ${{ secrets.AC_API_PRIVATE_KEY_P8 }}
-    #    api-key-id:    ${{ secrets.AC_API_KEY_ID }}
+    #    product-path: "${{ matrix.asset_name }}${{ matrix.archive_ext }}"
+    #    api-key: ${{ secrets.AC_API_PRIVATE_KEY_P8 }}
+    #    api-key-id: ${{ secrets.AC_API_KEY_ID }}
     #    api-issuer-id: ${{ secrets.AC_API_ISSUER_ID }}
     #    staple: true
     #    tool: "notarytool"
-
-    #-----------------------------------------------------------------
-    # 8. Upload this file to the current Release
-    #-----------------------------------------------------------------
-    - name: Artifact upload
+    
+    # ───────────────────────────────────────────────────────────────
+    # Step 9: Upload binary to GitHub Release
+    # ───────────────────────────────────────────────────────────────
+    - name: Upload release artifact
       if: github.event_name == 'release'
       uses: softprops/action-gh-release@v2
       with:
         files: ${{ matrix.asset_name }}${{ matrix.archive_ext }}
-    - name: Update Homebrew formula
+
+  # ═══════════════════════════════════════════════════════════════
+  # Job: Update Homebrew Formula
+  # ═══════════════════════════════════════════════════════════════
+  # Updates the Homebrew formula after all builds complete.
+  # This ensures the formula points to the new release artifacts.
+  # ───────────────────────────────────────────────────────────────
+  update-homebrew:
+    name: Update Homebrew Formula
+    needs: build  # Only run after all builds succeed
+    runs-on: macos-latest  # macOS has Homebrew pre-installed
+    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.update_homebrew == 'true')
+    
+    # Access secrets from "packaging" environment
+    environment: packaging
+    
+    steps:
+    # ───────────────────────────────────────────────────────────────
+    # Update Homebrew formula in tap repository
+    # ───────────────────────────────────────────────────────────────
+    - name: Bump Homebrew formula version
       uses: dawidd6/action-homebrew-bump-formula@v5
       with:
-        # Required, custom GitHub access token with the 'public_repo' and 'workflow' scopes
-        token: ${{secrets.HOMEBREW_TAP_TOKEN}}
-        # Optional, use the origin repository instead of forking
+        # GitHub token with 'public_repo' and 'workflow' scopes
+        token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        # Update directly without forking
         no_fork: true
-        # Optional, defaults to homebrew/core
+        # Target tap repository
         tap: lablup/homebrew-tap
-        # Formula name, required
+        # Formula name to update
         formula: all-smi
-    
