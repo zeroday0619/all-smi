@@ -16,7 +16,7 @@ use crate::device::{
 };
 use crate::network::NetworkClient;
 use crate::storage::info::StorageInfo;
-use crate::utils::{get_hostname, should_include_disk};
+use crate::utils::{filter_docker_aware_disks, get_hostname};
 
 /// Extract hostname from URL, handling both simple hostnames and full URLs
 fn extract_hostname_from_url(url: &str) -> String {
@@ -149,17 +149,18 @@ impl DataCollector {
         let disks = Disks::new_with_refreshed_list();
         let hostname = get_hostname();
 
-        for (index, disk) in disks.iter().enumerate() {
+        // Use Docker-aware filtering
+        let filtered_disks = filter_docker_aware_disks(&disks);
+
+        for (index, disk) in filtered_disks.iter().enumerate() {
             let mount_point_str = disk.mount_point().to_string_lossy();
-            if should_include_disk(&mount_point_str) {
-                all_storage_info.push(StorageInfo {
-                    mount_point: mount_point_str.to_string(),
-                    total_bytes: disk.total_space(),
-                    available_bytes: disk.available_space(),
-                    hostname: hostname.clone(),
-                    index: index as u32,
-                });
-            }
+            all_storage_info.push(StorageInfo {
+                mount_point: mount_point_str.to_string(),
+                total_bytes: disk.total_space(),
+                available_bytes: disk.available_space(),
+                hostname: hostname.clone(),
+                index: index as u32,
+            });
         }
 
         all_storage_info

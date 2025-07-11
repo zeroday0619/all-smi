@@ -4,7 +4,7 @@ use sysinfo::Disks;
 use tokio::sync::RwLock;
 
 use crate::app_state::AppState;
-use crate::utils::disk::should_include_disk;
+use crate::utils::disk_filter::filter_docker_aware_disks;
 use crate::utils::system::get_hostname;
 
 pub type SharedState = Arc<RwLock<AppState>>;
@@ -501,11 +501,10 @@ pub async fn metrics_handler(State(state): State<SharedState>) -> String {
         .unwrap_or_else(get_hostname);
     let disks = Disks::new_with_refreshed_list();
 
-    for (index, disk) in disks.iter().enumerate() {
-        let mount_point_str = disk.mount_point().to_string_lossy();
-        if !should_include_disk(&mount_point_str) {
-            continue;
-        }
+    // Use Docker-aware filtering
+    let filtered_disks = filter_docker_aware_disks(&disks);
+
+    for (index, disk) in filtered_disks.iter().enumerate() {
         metrics.push_str("# HELP all_smi_disk_total_bytes Total disk space in bytes\n");
         metrics.push_str("# TYPE all_smi_disk_total_bytes gauge\n");
         metrics.push_str(&format!(
