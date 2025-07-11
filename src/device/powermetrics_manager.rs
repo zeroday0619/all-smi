@@ -8,6 +8,9 @@ use std::time::Duration;
 
 use crate::device::powermetrics_parser::{parse_powermetrics_output, PowerMetricsData};
 
+#[cfg(unix)]
+use libc;
+
 /// Manages a long-running powermetrics process with in-memory circular buffer
 pub struct PowerMetricsManager {
     process: Arc<Mutex<Option<Child>>>,
@@ -510,21 +513,42 @@ impl PowerMetricsManager {
             }
 
             // Kill parent processes with their process groups first
-            for pid in &parent_pids {
-                // Kill the entire process group (negative PID)
-                let _ = Command::new("sudo")
-                    .args(["kill", "-TERM", &format!("-{pid}")])
-                    .output();
+            #[cfg(unix)]
+            {
+                for pid in &parent_pids {
+                    unsafe {
+                        // Kill the entire process group (negative PID) without sudo
+                        libc::kill(-(*pid as i32), libc::SIGTERM);
+                    }
+                }
+
+                // Wait a moment for processes to terminate gracefully
+                thread::sleep(Duration::from_millis(200));
+
+                // Force kill any remaining processes individually
+                for pid in all_pids {
+                    unsafe {
+                        libc::kill(pid as i32, libc::SIGKILL);
+                    }
+                }
             }
 
-            // Wait a moment for processes to terminate gracefully
-            thread::sleep(Duration::from_millis(200));
+            #[cfg(not(unix))]
+            {
+                // On non-Unix systems, we still need to use sudo
+                for pid in &parent_pids {
+                    let _ = Command::new("sudo")
+                        .args(["kill", "-TERM", &format!("-{pid}")])
+                        .output();
+                }
 
-            // Force kill any remaining processes individually
-            for pid in all_pids {
-                let _ = Command::new("sudo")
-                    .args(["kill", "-9", &pid.to_string()])
-                    .output();
+                thread::sleep(Duration::from_millis(200));
+
+                for pid in all_pids {
+                    let _ = Command::new("sudo")
+                        .args(["kill", "-9", &pid.to_string()])
+                        .output();
+                }
             }
         }
     }
@@ -546,23 +570,22 @@ impl Drop for PowerMetricsManager {
         // Kill the powermetrics process
         if let Ok(mut process_guard) = self.process.lock() {
             if let Some(mut child) = process_guard.take() {
-                #[cfg(unix)]
-                {
-                    // Kill the entire process group
-                    let pid = child.id();
-                    // Use negative PID to kill the process group
-                    let _ = Command::new("sudo")
-                        .args(["kill", "-TERM", &format!("-{pid}")])
-                        .output();
-                    thread::sleep(Duration::from_millis(100));
-                    let _ = Command::new("sudo")
-                        .args(["kill", "-9", &format!("-{pid}")])
-                        .output();
-                }
-
-                // Also try normal kill
+                // Try to kill the child process directly first (no sudo needed for our own child)
                 let _ = child.kill();
                 let _ = child.wait();
+
+                #[cfg(unix)]
+                {
+                    // If the process group still exists, try to kill it
+                    // This shouldn't require sudo since we spawned the process
+                    let pid = child.id();
+                    unsafe {
+                        // Use libc to send signal to process group without sudo
+                        libc::kill(-(pid as i32), libc::SIGTERM);
+                        thread::sleep(Duration::from_millis(100));
+                        libc::kill(-(pid as i32), libc::SIGKILL);
+                    }
+                }
             }
         }
 
@@ -619,22 +642,22 @@ pub fn shutdown_powermetrics_manager() {
         // Kill the powermetrics process
         if let Ok(mut process_guard) = manager.process.lock() {
             if let Some(mut child) = process_guard.take() {
-                #[cfg(unix)]
-                {
-                    // Kill the entire process group
-                    let pid = child.id();
-                    // Use negative PID to kill the process group
-                    let _ = Command::new("sudo")
-                        .args(["kill", "-TERM", &format!("-{pid}")])
-                        .output();
-                    thread::sleep(Duration::from_millis(100));
-                    let _ = Command::new("sudo")
-                        .args(["kill", "-9", &format!("-{pid}")])
-                        .output();
-                }
-
+                // Try to kill the child process directly first (no sudo needed for our own child)
                 let _ = child.kill();
                 let _ = child.wait();
+
+                #[cfg(unix)]
+                {
+                    // If the process group still exists, try to kill it
+                    // This shouldn't require sudo since we spawned the process
+                    let pid = child.id();
+                    unsafe {
+                        // Use libc to send signal to process group without sudo
+                        libc::kill(-(pid as i32), libc::SIGTERM);
+                        thread::sleep(Duration::from_millis(100));
+                        libc::kill(-(pid as i32), libc::SIGKILL);
+                    }
+                }
             }
         }
 
@@ -642,7 +665,9 @@ pub fn shutdown_powermetrics_manager() {
     }
 
     // Extra cleanup to catch any orphaned processes
-    PowerMetricsManager::kill_existing_powermetrics_processes();
+    // Note: We don't call kill_existing_powermetrics_processes() here anymore
+    // because it would require sudo. We've already killed our own child process above.
+    // PowerMetricsManager::kill_existing_powermetrics_processes();
 
     // Give Drop a moment to execute
     thread::sleep(Duration::from_millis(100));
