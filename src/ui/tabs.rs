@@ -166,6 +166,7 @@ mod tests {
             gpu_scroll_offset: 0,
             storage_scroll_offset: 0,
             tab_scroll_offset: 0,
+            process_horizontal_scroll_offset: 0,
             device_name_scroll_offsets: HashMap::new(),
             hostname_scroll_offsets: HashMap::new(),
             frame_counter: 0,

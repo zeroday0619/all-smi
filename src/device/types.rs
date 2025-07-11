@@ -55,6 +55,9 @@ pub struct ProcessInfo {
     pub ppid: u32,            // Parent process ID
     pub threads: u32,         // Number of threads
     pub uses_gpu: bool,       // Whether the process uses GPU
+    pub priority: i32,        // Process priority (PRI)
+    pub nice_value: i32,      // Nice value (NI)
+    pub gpu_utilization: f64, // GPU utilization percentage
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

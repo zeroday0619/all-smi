@@ -59,6 +59,9 @@ impl AppleSiliconGpuReader {
                     ppid: 0,                       // Will be filled by sysinfo
                     threads: 0,                    // Will be filled by sysinfo
                     uses_gpu: true,
+                    priority: 0,          // Will be filled by sysinfo
+                    nice_value: 0,        // Will be filled by sysinfo
+                    gpu_utilization: 0.0, // Apple Silicon doesn't provide per-process GPU utilization
                 });
             }
         }

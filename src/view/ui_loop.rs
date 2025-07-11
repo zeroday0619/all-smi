@@ -511,6 +511,9 @@ impl UiLoop {
             };
             let half_rows = rows / 2;
 
+            // Get current user for process coloring
+            let current_user = whoami::username();
+
             print_process_info(
                 buffer,
                 &state.process_info,
@@ -518,6 +521,8 @@ impl UiLoop {
                 state.start_index,
                 half_rows,
                 cols,
+                state.process_horizontal_scroll_offset,
+                &current_user,
             );
         }
     }
