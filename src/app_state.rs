@@ -67,6 +67,7 @@ pub struct AppState {
     pub selected_process_index: usize,
     pub start_index: usize,
     pub sort_criteria: SortCriteria,
+    pub sort_direction: SortDirection,
     pub loading: bool,
     pub tabs: Vec<String>,
     pub current_tab: usize,
@@ -89,11 +90,22 @@ pub struct AppState {
     pub known_hosts: Vec<String>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub enum SortCriteria {
     // Process sorting (local mode only)
-    Pid,
-    Memory,
+    Pid,            // Process ID
+    User,           // User name
+    Priority,       // Process priority (PRI)
+    Nice,           // Nice value
+    VirtualMemory,  // Virtual memory (VIRT)
+    ResidentMemory, // Resident memory (RES)
+    State,          // Process state
+    CpuPercent,     // CPU usage percentage
+    MemoryPercent,  // Memory usage percentage (was Memory)
+    GpuPercent,     // GPU usage percentage
+    GpuMemoryUsage, // GPU memory usage
+    CpuTime,        // CPU time (TIME+)
+    Command,        // Command line
     // GPU sorting (both local and remote modes)
     Default,     // Hostname then index (current behavior)
     Utilization, // GPU utilization
@@ -102,6 +114,12 @@ pub enum SortCriteria {
     Power, // Power consumption
     #[allow(dead_code)]
     Temperature, // Temperature
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum SortDirection {
+    Ascending,
+    Descending,
 }
 
 impl AppState {
@@ -114,6 +132,7 @@ impl AppState {
             selected_process_index: 0,
             start_index: 0,
             sort_criteria: SortCriteria::Default,
+            sort_direction: SortDirection::Descending,
             loading: true,
             tabs: vec![
                 "All".to_string(),
@@ -256,6 +275,45 @@ impl SortCriteria {
                     a_index.cmp(&b_index)
                 })
             }
+        }
+    }
+
+    pub fn sort_processes(
+        &self,
+        a: &ProcessInfo,
+        b: &ProcessInfo,
+        direction: SortDirection,
+    ) -> Ordering {
+        let base_ordering = match self {
+            SortCriteria::Pid => a.pid.cmp(&b.pid),
+            SortCriteria::User => a.user.cmp(&b.user),
+            SortCriteria::Priority => a.priority.cmp(&b.priority),
+            SortCriteria::Nice => a.nice_value.cmp(&b.nice_value),
+            SortCriteria::VirtualMemory => a.memory_vms.cmp(&b.memory_vms),
+            SortCriteria::ResidentMemory => a.memory_rss.cmp(&b.memory_rss),
+            SortCriteria::State => a.state.cmp(&b.state),
+            SortCriteria::CpuPercent => a
+                .cpu_percent
+                .partial_cmp(&b.cpu_percent)
+                .unwrap_or(Ordering::Equal),
+            SortCriteria::MemoryPercent => a
+                .memory_percent
+                .partial_cmp(&b.memory_percent)
+                .unwrap_or(Ordering::Equal),
+            SortCriteria::GpuPercent => a
+                .gpu_utilization
+                .partial_cmp(&b.gpu_utilization)
+                .unwrap_or(Ordering::Equal),
+            SortCriteria::GpuMemoryUsage => a.used_memory.cmp(&b.used_memory),
+            SortCriteria::CpuTime => a.cpu_time.cmp(&b.cpu_time),
+            SortCriteria::Command => a.command.cmp(&b.command),
+            // For GPU-related sorting or default, sort by PID
+            _ => a.pid.cmp(&b.pid),
+        };
+
+        match direction {
+            SortDirection::Ascending => base_ordering,
+            SortDirection::Descending => base_ordering.reverse(),
         }
     }
 }

@@ -1,4 +1,7 @@
-use crossterm::{event::KeyCode, event::KeyEvent, terminal::size};
+use crossterm::{
+    event::{KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKind},
+    terminal::size,
+};
 
 use crate::app_state::{AppState, SortCriteria};
 use crate::cli::ViewArgs;
@@ -129,7 +132,7 @@ fn handle_navigation_keys(key_code: KeyCode, state: &mut AppState, args: &ViewAr
         KeyCode::PageUp => handle_page_up(state, args),
         KeyCode::PageDown => handle_page_down(state, args),
         KeyCode::Char('p') => state.sort_criteria = SortCriteria::Pid,
-        KeyCode::Char('m') => state.sort_criteria = SortCriteria::Memory,
+        KeyCode::Char('m') => state.sort_criteria = SortCriteria::MemoryPercent,
         KeyCode::Char('u') => state.sort_criteria = SortCriteria::Utilization,
         KeyCode::Char('g') => state.sort_criteria = SortCriteria::GpuMemory,
         KeyCode::Char('d') => state.sort_criteria = SortCriteria::Default,
@@ -307,6 +310,111 @@ fn handle_page_down(state: &mut AppState, args: &ViewArgs) {
             if state.selected_process_index >= state.start_index + visible_process_rows {
                 state.start_index = state.selected_process_index - visible_process_rows + 1;
             }
+        }
+    }
+}
+
+pub async fn handle_mouse_event(
+    mouse_event: MouseEvent,
+    state: &mut AppState,
+    _args: &ViewArgs,
+) -> bool {
+    match mouse_event.kind {
+        MouseEventKind::Down(MouseButton::Left) => {
+            // Only handle clicks when not in help mode and not loading
+            if !state.show_help && !state.loading {
+                handle_process_header_click(mouse_event.column, mouse_event.row, state);
+            }
+            false
+        }
+        _ => false,
+    }
+}
+
+fn handle_process_header_click(x: u16, y: u16, state: &mut AppState) {
+    // Check if we're in local mode with process list visible
+    if state.tabs.len() != 1
+        && !(state.tabs.len() == 4 && state.tabs.contains(&"Process".to_string()))
+    {
+        return;
+    }
+
+    // Get terminal size to calculate process list position
+    let (_cols, rows) = match size() {
+        Ok((c, r)) => (c, r),
+        Err(_) => return,
+    };
+
+    // Calculate where the process header should be
+    // The header is at half_rows - 1 based on testing
+    let half_rows = rows / 2;
+    let process_header_row = half_rows - 1;
+
+    // Check if click is on the process header row
+    if y != process_header_row {
+        return;
+    }
+
+    // Calculate column positions based on fixed widths
+    let fixed_widths = [7, 12, 3, 3, 6, 6, 1, 5, 5, 5, 7, 8];
+    let mut column_start: usize = 0;
+    let mut column_index = None;
+
+    // Account for horizontal scrolling
+    let scroll_offset = state.process_horizontal_scroll_offset;
+
+    // Find which column was clicked
+    for (i, &width) in fixed_widths.iter().enumerate() {
+        let column_end = column_start + width;
+
+        // Adjust for scroll offset
+        let visible_start = column_start.saturating_sub(scroll_offset) as u16;
+        let visible_end = column_end.saturating_sub(scroll_offset) as u16;
+
+        if x >= visible_start && x < visible_end {
+            column_index = Some(i);
+            break;
+        }
+        column_start = column_end + 1; // +1 for space between columns
+    }
+
+    // Map column index to sort criteria
+    if let Some(idx) = column_index {
+        let new_criteria = match idx {
+            0 => SortCriteria::Pid,
+            1 => SortCriteria::User,
+            2 => SortCriteria::Priority,
+            3 => SortCriteria::Nice,
+            4 => SortCriteria::VirtualMemory,
+            5 => SortCriteria::ResidentMemory,
+            6 => SortCriteria::State,
+            7 => SortCriteria::CpuPercent,
+            8 => SortCriteria::MemoryPercent,
+            9 => SortCriteria::GpuPercent,
+            10 => SortCriteria::GpuMemoryUsage,
+            11 => SortCriteria::CpuTime,
+            _ => return, // Command column or beyond
+        };
+
+        // Toggle sort direction if clicking the same column
+        if state.sort_criteria == new_criteria {
+            state.sort_direction = match state.sort_direction {
+                crate::app_state::SortDirection::Ascending => {
+                    crate::app_state::SortDirection::Descending
+                }
+                crate::app_state::SortDirection::Descending => {
+                    crate::app_state::SortDirection::Ascending
+                }
+            };
+        } else {
+            // New column, default to descending for most columns
+            state.sort_criteria = new_criteria;
+            state.sort_direction = match new_criteria {
+                SortCriteria::User | SortCriteria::State | SortCriteria::Command => {
+                    crate::app_state::SortDirection::Ascending
+                }
+                _ => crate::app_state::SortDirection::Descending,
+            };
         }
     }
 }

@@ -217,7 +217,16 @@ impl DataCollector {
 
         state.cpu_info = all_cpu_info;
         state.memory_info = all_memory_info;
-        state.process_info = all_processes;
+
+        // Sort processes based on current criteria
+        let mut sorted_processes = all_processes;
+        sorted_processes.sort_by(|a, b| {
+            state
+                .sort_criteria
+                .sort_processes(a, b, state.sort_direction)
+        });
+        state.process_info = sorted_processes;
+
         state.storage_info = all_storage_info;
 
         // Update notifications (remove expired ones)

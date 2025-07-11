@@ -58,14 +58,31 @@ impl UiLoop {
                 event::poll(Duration::from_millis(AppConfig::EVENT_POLL_TIMEOUT_MS))
             {
                 if has_event {
-                    if let Ok(Event::Key(key_event)) = event::read() {
-                        let mut state = self.app_state.lock().await;
-                        let should_break = handle_key_event(key_event, &mut state, args).await;
-                        if should_break {
-                            break;
+                    match event::read() {
+                        Ok(Event::Key(key_event)) => {
+                            let mut state = self.app_state.lock().await;
+                            let should_break = handle_key_event(key_event, &mut state, args).await;
+                            if should_break {
+                                break;
+                            }
+                            drop(state);
                         }
-                        drop(state);
-                        // Ignore other event types (mouse, resize, focus, paste)
+                        Ok(Event::Mouse(mouse_event)) => {
+                            let mut state = self.app_state.lock().await;
+                            let should_break = crate::view::event_handler::handle_mouse_event(
+                                mouse_event,
+                                &mut state,
+                                args,
+                            )
+                            .await;
+                            if should_break {
+                                break;
+                            }
+                            drop(state);
+                        }
+                        _ => {
+                            // Ignore other event types (resize, focus, paste)
+                        }
                     }
                 }
             }
@@ -523,6 +540,8 @@ impl UiLoop {
                 cols,
                 state.process_horizontal_scroll_offset,
                 &current_user,
+                &state.sort_criteria,
+                &state.sort_direction,
             );
         }
     }

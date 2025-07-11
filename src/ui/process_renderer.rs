@@ -5,6 +5,7 @@ use crossterm::{queue, style::Color, style::Print};
 use crate::device::ProcessInfo;
 use crate::ui::text::{print_colored_text, truncate_to_width};
 
+#[allow(clippy::too_many_arguments)]
 pub fn print_process_info<W: Write>(
     stdout: &mut W,
     processes: &[ProcessInfo],
@@ -14,6 +15,8 @@ pub fn print_process_info<W: Write>(
     cols: u16,
     horizontal_scroll_offset: usize,
     current_user: &str,
+    sort_criteria: &crate::app_state::SortCriteria,
+    sort_direction: &crate::app_state::SortDirection,
 ) {
     queue!(stdout, Print("\r\nProcesses:\r\n")).unwrap();
 
@@ -48,10 +51,35 @@ pub fn print_process_info<W: Write>(
         fixed_widths[11], // TIME+: 8
     );
 
-    // Build header format string with proper alignment
+    // Helper function to add sort arrow
+    let get_sort_arrow = |criteria: crate::app_state::SortCriteria| -> &'static str {
+        if sort_criteria == &criteria {
+            match sort_direction {
+                crate::app_state::SortDirection::Ascending => "↑",
+                crate::app_state::SortDirection::Descending => "↓",
+            }
+        } else {
+            ""
+        }
+    };
+
+    // Build header format string with proper alignment and sort arrows
+    #[allow(clippy::format_in_format_args)]
     let header_format = format!(
         "{:>pid_w$} {:<user_w$} {:>pri_w$} {:>ni_w$} {:>virt_w$} {:>res_w$} {:<s_w$} {:>cpu_w$} {:>mem_w$} {:>gpu_w$} {:>gpu_mem_w$} {:>time_w$} {}",
-        "PID", "USER", "PRI", "NI", "VIRT", "RES", "S", "CPU%", "MEM%", "GPU%", "GPUMEM", "TIME+", "Command",
+        format!("PID{}", get_sort_arrow(crate::app_state::SortCriteria::Pid)),
+        format!("USER{}", get_sort_arrow(crate::app_state::SortCriteria::User)),
+        format!("PRI{}", get_sort_arrow(crate::app_state::SortCriteria::Priority)),
+        format!("NI{}", get_sort_arrow(crate::app_state::SortCriteria::Nice)),
+        format!("VIRT{}", get_sort_arrow(crate::app_state::SortCriteria::VirtualMemory)),
+        format!("RES{}", get_sort_arrow(crate::app_state::SortCriteria::ResidentMemory)),
+        format!("S{}", get_sort_arrow(crate::app_state::SortCriteria::State)),
+        format!("CPU%{}", get_sort_arrow(crate::app_state::SortCriteria::CpuPercent)),
+        format!("MEM%{}", get_sort_arrow(crate::app_state::SortCriteria::MemoryPercent)),
+        format!("GPU%{}", get_sort_arrow(crate::app_state::SortCriteria::GpuPercent)),
+        format!("GPUMEM{}", get_sort_arrow(crate::app_state::SortCriteria::GpuMemoryUsage)),
+        format!("TIME+{}", get_sort_arrow(crate::app_state::SortCriteria::CpuTime)),
+        format!("Command{}", get_sort_arrow(crate::app_state::SortCriteria::Command)),
         pid_w = pid_w,
         user_w = user_w,
         pri_w = pri_w,
@@ -183,54 +211,33 @@ pub fn print_process_info<W: Write>(
                 " ".repeat(width)
             };
 
-            // Print with selection highlight
+            // Print with selection highlight or individual column colors
             if is_selected {
                 print_colored_text(stdout, &visible_row, Color::Black, Some(Color::White), None);
             } else {
-                // Determine base color based on user
-                let is_current_user = process.user == current_user;
-                let is_root = process.user == "root";
-
-                // Enhanced color coding based on resource utilization and user
-                let text_color = if process.cpu_percent >= 90.0 || process.memory_percent >= 90.0 {
-                    // Extremely high utilization (90%+) - Critical
-                    Color::Red
-                } else if process.cpu_percent >= 80.0 || process.memory_percent >= 80.0 {
-                    // Very high utilization (80-90%) - Also red for visibility
-                    Color::Rgb {
-                        r: 255,
-                        g: 100,
-                        b: 100,
-                    } // Bright red
-                } else if process.cpu_percent >= 70.0 || process.memory_percent >= 70.0 {
-                    // High utilization (70-80%) - Danger zone
-                    Color::Yellow
-                } else if process.cpu_percent >= 50.0 || process.memory_percent >= 50.0 {
-                    // Moderate utilization (50-70%) - Warning
-                    Color::Rgb {
-                        r: 255,
-                        g: 200,
-                        b: 0,
-                    } // Orange/amber
-                } else if process.uses_gpu
-                    && (process.cpu_percent >= 30.0 || process.memory_percent >= 30.0)
-                {
-                    // GPU process with notable system resource usage
-                    Color::Cyan
-                } else if process.uses_gpu {
-                    // GPU process with low system resource usage
-                    Color::Green
-                } else if is_current_user {
-                    // Current user's process
-                    Color::White
-                } else if is_root || process.user == "unknown" {
-                    // Root or unknown user's process
-                    Color::DarkGrey
-                } else {
-                    // Other users' processes
-                    Color::DarkGrey
-                };
-                print_colored_text(stdout, &visible_row, text_color, None, None);
+                // We need to print each column separately with its own color
+                // So we'll reconstruct the visible parts column by column
+                print_process_row_colored(
+                    stdout,
+                    process,
+                    current_user,
+                    &pid,
+                    &user,
+                    &priority,
+                    &nice,
+                    &virt,
+                    &res,
+                    &state,
+                    &cpu_percent,
+                    &mem_percent,
+                    &gpu_percent,
+                    &gpu_mem,
+                    &time_plus,
+                    &command,
+                    horizontal_scroll_offset,
+                    width,
+                    &fixed_widths,
+                );
             }
 
             queue!(stdout, Print("\r\n")).unwrap();
@@ -245,7 +252,9 @@ pub fn print_process_info<W: Write>(
             end_index,
             processes.len()
         );
-        print_colored_text(stdout, &nav_info, Color::DarkGrey, None, None);
+        // Pad the line to full width to clear any previous content
+        let padded_nav_info = format!("{nav_info:<width$}");
+        print_colored_text(stdout, &padded_nav_info, Color::DarkGrey, None, None);
         queue!(stdout, Print("\r\n")).unwrap();
     }
 
@@ -260,7 +269,9 @@ pub fn print_process_info<W: Write>(
         let stats = format!(
             "Active: {active_processes} | GPU: {gpu_processes} | Total GPU Memory: {gpu_mem_gb:.1}GB"
         );
-        print_colored_text(stdout, &stats, Color::Cyan, None, None);
+        // Pad the line to full width to clear any previous content
+        let padded_stats = format!("{stats:<width$}");
+        print_colored_text(stdout, &padded_stats, Color::Cyan, None, None);
         queue!(stdout, Print("\r\n")).unwrap();
     }
 }
@@ -287,6 +298,233 @@ fn format_memory_size(bytes: u64) -> String {
         format!("{kb:.0}K")
     } else {
         format!("{bytes}")
+    }
+}
+
+/// Print process row with individual column colors
+#[allow(clippy::too_many_arguments)]
+fn print_process_row_colored<W: Write>(
+    stdout: &mut W,
+    process: &ProcessInfo,
+    current_user: &str,
+    pid: &str,
+    user: &str,
+    priority: &str,
+    nice: &str,
+    virt: &str,
+    res: &str,
+    state: &str,
+    cpu_percent: &str,
+    mem_percent: &str,
+    gpu_percent: &str,
+    gpu_mem: &str,
+    time_plus: &str,
+    command: &str,
+    horizontal_scroll_offset: usize,
+    width: usize,
+    fixed_widths: &[usize; 12],
+) {
+    let values = vec![
+        pid,
+        user,
+        priority,
+        nice,
+        virt,
+        res,
+        state,
+        cpu_percent,
+        mem_percent,
+        gpu_percent,
+        gpu_mem,
+        time_plus,
+        command,
+    ];
+
+    let mut current_pos = 0;
+    let mut output_pos = 0;
+
+    // Determine base colors
+    let is_current_user = process.user == current_user;
+
+    // Determine the default text color based on user and resource usage
+    let default_color = if process.cpu_percent >= 90.0 || process.memory_percent >= 90.0 {
+        Color::Red
+    } else if process.cpu_percent >= 80.0 || process.memory_percent >= 80.0 {
+        Color::Rgb {
+            r: 255,
+            g: 100,
+            b: 100,
+        }
+    } else if process.cpu_percent >= 70.0 || process.memory_percent >= 70.0 {
+        Color::Yellow
+    } else if process.cpu_percent >= 50.0 || process.memory_percent >= 50.0 {
+        Color::Rgb {
+            r: 255,
+            g: 200,
+            b: 0,
+        }
+    } else if process.uses_gpu && (process.cpu_percent >= 30.0 || process.memory_percent >= 30.0) {
+        Color::Cyan
+    } else if process.uses_gpu {
+        Color::Green
+    } else if is_current_user {
+        Color::White
+    } else {
+        // Root, unknown, or other users' processes
+        Color::DarkGrey
+    };
+
+    for (idx, value) in values.iter().enumerate() {
+        let col_width = if idx < fixed_widths.len() {
+            fixed_widths[idx]
+        } else {
+            // Command column takes remaining space
+            width
+                .saturating_sub(current_pos)
+                .saturating_sub(horizontal_scroll_offset)
+        };
+
+        // Check if this column is visible after scrolling
+        let col_start = current_pos;
+        let col_end = if idx < fixed_widths.len() {
+            current_pos + col_width + 1 // +1 for space
+        } else {
+            current_pos + value.len() // Command doesn't have fixed width
+        };
+
+        if col_end > horizontal_scroll_offset && output_pos < width {
+            // Determine color for this column
+            let color = match idx {
+                4 => {
+                    // VIRT column
+                    if process.memory_vms == 0 {
+                        Color::White
+                    } else {
+                        Color::Green
+                    }
+                }
+                0 => {
+                    // PID - white if non-zero
+                    if process.pid > 0 {
+                        Color::White
+                    } else {
+                        default_color
+                    }
+                }
+                2 => {
+                    // Priority - white if not default (20)
+                    if process.priority != 20 {
+                        Color::White
+                    } else {
+                        default_color
+                    }
+                }
+                3 => {
+                    // Nice - white if not 0
+                    if process.nice_value != 0 {
+                        Color::White
+                    } else {
+                        Color::DarkGrey
+                    }
+                }
+                5 => {
+                    // RES - white if non-zero
+                    if process.memory_rss > 0 {
+                        Color::White
+                    } else {
+                        default_color
+                    }
+                }
+                7 => {
+                    // CPU% - white if non-zero
+                    if process.cpu_percent > 0.0 {
+                        Color::White
+                    } else {
+                        default_color
+                    }
+                }
+                8 => {
+                    // MEM% - white if non-zero
+                    if process.memory_percent > 0.0 {
+                        Color::White
+                    } else {
+                        default_color
+                    }
+                }
+                9 => {
+                    // GPU% - white if non-zero
+                    if process.gpu_utilization > 0.0 {
+                        Color::White
+                    } else {
+                        default_color
+                    }
+                }
+                10 => {
+                    // GPUMEM - white if non-zero
+                    if process.used_memory > 0 {
+                        Color::White
+                    } else {
+                        default_color
+                    }
+                }
+                11 => {
+                    // TIME+ - white if not 0:00:00
+                    if time_plus != "0:00:00" {
+                        Color::White
+                    } else {
+                        default_color
+                    }
+                }
+                _ => default_color, // USER, State, Command use default color
+            };
+
+            // Calculate what part of this column to display
+            let skip = horizontal_scroll_offset.saturating_sub(col_start);
+
+            // Format the value with proper alignment
+            let formatted = if idx < fixed_widths.len() {
+                match idx {
+                    0 => format!("{value:>col_width$}"), // PID - right align
+                    1 => format!(
+                        "{:<width$}",
+                        truncate_to_width(value, col_width),
+                        width = col_width
+                    ), // USER - left align
+                    2..=11 => format!("{value:>col_width$}"), // Numbers - right align
+                    _ => value.to_string(),
+                }
+            } else {
+                value.to_string() // Command - no padding
+            };
+
+            // Print the visible part
+            if skip < formatted.len() {
+                let visible_part = &formatted[skip..];
+                let remaining_width = width.saturating_sub(output_pos);
+                let to_print = truncate_to_width(visible_part, remaining_width);
+                print_colored_text(stdout, &to_print, color, None, None);
+                output_pos += to_print.len();
+            }
+
+            // Add space between columns (except after last column)
+            if idx < values.len() - 1 && output_pos < width && col_end > horizontal_scroll_offset {
+                print_colored_text(stdout, " ", default_color, None, None);
+                output_pos += 1;
+            }
+        }
+
+        current_pos = col_end;
+    }
+
+    // Fill the rest of the line with spaces to clear any previous content
+    if output_pos < width {
+        print_colored_text(
+            stdout,
+            &" ".repeat(width - output_pos),
+            Color::Black,
+            None,
+            None,
+        );
     }
 }
 

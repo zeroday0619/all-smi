@@ -155,6 +155,7 @@ mod tests {
             selected_process_index: 0,
             start_index: 0,
             sort_criteria: crate::app_state::SortCriteria::Default,
+            sort_direction: crate::app_state::SortDirection::Descending,
             loading: false,
             tabs: vec![
                 "All".to_string(),

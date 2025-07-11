@@ -1,6 +1,7 @@
 use std::io::stdout;
 
 use crossterm::{
+    event::{DisableMouseCapture, EnableMouseCapture},
     execute,
     terminal::{
         disable_raw_mode, enable_raw_mode, ClearType, EnterAlternateScreen, LeaveAlternateScreen,
@@ -27,6 +28,7 @@ impl TerminalManager {
         if execute!(
             stdout,
             EnterAlternateScreen,
+            EnableMouseCapture,
             crossterm::terminal::Clear(ClearType::All)
         )
         .is_err()
@@ -49,7 +51,7 @@ impl Drop for TerminalManager {
     fn drop(&mut self) {
         if self.initialized {
             let mut stdout = stdout();
-            let _ = execute!(stdout, LeaveAlternateScreen);
+            let _ = execute!(stdout, LeaveAlternateScreen, DisableMouseCapture);
             let _ = disable_raw_mode();
         }
     }
