@@ -18,74 +18,6 @@ The application presents a terminal-based user interface with cluster overview, 
 
 <p align="center">Node view (remote mode)</p>
 
-## Features
-
-### GPU Monitoring
-- **Real-time Metrics:** Displays comprehensive GPU information including:
-  - GPU Name and Driver Version
-  - Utilization Percentage with color-coded status
-  - Memory Usage (Used/Total in GB)
-  - Temperature in Celsius
-  - Clock Frequency in MHz
-  - Power Consumption in Watts
-- **Multi-GPU Support:** Handles multiple GPUs per system with individual monitoring
-- **Interactive Sorting:** Sort GPUs by utilization, memory usage, or default (hostname+index) order
-
-### Cluster Management
-- **Cluster Overview Dashboard:** Real-time statistics showing:
-  - Total nodes and GPUs across the cluster
-  - Average utilization and memory usage
-  - Temperature statistics with standard deviation
-  - Total and average power consumption
-- **Live Statistics History:** Visual graphs showing utilization, memory, and temperature trends
-- **Tabbed Interface:** Switch between "All" view and individual host tabs
-
-### Process Information
-- **GPU Process Monitoring:** Lists processes running on GPUs with:
-  - Process ID (PID) and Parent PID
-  - Process Name and Command Line
-  - GPU Memory Usage
-  - User and State Information
-- **Interactive Sorting:** Sort processes by PID or memory usage
-- **System Integration:** Full process details from system information
-
-### Cross-Platform Support
-- **Linux:** Supports NVIDIA GPUs via `NVML` and `nvidia-smi`(fallback) command
-- **macOS:** Supports Apple Silicon GPUs via `powermetrics` and Metal framework
-- **NVIDIA Jetson:** Special support for Tegra-based systems with DLA (Deep Learning Accelerator)
-
-### Remote Monitoring
-- **Multi-Host Support:** Monitor up to 256+ remote systems simultaneously
-- **Connection Management:** Optimized networking with connection pooling and retry logic
-  - Supports up to 128 concurrent connections
-  - Automatic retry with exponential backoff
-  - TCP keepalive for persistent connections
-- **Storage Monitoring:** Disk usage information for remote hosts
-- **High Availability:** Resilient to connection failures with automatic retry
-
-### Interactive UI
-- **Keyboard Controls:**
-  - Navigation: Arrow keys, Page Up/Down for scrolling
-  - Sorting: 'd' (default), 'u' (utilization), 'g' (GPU memory), 'p' (PID), 'm' (memory)
-  - Interface: '1' or 'h' (help), 'q' (quit), Tab switching
-- **Color-Coded Status:** Green (≤60%), Yellow (60-80%), Red (>80%) for resource usage
-- **Responsive Design:** Adapts to terminal size with optimized space allocation
-- **Help System:** Comprehensive built-in help with context-sensitive shortcuts
-
-## Technology Stack
-
-- **Language:** Rust 2021 Edition
-- **Async Runtime:** Tokio for high-performance networking
-- **Key Dependencies:**
-  - `crossterm`: Terminal manipulation and UI
-  - `axum`: Web framework for API mode
-  - `reqwest`: HTTP client for remote monitoring
-  - `chrono`: Date/time handling
-  - `clap`: Command-line argument parsing
-  - `serde`: Serialization for data exchange
-  - `metal`/`objc`: Apple Silicon GPU integration on macOS
-  - `sysinfo`: System information gathering
-
 ## Installation
 
 ### Option 1: Install via Homebrew (macOS/Linux)
@@ -94,7 +26,7 @@ The easiest way to install all-smi on macOS and Linux is through Homebrew:
 
 ```bash
 brew tap lablup/tap
-brew install lablup/tap/all-smi
+brew install all-smi
 ```
 
 ### Option 2: Install from Cargo
@@ -117,36 +49,7 @@ Download the latest release from the [GitHub releases page](https://github.com/i
 
 ### Option 4: Build from Source
 
-### Prerequisites
-
-- **Rust:** Version 1.75 or later with Cargo
-- **Linux (NVIDIA):** `CUDA`, `nvidia-smi` command must be available
-- **macOS:** Requires `sudo` privileges for `powermetrics` access
-- **Network:** For remote monitoring functionality
-
-### Building from Source
-
-1. **Clone the repository:**
-   ```bash
-   git clone https://github.com/inureyes/all-smi.git
-   cd all-smi
-   ```
-
-2. **Build the project:**
-   ```bash
-   # Build the main application
-   cargo build --release
-   
-   # Build mock server for testing
-   cargo build --release --bin all-smi-mock-server --features mock
-   ```
-
-3. **Run tests:**
-   ```bash
-   cargo test
-   cargo clippy
-   cargo fmt --check
-   ```
+See [Building from Source](DEVELOPERS.md#building-from-source) in the developer documentation.
 
 ## Usage
 
@@ -165,27 +68,6 @@ all-smi view --hostfile hosts.csv
 
 # API mode
 all-smi api --port 9090
-```
-
-### Quick Start with Make Commands
-
-For development and testing, you can use the provided Makefile:
-
-```bash
-# Run local monitoring
-make local
-
-# Run remote monitoring with hosts file
-make remote
-
-# Start mock server for testing
-make mock
-
-# Build release version
-make release
-
-# Run tests
-make test
 ```
 
 ### View Mode (Interactive Monitoring)
@@ -269,163 +151,84 @@ Metrics available at `http://localhost:9090/metrics` include:
 - `all_smi_disk_total_bytes`
 - `all_smi_disk_available_bytes`
 
-## Development and Testing
+### Quick Start with Make Commands
 
-### Mock Server for Testing
-
-The included mock server simulates realistic GPU and CPU clusters for development and testing.
-
-#### Mock Server Options
+For development and testing, you can use the provided Makefile:
 
 ```bash
-all-smi-mock-server [OPTIONS]
+# Run local monitoring
+make local
 
-OPTIONS:
-    --port-range <range>        Port range, e.g., 10001-10010 or 10001
-    --gpu-name <name>           GPU name (default: "NVIDIA H200 141GB HBM3")
-    --platform <type>           Platform type: nvidia, apple, jetson, intel, amd (default: nvidia)
-    -o, --output <file>         Output CSV file name (default: hosts.csv)
-    --failure-nodes <count>     Number of nodes to simulate random failures (default: 0)
-    --start-index <num>         Starting index for node naming (default: 1)
-    -h, --help                  Print help
+# Run remote monitoring with hosts file
+make remote
+
+# Start mock server for testing
+make mock
+
+# Build release version
+make release
+
+# Run tests
+make test
 ```
 
-#### Basic Usage
+## Features
 
-```bash
-# Build mock server (requires mock feature)
-cargo build --release --bin all-smi-mock-server --features mock
+### GPU Monitoring
+- **Real-time Metrics:** Displays comprehensive GPU information including:
+  - GPU Name and Driver Version
+  - Utilization Percentage with color-coded status
+  - Memory Usage (Used/Total in GB)
+  - Temperature in Celsius
+  - Clock Frequency in MHz
+  - Power Consumption in Watts
+- **Multi-GPU Support:** Handles multiple GPUs per system with individual monitoring
+- **Interactive Sorting:** Sort GPUs by utilization, memory usage, or default (hostname+index) order
 
-# Start single mock instance
-./target/release/all-smi-mock-server --port-range 9090
+### Cluster Management
+- **Cluster Overview Dashboard:** Real-time statistics showing:
+  - Total nodes and GPUs across the cluster
+  - Average utilization and memory usage
+  - Temperature statistics with standard deviation
+  - Total and average power consumption
+- **Live Statistics History:** Visual graphs showing utilization, memory, and temperature trends
+- **Tabbed Interface:** Switch between "All" view and individual host tabs
 
-# Start multiple instances
-./target/release/all-smi-mock-server --port-range 10001-10010 -o hosts.csv
+### Process Information
+- **GPU Process Monitoring:** Lists processes running on GPUs with:
+  - Process ID (PID) and Parent PID
+  - Process Name and Command Line
+  - GPU Memory Usage
+  - User and State Information
+- **Interactive Sorting:** Sort processes by PID or memory usage
+- **System Integration:** Full process details from system information
 
-# Custom GPU configuration
-./target/release/all-smi-mock-server --port-range 10001-10005 \
-  --gpu-name "NVIDIA H100 80GB HBM3" -o test-hosts.csv
+### Cross-Platform Support
+- **Linux:** Supports NVIDIA GPUs via `NVML` and `nvidia-smi`(fallback) command
+- **macOS:** Supports Apple Silicon GPUs via `powermetrics` and Metal framework
+- **NVIDIA Jetson:** Special support for Tegra-based systems with DLA (Deep Learning Accelerator)
 
-# Start with custom node naming index
-./target/release/all-smi-mock-server --port-range 10001-10050 \
-  --start-index 51 -o hosts.csv  # Creates node-0051 to node-0100
+### Remote Monitoring
+- **Multi-Host Support:** Monitor up to 256+ remote systems simultaneously
+- **Connection Management:** Optimized networking with connection pooling and retry logic
+  - Supports up to 128 concurrent connections
+  - Automatic retry with exponential backoff
+  - TCP keepalive for persistent connections
+- **Storage Monitoring:** Disk usage information for remote hosts
+- **High Availability:** Resilient to connection failures with automatic retry
 
-# Simulate node failures for testing
-./target/release/all-smi-mock-server --port-range 10001-10010 \
-  --failure-nodes 3 -o hosts.csv  # 3 nodes will randomly fail/recover
-```
+### Interactive UI
+- **Keyboard Controls:**
+  - Navigation: Arrow keys, Page Up/Down for scrolling
+  - Sorting: 'd' (default), 'u' (utilization), 'g' (GPU memory), 'p' (PID), 'm' (memory)
+  - Interface: '1' or 'h' (help), 'q' (quit), Tab switching
+- **Color-Coded Status:** Green (≤60%), Yellow (60-80%), Red (>80%) for resource usage
+- **Responsive Design:** Adapts to terminal size with optimized space allocation
+- **Help System:** Comprehensive built-in help with context-sensitive shortcuts
 
-#### Platform-Specific Testing
+## Development
 
-Test different hardware platforms with realistic CPU and GPU metrics:
-
-```bash
-# NVIDIA GPU servers (default - Intel/AMD CPUs with NVIDIA GPUs)
-./target/release/all-smi-mock-server --platform nvidia \
-  --port-range 10001-10005 -o nvidia-hosts.csv
-
-# Apple Silicon systems (M1/M2/M3 with P/E cores)
-./target/release/all-smi-mock-server --platform apple \
-  --gpu-name "Apple M2" --port-range 11001-11005 -o apple-hosts.csv
-
-# Intel CPU servers
-./target/release/all-smi-mock-server --platform intel \
-  --gpu-name "NVIDIA RTX 4090" --port-range 12001-12005 -o intel-hosts.csv
-
-# AMD CPU servers
-./target/release/all-smi-mock-server --platform amd \
-  --gpu-name "NVIDIA A100 80GB PCIe" --port-range 13001-13005 -o amd-hosts.csv
-
-# NVIDIA Jetson platforms
-./target/release/all-smi-mock-server --platform jetson \
-  --gpu-name "NVIDIA Jetson AGX Orin" --port-range 14001-14005 -o jetson-hosts.csv
-```
-
-#### Platform-Specific Features
-
-- **NVIDIA Platform**: Multi-socket Intel/AMD CPUs with NVIDIA GPUs
-- **Apple Silicon**: P-core/E-core CPU monitoring with integrated GPU metrics
-- **Intel Platform**: Intel Xeon processors with hyperthreading
-- **AMD Platform**: AMD EPYC/Ryzen processors with SMT
-- **Jetson Platform**: ARM-based Tegra processors with integrated GPUs
-
-Mock server features:
-- **8 GPUs per node** with realistic metrics
-- **Platform-specific CPU metrics** (socket count, core types, utilization)
-- **Randomized values** that change over time
-- **Storage simulation** with various disk sizes (1TB/4TB/12TB)
-- **Template-based responses** for performance
-- **Instance naming** with node-XXXX format (customizable with --start-index)
-- **Failure simulation** for testing high availability (--failure-nodes)
-- **Automatic node naming** prevents duplicates across multiple instances
-
-### Testing High-Scale Scenarios
-
-#### Using the Mock Cluster Script (Recommended)
-
-For large deployments, use the included `start-mock-cluster.sh` script:
-
-```bash
-# Start 200 mock servers across 4 processes (50 ports each)
-./start-mock-cluster.sh --port-range 10001-10200
-
-# Start with custom configuration
-./start-mock-cluster.sh --port-range 10001-10150 \
-  --gpu-name "NVIDIA A100" \
-  --failure-nodes 5 \
-  --ports-per-process 30
-
-# Stop all mock servers
-./start-mock-cluster.sh stop
-```
-
-The script automatically:
-- Calculates optimal process distribution
-- Sets proper file descriptor limits
-- Prevents duplicate node names across processes
-- Combines all host files into a single `hosts.csv`
-
-#### Manual High-Scale Testing
-
-```bash
-# Start 128 mock servers manually
-./target/release/all-smi-mock-server --port-range 10001-10128 -o large-cluster.csv &
-
-# Monitor large cluster
-all-smi view --hostfile large-cluster.csv --interval 1
-
-# Test mixed platform environments
-./target/release/all-smi-mock-server --platform nvidia --port-range 10001-10064 -o nvidia.csv &
-./target/release/all-smi-mock-server --platform apple --port-range 11001-11032 -o apple.csv &
-./target/release/all-smi-mock-server --platform amd --port-range 12001-12032 -o amd.csv &
-
-# Combine host files and monitor mixed environment
-cat nvidia.csv apple.csv amd.csv > mixed-cluster.csv
-all-smi view --hostfile mixed-cluster.csv --interval 2
-```
-
-## Architecture
-
-### Core Components
-
-- **GPU Abstraction Layer:** Platform-specific readers implementing the `GpuReader` trait
-- **Async Networking:** Concurrent remote data collection with connection pooling
-- **Terminal UI:** Double-buffered rendering with responsive layout
-- **Data Processing:** Real-time metrics aggregation and historical tracking
-
-### Platform Support
-
-- **NVIDIA GPUs:** Via `NVML` direct query (default) and `nvidia-smi` (fallback) command parsing
-- **Apple Silicon:** Via `powermetrics` and Metal framework integration
-- **NVIDIA Jetson:** Specialized Tegra platform support with DLA monitoring
-
-### Performance Optimizations
-
-- **Connection Management:** 128 concurrent connections with retry logic
-- **Adaptive Intervals:** 2-6 second refresh based on cluster size
-- **Memory Efficiency:** Stream processing and connection pooling
-- **Rendering:** Double buffering to prevent display flickering
-- **File Descriptor Management:** Automatic handling for large-scale deployments
+For development documentation including building from source, testing with mock servers, architecture details, and technology stack information, see [DEVELOPERS.md](DEVELOPERS.md).
 
 ## Contributing
 
