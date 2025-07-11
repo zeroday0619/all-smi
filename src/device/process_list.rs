@@ -109,7 +109,7 @@ fn get_process_priority_nice(pid: u32) -> (i32, i32) {
     #[cfg(target_os = "linux")]
     {
         // On Linux, read from /proc/[pid]/stat
-        if let Ok(stat) = std::fs::read_to_string(format!("/proc/{}/stat", pid)) {
+        if let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) {
             let fields: Vec<&str> = stat.split_whitespace().collect();
             if fields.len() > 19 {
                 // Priority is field 17 (0-indexed)
