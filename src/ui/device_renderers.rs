@@ -73,7 +73,7 @@ pub fn print_gpu_info<W: Write>(
         None,
         None,
     );
-    print_colored_text(stdout, " Mem:", Color::Blue, None, None);
+    print_colored_text(stdout, " VRAM:", Color::Blue, None, None);
     print_colored_text(
         stdout,
         &format!("{:>11}", format!("{memory_gb:.1}/{total_memory_gb:.0}GB")),
@@ -177,7 +177,7 @@ pub fn print_cpu_info<W: Write>(stdout: &mut W, _index: usize, info: &CpuInfo, w
     print_colored_text(stdout, "CPU ", Color::Cyan, None, None);
     print_colored_text(
         stdout,
-        &truncate_to_width(&info.cpu_model, 25),
+        &format!("{:<15}", truncate_to_width(&info.cpu_model, 15)),
         Color::White,
         None,
         None,
@@ -196,18 +196,17 @@ pub fn print_cpu_info<W: Write>(stdout: &mut W, _index: usize, info: &CpuInfo, w
     );
     // Show P-Core/E-Core counts for Apple Silicon, regular core count for others
     if let Some(apple_info) = &info.apple_silicon_info {
-        print_colored_text(stdout, " P-Cores:", Color::Green, None, None);
+        print_colored_text(stdout, " Cores:", Color::Green, None, None);
         print_colored_text(
             stdout,
-            &format!("{:>2}", apple_info.p_core_count),
+            &format!("{:>2}P+", apple_info.p_core_count),
             Color::White,
             None,
             None,
         );
-        print_colored_text(stdout, " E-Cores:", Color::Green, None, None);
         print_colored_text(
             stdout,
-            &format!("{:>2}", apple_info.e_core_count),
+            &format!("{:>2}E", apple_info.e_core_count),
             Color::White,
             None,
             None,
@@ -305,7 +304,7 @@ pub fn print_memory_info<W: Write>(stdout: &mut W, _index: usize, info: &MemoryI
         None,
         None,
     );
-    print_colored_text(stdout, " Used:", Color::Yellow, None, None);
+    print_colored_text(stdout, " Used:", Color::Red, None, None);
     print_colored_text(
         stdout,
         &format!("{used_gb:>6.1}GB"),
@@ -321,7 +320,7 @@ pub fn print_memory_info<W: Write>(stdout: &mut W, _index: usize, info: &MemoryI
         None,
         None,
     );
-    print_colored_text(stdout, " Util:", Color::Red, None, None);
+    print_colored_text(stdout, " Util:", Color::Green, None, None);
     print_colored_text(
         stdout,
         &format!("{:>5.1}%", info.utilization),
@@ -415,23 +414,13 @@ pub fn print_storage_info<W: Write>(
     print_colored_text(stdout, "Disk ", Color::Cyan, None, None);
     print_colored_text(
         stdout,
-        &truncate_to_width(&info.mount_point, 15),
+        &format!("{:<15}", truncate_to_width(&info.mount_point, 15)),
         Color::White,
         None,
         None,
     );
     print_colored_text(stdout, " @ ", Color::DarkGreen, None, None);
     print_colored_text(stdout, &info.hostname, Color::White, None, None);
-    print_colored_text(stdout, " Mount:", Color::Blue, None, None);
-    print_colored_text(stdout, &info.mount_point, Color::White, None, None);
-    print_colored_text(stdout, " #:", Color::Yellow, None, None);
-    print_colored_text(
-        stdout,
-        &format!("{:>2}", info.index),
-        Color::White,
-        None,
-        None,
-    );
     print_colored_text(stdout, " Total:", Color::Green, None, None);
     print_colored_text(
         stdout,
