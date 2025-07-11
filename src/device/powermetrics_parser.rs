@@ -28,7 +28,7 @@ pub struct PowerMetricsData {
     pub combined_power_mw: f64,
 
     // Thermal
-    pub thermal_pressure: Option<u32>,
+    pub thermal_pressure_level: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -178,9 +178,9 @@ pub fn parse_powermetrics_output(
             data.combined_power_mw = parse_power_mw(line)?;
         }
         // Thermal
-        else if line.contains("Thermal pressure") {
+        else if line.contains("pressure level:") {
             if let Some(pressure_str) = line.split(':').nth(1) {
-                data.thermal_pressure = pressure_str.trim().parse::<u32>().ok();
+                data.thermal_pressure_level = Some(pressure_str.trim().to_string());
             }
         }
     }

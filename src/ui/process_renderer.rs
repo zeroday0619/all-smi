@@ -24,7 +24,7 @@ pub fn print_process_info<W: Write>(
 
     // Fixed column widths based on actual data sizes
     // PID: 7 (up to 9999999), USER: 12, PRI: 3, NI: 3, VIRT: 6, RES: 6, S: 1,
-    // CPU%: 5, MEM%: 5, GPU%: 5, GPUMEM: 7, TIME+: 8, Command: remaining
+    // CPU%: 5, MEM%: 5, GPU%: 5, VRAM: 7, TIME+: 8, Command: remaining
     let fixed_widths = [7, 12, 3, 3, 6, 6, 1, 5, 5, 5, 7, 8];
     let num_gaps = fixed_widths.len(); // Gaps between columns (not after last column)
     let fixed_total: usize = fixed_widths.iter().sum::<usize>() + num_gaps;
@@ -47,7 +47,7 @@ pub fn print_process_info<W: Write>(
         fixed_widths[7],  // CPU%: 5
         fixed_widths[8],  // MEM%: 5
         fixed_widths[9],  // GPU%: 5
-        fixed_widths[10], // GPUMEM: 7
+        fixed_widths[10], // VRAM: 7
         fixed_widths[11], // TIME+: 8
     );
 
@@ -77,7 +77,7 @@ pub fn print_process_info<W: Write>(
         format!("CPU%{}", get_sort_arrow(crate::app_state::SortCriteria::CpuPercent)),
         format!("MEM%{}", get_sort_arrow(crate::app_state::SortCriteria::MemoryPercent)),
         format!("GPU%{}", get_sort_arrow(crate::app_state::SortCriteria::GpuPercent)),
-        format!("GPUMEM{}", get_sort_arrow(crate::app_state::SortCriteria::GpuMemoryUsage)),
+        format!("VRAM{}", get_sort_arrow(crate::app_state::SortCriteria::GpuMemoryUsage)),
         format!("TIME+{}", get_sort_arrow(crate::app_state::SortCriteria::CpuTime)),
         format!("Command{}", get_sort_arrow(crate::app_state::SortCriteria::Command)),
         pid_w = pid_w,

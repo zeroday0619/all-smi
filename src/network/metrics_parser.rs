@@ -355,6 +355,8 @@ impl MetricsParser {
                 p_core_utilization: 0.0,
                 e_core_utilization: 0.0,
                 ane_ops_per_second: None,
+                p_cluster_frequency_mhz: None,
+                e_cluster_frequency_mhz: None,
             });
         }
     }

@@ -82,17 +82,51 @@ pub fn print_gpu_info<W: Write>(
         None,
     );
     print_colored_text(stdout, " Temp:", Color::Magenta, None, None);
-    print_colored_text(
-        stdout,
-        &format!("{:>4}°C", info.temperature),
-        Color::White,
-        None,
-        None,
-    );
+
+    // For Apple Silicon, display thermal pressure level instead of numeric temperature
+    let temp_display = if info.name.contains("Apple") || info.name.contains("Metal") {
+        if let Some(thermal_level) = info.detail.get("Thermal Pressure") {
+            format!("{thermal_level:>7}")
+        } else {
+            format!("{:>7}", "Unknown")
+        }
+    } else {
+        format!("{:>4}°C", info.temperature)
+    };
+
+    print_colored_text(stdout, &temp_display, Color::White, None, None);
+
+    // Display GPU frequency
+    if info.frequency > 0 {
+        print_colored_text(stdout, " Freq:", Color::Magenta, None, None);
+        if info.frequency >= 1000 {
+            print_colored_text(
+                stdout,
+                &format!("{:.2}GHz", info.frequency as f64 / 1000.0),
+                Color::White,
+                None,
+                None,
+            );
+        } else {
+            print_colored_text(
+                stdout,
+                &format!("{}MHz", info.frequency),
+                Color::White,
+                None,
+                None,
+            );
+        }
+    }
+
     print_colored_text(stdout, " Pwr:", Color::Red, None, None);
 
     // Check if power_limit_max is available and display as current/max
-    let power_display = if let Some(power_max_str) = info.detail.get("power_limit_max") {
+    // For Apple Silicon, info.power_consumption contains GPU power only
+    let is_apple_silicon = info.name.contains("Apple") || info.name.contains("Metal");
+    let power_display = if is_apple_silicon {
+        // Apple Silicon GPU uses very little power, show 2 decimal places
+        format!("{:.2}W", info.power_consumption)
+    } else if let Some(power_max_str) = info.detail.get("power_limit_max") {
         if let Ok(power_max) = power_max_str.parse::<f64>() {
             format!("{:.0}/{:.0}W", info.power_consumption, power_max)
         } else {
@@ -155,16 +189,25 @@ pub fn print_gpu_info<W: Write>(
         Some(format!("{memory_gb:.1}GB")),
     );
 
-    // ANE gauge only for Apple Silicon
+    // ANE gauge only for Apple Silicon (in Watts)
     if is_apple_silicon {
         print_colored_text(stdout, "  ", Color::White, None, None); // 2 space separator
+
+        // Determine max ANE power based on die count (Ultra = 2 dies = 12W, others = 6W)
+        let is_ultra = info.name.contains("Ultra");
+        let max_ane_power = if is_ultra { 12.0 } else { 6.0 };
+
+        // Convert mW to W and cap at max
+        let ane_power_w = (info.ane_utilization / 1000.0).min(max_ane_power);
+        let ane_percent = (ane_power_w / max_ane_power) * 100.0;
+
         draw_bar(
             stdout,
             "ANE",
-            info.ane_utilization,
+            ane_percent,
             100.0,
             gauge_width,
-            Some(format!("{:.1}%", info.ane_utilization)),
+            Some(format!("{ane_power_w:.1}W")),
         );
     }
 
@@ -184,7 +227,7 @@ pub fn print_cpu_info<W: Write>(stdout: &mut W, _index: usize, info: &CpuInfo, w
     );
     print_colored_text(stdout, " @ ", Color::DarkGreen, None, None);
     print_colored_text(stdout, &info.hostname, Color::White, None, None);
-    print_colored_text(stdout, " Arch:", Color::Blue, None, None);
+    print_colored_text(stdout, " Arch:", Color::Yellow, None, None);
     print_colored_text(stdout, &info.architecture, Color::White, None, None);
     print_colored_text(stdout, " Sockets:", Color::Yellow, None, None);
     print_colored_text(
@@ -222,15 +265,56 @@ pub fn print_cpu_info<W: Write>(stdout: &mut W, _index: usize, info: &CpuInfo, w
         );
     }
 
-    let freq_ghz = info.max_frequency_mhz as f64 / 1000.0;
+    // Display frequency - P+E format for Apple Silicon, regular for others
     print_colored_text(stdout, " Freq:", Color::Magenta, None, None);
-    print_colored_text(
-        stdout,
-        &format!("{freq_ghz:>6.1}GHz"),
-        Color::White,
-        None,
-        None,
-    );
+    if let Some(apple_info) = &info.apple_silicon_info {
+        if let (Some(p_freq), Some(e_freq)) = (
+            apple_info.p_cluster_frequency_mhz,
+            apple_info.e_cluster_frequency_mhz,
+        ) {
+            // Format as P+E
+            let freq_display = if p_freq >= 1000 && e_freq >= 1000 {
+                format!(
+                    "{:.2}+{:.2}GHz",
+                    p_freq as f64 / 1000.0,
+                    e_freq as f64 / 1000.0
+                )
+            } else if p_freq >= 1000 {
+                format!("{:.2}GHz+{}MHz", p_freq as f64 / 1000.0, e_freq)
+            } else if e_freq >= 1000 {
+                format!("{}MHz+{:.2}GHz", p_freq, e_freq as f64 / 1000.0)
+            } else {
+                format!("{p_freq}+{e_freq}MHz")
+            };
+            print_colored_text(
+                stdout,
+                &format!("{freq_display:>13}"),
+                Color::White,
+                None,
+                None,
+            );
+        } else {
+            // Fallback to max frequency if cluster frequencies not available
+            let freq_ghz = info.max_frequency_mhz as f64 / 1000.0;
+            print_colored_text(
+                stdout,
+                &format!("{freq_ghz:>6.1}GHz"),
+                Color::White,
+                None,
+                None,
+            );
+        }
+    } else {
+        // Regular frequency display for non-Apple Silicon
+        let freq_ghz = info.max_frequency_mhz as f64 / 1000.0;
+        print_colored_text(
+            stdout,
+            &format!("{freq_ghz:>6.1}GHz"),
+            Color::White,
+            None,
+            None,
+        );
+    }
     print_colored_text(stdout, " Cache:", Color::Red, None, None);
     print_colored_text(
         stdout,
@@ -239,6 +323,13 @@ pub fn print_cpu_info<W: Write>(stdout: &mut W, _index: usize, info: &CpuInfo, w
         None,
         None,
     );
+
+    // Display CPU power if available
+    if let Some(power) = info.power_consumption {
+        print_colored_text(stdout, " Pwr:", Color::Red, None, None);
+        print_colored_text(stdout, &format!("{power:.0}W"), Color::White, None, None);
+    }
+
     queue!(stdout, Print("\r\n")).unwrap();
 
     // Calculate gauge widths with 5 char padding on each side and 2 space separation
@@ -296,7 +387,7 @@ pub fn print_memory_info<W: Write>(stdout: &mut W, _index: usize, info: &MemoryI
     // Print Memory info line
     print_colored_text(stdout, "Memory @ ", Color::Cyan, None, None);
     print_colored_text(stdout, &info.hostname, Color::White, None, None);
-    print_colored_text(stdout, " Total:", Color::Blue, None, None);
+    print_colored_text(stdout, " Total:", Color::Green, None, None);
     print_colored_text(
         stdout,
         &format!("{total_gb:>6.0}GB"),

@@ -81,7 +81,7 @@ impl GpuReader for AppleSiliconGpuReader {
                     ane_utilization: Some(data.ane_power_mw),
                     frequency: Some(data.gpu_frequency),
                     power_consumption: Some(data.gpu_power_mw / 1000.0), // Convert mW to W
-                    thermal_pressure: data.thermal_pressure,
+                    thermal_pressure_level: data.thermal_pressure_level,
                 }
             } else {
                 get_gpu_metrics_fallback()
@@ -100,6 +100,9 @@ impl GpuReader for AppleSiliconGpuReader {
         );
         detail.insert("GPU Type".to_string(), "Integrated".to_string());
         detail.insert("Architecture".to_string(), "Apple Silicon".to_string());
+        if let Some(ref thermal_level) = metrics.thermal_pressure_level {
+            detail.insert("Thermal Pressure".to_string(), thermal_level.clone());
+        }
 
         vec![GpuInfo {
             uuid: "AppleSiliconGPU".to_string(),
@@ -111,8 +114,8 @@ impl GpuReader for AppleSiliconGpuReader {
             utilization: metrics.utilization.unwrap_or(0.0),
             ane_utilization: metrics.ane_utilization.unwrap_or(0.0),
             dla_utilization: None,
-            temperature: metrics.thermal_pressure.unwrap_or(0),
-            used_memory: 0,  // Apple Silicon doesn't report dedicated GPU memory
+            temperature: 0, // Apple Silicon reports pressure level as text, not numeric temp
+            used_memory: 0, // Apple Silicon doesn't report dedicated GPU memory
             total_memory: 0, // Using unified memory
             frequency: metrics.frequency.unwrap_or(0),
             power_consumption: metrics.power_consumption.unwrap_or(0.0),
@@ -143,7 +146,7 @@ struct GpuMetrics {
     ane_utilization: Option<f64>,
     frequency: Option<u32>,
     power_consumption: Option<f64>,
-    thermal_pressure: Option<u32>,
+    thermal_pressure_level: Option<String>,
 }
 
 fn get_gpu_metrics_fallback() -> GpuMetrics {
@@ -174,7 +177,7 @@ fn get_gpu_metrics_fallback() -> GpuMetrics {
         ane_utilization: None,
         frequency: None,
         power_consumption: None,
-        thermal_pressure: None,
+        thermal_pressure_level: None,
     }
 }
 
@@ -183,7 +186,7 @@ fn parse_gpu_metrics(output: &str) -> GpuMetrics {
     let mut ane_utilization = None;
     let mut frequency = None;
     let mut power_consumption = None;
-    let mut thermal_pressure = None;
+    let mut thermal_pressure_level = None;
 
     for line in output.lines() {
         let line = line.trim();
@@ -225,9 +228,9 @@ fn parse_gpu_metrics(output: &str) -> GpuMetrics {
                     power_consumption = Some(p / 1000.0);
                 }
             }
-        } else if line.contains("CPU Thermal pressure") {
+        } else if line.contains("pressure level:") {
             if let Some(pressure_str) = line.split(':').nth(1) {
-                thermal_pressure = pressure_str.trim().parse::<u32>().ok();
+                thermal_pressure_level = Some(pressure_str.trim().to_string());
             }
         }
     }
@@ -237,7 +240,7 @@ fn parse_gpu_metrics(output: &str) -> GpuMetrics {
         ane_utilization,
         frequency,
         power_consumption,
-        thermal_pressure,
+        thermal_pressure_level,
     }
 }
 

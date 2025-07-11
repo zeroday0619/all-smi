@@ -672,7 +672,7 @@ mod tests {
             gpu_power_mw: 2500.0,
             ane_power_mw: 100.0,
             combined_power_mw: 4100.0,
-            thermal_pressure: Some(0),
+            thermal_pressure_level: Some("Nominal".to_string()),
         };
 
         // Set cached data
@@ -954,7 +954,7 @@ Combined Power (CPU + GPU + ANE): 4100 mW
             gpu_power_mw: 2600.0,
             ane_power_mw: 110.0,
             combined_power_mw: 4310.0,
-            thermal_pressure: Some(1),
+            thermal_pressure_level: Some("Fair".to_string()),
         };
 
         // Set cached data

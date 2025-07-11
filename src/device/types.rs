@@ -102,12 +102,14 @@ pub struct CpuSocketInfo {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AppleSiliconCpuInfo {
-    pub p_core_count: u32,               // Performance core count
-    pub e_core_count: u32,               // Efficiency core count
-    pub gpu_core_count: u32,             // GPU core count
-    pub p_core_utilization: f64,         // Performance core utilization
-    pub e_core_utilization: f64,         // Efficiency core utilization
-    pub ane_ops_per_second: Option<f64>, // ANE operations per second
+    pub p_core_count: u32,                    // Performance core count
+    pub e_core_count: u32,                    // Efficiency core count
+    pub gpu_core_count: u32,                  // GPU core count
+    pub p_core_utilization: f64,              // Performance core utilization
+    pub e_core_utilization: f64,              // Efficiency core utilization
+    pub ane_ops_per_second: Option<f64>,      // ANE operations per second
+    pub p_cluster_frequency_mhz: Option<u32>, // P-cluster frequency in MHz
+    pub e_cluster_frequency_mhz: Option<u32>, // E-cluster frequency in MHz
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

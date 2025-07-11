@@ -184,7 +184,7 @@ fn render_shortcuts_section(
         ("  CPU%", "CPU utilization", "legend"),
         ("  MEM%", "Memory utilization", "legend"),
         ("  GPU%", "GPU utilization (if available)", "legend"),
-        ("  GPUMEM", "GPU memory usage", "legend"),
+        ("  VRAM", "GPU memory usage", "legend"),
         ("  TIME+", "Total CPU time used", "legend"),
         ("  Command", "Command line (← → to scroll)", "legend"),
         ("", "", ""),

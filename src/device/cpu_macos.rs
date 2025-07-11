@@ -72,23 +72,33 @@ impl MacOsCpuReader {
         let (p_core_utilization, e_core_utilization) = self.get_apple_silicon_core_utilization()?;
 
         // Get CPU frequency information from PowerMetricsManager if available
-        let (base_frequency, max_frequency) = if let Some(manager) = get_powermetrics_manager() {
-            if let Ok(data) = manager.get_latest_data_result() {
-                // Use actual frequencies from powermetrics
-                let avg_freq = (data.p_cluster_frequency + data.e_cluster_frequency) / 2;
-                (avg_freq, data.p_cluster_frequency) // P-cluster frequency as max
+        let (base_frequency, max_frequency, p_cluster_freq, e_cluster_freq) =
+            if let Some(manager) = get_powermetrics_manager() {
+                if let Ok(data) = manager.get_latest_data_result() {
+                    // Use actual frequencies from powermetrics
+                    let avg_freq = (data.p_cluster_frequency + data.e_cluster_frequency) / 2;
+                    (
+                        avg_freq,
+                        data.p_cluster_frequency, // P-cluster frequency as max
+                        Some(data.p_cluster_frequency),
+                        Some(data.e_cluster_frequency),
+                    )
+                } else {
+                    (
+                        self.get_cpu_base_frequency()?,
+                        self.get_cpu_max_frequency()?,
+                        None,
+                        None,
+                    )
+                }
             } else {
                 (
                     self.get_cpu_base_frequency()?,
                     self.get_cpu_max_frequency()?,
+                    None,
+                    None,
                 )
-            }
-        } else {
-            (
-                self.get_cpu_base_frequency()?,
-                self.get_cpu_max_frequency()?,
-            )
-        };
+            };
 
         // Get CPU temperature (may not be available)
         let temperature = self.get_cpu_temperature();
@@ -106,6 +116,8 @@ impl MacOsCpuReader {
             p_core_utilization,
             e_core_utilization,
             ane_ops_per_second: None, // ANE metrics are complex to get
+            p_cluster_frequency_mhz: p_cluster_freq,
+            e_cluster_frequency_mhz: e_cluster_freq,
         });
 
         // Create per-socket info (Apple Silicon typically has 1 socket)
