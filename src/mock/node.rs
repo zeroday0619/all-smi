@@ -225,11 +225,15 @@ mod tests {
 
         // Check for Apple-specific metrics
         assert!(response.contains("all_smi_ane_utilization"));
+        assert!(response.contains("all_smi_ane_power_watts"));
+        assert!(response.contains("all_smi_thermal_pressure_info"));
         assert!(response.contains("all_smi_cpu_p_core_count"));
         assert!(response.contains("all_smi_cpu_e_core_count"));
         assert!(response.contains("all_smi_cpu_gpu_core_count"));
         assert!(response.contains("all_smi_cpu_p_core_utilization"));
         assert!(response.contains("all_smi_cpu_e_core_utilization"));
+        assert!(response.contains("all_smi_cpu_p_cluster_frequency_mhz"));
+        assert!(response.contains("all_smi_cpu_e_cluster_frequency_mhz"));
     }
 
     #[test]

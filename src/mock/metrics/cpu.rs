@@ -20,6 +20,8 @@ pub struct CpuMetrics {
     pub gpu_core_count: Option<u32>,
     pub p_core_utilization: Option<f32>,
     pub e_core_utilization: Option<f32>,
+    pub p_cluster_frequency_mhz: Option<u32>,
+    pub e_cluster_frequency_mhz: Option<u32>,
 }
 
 impl CpuMetrics {
@@ -57,6 +59,20 @@ impl CpuMetrics {
             let e_delta = rng.random_range(-2.0..2.0);
             *p_util = (*p_util + p_delta).clamp(0.0, 100.0);
             *e_util = (*e_util + e_delta).clamp(0.0, 100.0);
+        }
+
+        // Update P/E cluster frequencies for Apple Silicon
+        if let (Some(ref mut p_freq), Some(ref mut e_freq)) = (
+            &mut self.p_cluster_frequency_mhz,
+            &mut self.e_cluster_frequency_mhz,
+        ) {
+            // P-cluster: high performance, varies between 2500-3500 MHz
+            let p_delta = rng.random_range(-50..50) as i32;
+            *p_freq = ((*p_freq as i32 + p_delta).clamp(2500, 3500)) as u32;
+
+            // E-cluster: efficiency, varies between 600-2000 MHz
+            let e_delta = rng.random_range(-30..30) as i32;
+            *e_freq = ((*e_freq as i32 + e_delta).clamp(600, 2000)) as u32;
         }
     }
 }

@@ -59,7 +59,7 @@ pub fn build_response_template(
 
     // ANE utilization metrics (Apple Silicon only)
     if let PlatformType::Apple = platform {
-        template.push_str("# HELP all_smi_ane_utilization ANE utilization in watts\n");
+        template.push_str("# HELP all_smi_ane_utilization ANE utilization in mW\n");
         template.push_str("# TYPE all_smi_ane_utilization gauge\n");
 
         for (i, gpu) in gpus.iter().enumerate() {
@@ -71,6 +71,35 @@ pub fn build_response_template(
             template.push_str(&format!(
                 "all_smi_ane_utilization{{{labels}}} {placeholder}\n"
             ));
+        }
+
+        // ANE power in watts
+        template.push_str("# HELP all_smi_ane_power_watts ANE power consumption in watts\n");
+        template.push_str("# TYPE all_smi_ane_power_watts gauge\n");
+
+        for (i, gpu) in gpus.iter().enumerate() {
+            let labels = format!(
+                "gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"",
+                gpu_name, instance_name, gpu.uuid, i
+            );
+            let placeholder = format!("{{{{ANE_WATTS_{i}}}}}");
+            template.push_str(&format!(
+                "all_smi_ane_power_watts{{{labels}}} {placeholder}\n"
+            ));
+        }
+
+        // Thermal pressure info metric
+        template.push_str("# HELP all_smi_thermal_pressure_info Thermal pressure level\n");
+        template.push_str("# TYPE all_smi_thermal_pressure_info info\n");
+
+        for (i, gpu) in gpus.iter().enumerate() {
+            if let Some(ref level) = gpu.thermal_pressure_level {
+                let labels = format!(
+                    "gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\", level=\"{}\"",
+                    gpu_name, instance_name, gpu.uuid, i, level
+                );
+                template.push_str(&format!("all_smi_thermal_pressure_info{{{labels}}} 1\n"));
+            }
         }
     }
 
@@ -409,6 +438,23 @@ fn add_cpu_metrics(
                 "all_smi_cpu_e_core_utilization{{{cpu_labels}}} {PLACEHOLDER_CPU_E_CORE_UTIL}\n"
             ));
         }
+
+        // Add P/E cluster frequencies for Apple Silicon
+        if let (Some(p_freq), Some(e_freq)) =
+            (cpu.p_cluster_frequency_mhz, cpu.e_cluster_frequency_mhz)
+        {
+            template.push_str("# HELP all_smi_cpu_p_cluster_frequency_mhz Apple Silicon P-cluster frequency in MHz\n");
+            template.push_str("# TYPE all_smi_cpu_p_cluster_frequency_mhz gauge\n");
+            template.push_str(&format!(
+                "all_smi_cpu_p_cluster_frequency_mhz{{{cpu_labels}}} {p_freq}\n"
+            ));
+
+            template.push_str("# HELP all_smi_cpu_e_cluster_frequency_mhz Apple Silicon E-cluster frequency in MHz\n");
+            template.push_str("# TYPE all_smi_cpu_e_cluster_frequency_mhz gauge\n");
+            template.push_str(&format!(
+                "all_smi_cpu_e_cluster_frequency_mhz{{{cpu_labels}}} {e_freq}\n"
+            ));
+        }
     }
 }
 
@@ -541,8 +587,14 @@ pub fn render_response(
 
         // Replace ANE metrics for Apple Silicon
         if let PlatformType::Apple = platform {
+            // ANE utilization in mW
             response = response.replace(
                 &format!("{{{{ANE_{i}}}}}"),
+                &format!("{:.1}", gpu.ane_utilization_watts * 1000.0),
+            );
+            // ANE power in watts
+            response = response.replace(
+                &format!("{{{{ANE_WATTS_{i}}}}}"),
                 &format!("{:.3}", gpu.ane_utilization_watts),
             );
         }

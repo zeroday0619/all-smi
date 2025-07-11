@@ -69,6 +69,26 @@ pub fn generate_gpus(gpu_name: &str, platform: &PlatformType) -> Vec<GpuMetrics>
                 0.0
             };
 
+            // Thermal pressure level for Apple Silicon
+            let thermal_pressure_level = if *platform == PlatformType::Apple {
+                let levels = ["Nominal", "Fair", "Serious", "Critical"];
+                // Most of the time it should be Nominal
+                let weights = [0.85, 0.10, 0.04, 0.01];
+                let rand = rng.random::<f32>();
+                let mut cumulative = 0.0;
+                let mut selected = "Nominal";
+                for (level, weight) in levels.iter().zip(weights.iter()) {
+                    cumulative += weight;
+                    if rand <= cumulative {
+                        selected = level;
+                        break;
+                    }
+                }
+                Some(selected.to_string())
+            } else {
+                None
+            };
+
             GpuMetrics {
                 uuid: generate_uuid(),
                 utilization,
@@ -78,6 +98,7 @@ pub fn generate_gpus(gpu_name: &str, platform: &PlatformType) -> Vec<GpuMetrics>
                 power_consumption_watts,
                 frequency_mhz,
                 ane_utilization_watts,
+                thermal_pressure_level,
             }
         })
         .collect()
@@ -123,6 +144,8 @@ pub fn generate_cpu_metrics(platform: &PlatformType) -> CpuMetrics {
                 gpu_core_count: Some(gpu_cores),
                 p_core_utilization: Some(rng.random_range(10.0..80.0)),
                 e_core_utilization: Some(rng.random_range(5.0..40.0)),
+                p_cluster_frequency_mhz: Some(rng.random_range(2800..3400)),
+                e_cluster_frequency_mhz: Some(rng.random_range(1000..1800)),
             }
         }
         PlatformType::Intel => {
@@ -164,6 +187,8 @@ pub fn generate_cpu_metrics(platform: &PlatformType) -> CpuMetrics {
                 gpu_core_count: None,
                 p_core_utilization: None,
                 e_core_utilization: None,
+                p_cluster_frequency_mhz: None,
+                e_cluster_frequency_mhz: None,
             }
         }
         PlatformType::Amd => {
@@ -205,6 +230,8 @@ pub fn generate_cpu_metrics(platform: &PlatformType) -> CpuMetrics {
                 gpu_core_count: None,
                 p_core_utilization: None,
                 e_core_utilization: None,
+                p_cluster_frequency_mhz: None,
+                e_cluster_frequency_mhz: None,
             }
         }
         PlatformType::Jetson => {
@@ -238,6 +265,8 @@ pub fn generate_cpu_metrics(platform: &PlatformType) -> CpuMetrics {
                 gpu_core_count: None,
                 p_core_utilization: None,
                 e_core_utilization: None,
+                p_cluster_frequency_mhz: None,
+                e_cluster_frequency_mhz: None,
             }
         }
         PlatformType::Nvidia => {
@@ -271,6 +300,8 @@ pub fn generate_cpu_metrics(platform: &PlatformType) -> CpuMetrics {
                 gpu_core_count: None,
                 p_core_utilization: None,
                 e_core_utilization: None,
+                p_cluster_frequency_mhz: None,
+                e_cluster_frequency_mhz: None,
             }
         }
     }

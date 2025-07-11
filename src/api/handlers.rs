@@ -58,7 +58,7 @@ pub async fn metrics_handler(State(state): State<SharedState>) -> String {
             info.name, info.instance, info.uuid, i, info.frequency
         ));
 
-        metrics.push_str("# HELP all_smi_ane_utilization ANE utilization in watts\n");
+        metrics.push_str("# HELP all_smi_ane_utilization ANE utilization in mW\n");
         metrics.push_str("# TYPE all_smi_ane_utilization gauge\n");
         metrics.push_str(&format!(
             "all_smi_ane_utilization{{gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"}} {}\n",
@@ -68,6 +68,34 @@ pub async fn metrics_handler(State(state): State<SharedState>) -> String {
             i,
             info.ane_utilization
         ));
+
+        // Add ANE power in watts for Apple Silicon
+        if info.name.contains("Apple") || info.name.contains("Metal") {
+            metrics.push_str("# HELP all_smi_ane_power_watts ANE power consumption in watts\n");
+            metrics.push_str("# TYPE all_smi_ane_power_watts gauge\n");
+            metrics.push_str(&format!(
+                "all_smi_ane_power_watts{{gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"}} {}\n",
+                info.name,
+                info.instance,
+                info.uuid,
+                i,
+                info.ane_utilization / 1000.0 // Convert mW to W
+            ));
+
+            // Add thermal pressure level as info metric
+            if let Some(thermal_level) = info.detail.get("Thermal Pressure") {
+                metrics.push_str("# HELP all_smi_thermal_pressure_info Thermal pressure level\n");
+                metrics.push_str("# TYPE all_smi_thermal_pressure_info info\n");
+                metrics.push_str(&format!(
+                    "all_smi_thermal_pressure_info{{gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\", level=\"{}\"}} 1\n",
+                    info.name,
+                    info.instance,
+                    info.uuid,
+                    i,
+                    thermal_level
+                ));
+            }
+        }
 
         if let Some(dla_util) = info.dla_utilization {
             metrics.push_str("# HELP all_smi_dla_utilization DLA utilization percentage\n");
@@ -345,6 +373,26 @@ pub async fn metrics_handler(State(state): State<SharedState>) -> String {
                     metrics.push_str(&format!(
                         "all_smi_cpu_ane_ops_per_second{{cpu_model=\"{}\", instance=\"{}\", hostname=\"{}\", index=\"{}\"}} {}\n",
                         cpu_info.cpu_model, cpu_info.instance, cpu_info.hostname, i, ane_ops
+                    ));
+                }
+
+                // Add P-cluster frequency
+                if let Some(p_freq) = apple_info.p_cluster_frequency_mhz {
+                    metrics.push_str("# HELP all_smi_cpu_p_cluster_frequency_mhz Apple Silicon P-cluster frequency in MHz\n");
+                    metrics.push_str("# TYPE all_smi_cpu_p_cluster_frequency_mhz gauge\n");
+                    metrics.push_str(&format!(
+                        "all_smi_cpu_p_cluster_frequency_mhz{{cpu_model=\"{}\", instance=\"{}\", hostname=\"{}\", index=\"{}\"}} {}\n",
+                        cpu_info.cpu_model, cpu_info.instance, cpu_info.hostname, i, p_freq
+                    ));
+                }
+
+                // Add E-cluster frequency
+                if let Some(e_freq) = apple_info.e_cluster_frequency_mhz {
+                    metrics.push_str("# HELP all_smi_cpu_e_cluster_frequency_mhz Apple Silicon E-cluster frequency in MHz\n");
+                    metrics.push_str("# TYPE all_smi_cpu_e_cluster_frequency_mhz gauge\n");
+                    metrics.push_str(&format!(
+                        "all_smi_cpu_e_cluster_frequency_mhz{{cpu_model=\"{}\", instance=\"{}\", hostname=\"{}\", index=\"{}\"}} {}\n",
+                        cpu_info.cpu_model, cpu_info.instance, cpu_info.hostname, i, e_freq
                     ));
                 }
             }
