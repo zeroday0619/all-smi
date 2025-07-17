@@ -41,7 +41,7 @@ pub fn ensure_sudo_permissions() {
         let _ = io::stdout().flush();
         let _ = io::stderr().flush();
 
-        request_sudo_with_explanation();
+        request_sudo_with_explanation(false);
     } else {
         // For non-macOS systems, we might need different handling
         eprintln!("Note: This platform may not require sudo for hardware monitoring.");
@@ -50,15 +50,31 @@ pub fn ensure_sudo_permissions() {
 
 pub fn ensure_sudo_permissions_with_fallback() -> bool {
     if cfg!(target_os = "macos") {
-        request_sudo_with_explanation_and_fallback()
+        request_sudo_with_explanation(true)
     } else {
         true
     }
 }
 
-pub fn request_sudo_with_explanation() {
-    // Always show the explanation and ask for consent before requesting sudo
-    println!("\n🔧 all-smi: System Monitoring Interface");
+fn request_sudo_with_explanation(return_bool: bool) -> bool {
+    // Check if we already have sudo privileges
+    if has_sudo_privileges() {
+        println!();
+        println!("✅ Administrator privileges already available.");
+        println!("   Starting system monitoring...");
+        println!();
+        if return_bool {
+            return true;
+        } else {
+            // Add a small delay so user can see the message before terminal is cleared
+            std::thread::sleep(std::time::Duration::from_millis(1500));
+            return false; // This return value won't be used when return_bool is false
+        }
+    }
+
+    // Always show the explanation first, regardless of sudo status
+    println!();
+    println!("🔧 all-smi: System Monitoring Interface");
     println!("============================================");
     println!();
     println!("This application monitors GPU, CPU, and memory usage on your system.");
@@ -81,36 +97,7 @@ pub fn request_sudo_with_explanation() {
     println!();
 
     // Give user a choice to continue
-    print!("Do you want to continue and grant administrator privileges? [y/N]: ");
-    io::stdout().flush().unwrap();
-
-    let mut input = String::new();
-    io::stdin()
-        .read_line(&mut input)
-        .expect("Failed to read user input");
-
-    let input = input.trim().to_lowercase();
-    if input != "y" && input != "yes" {
-        println!();
-        println!("❌ Administrator privileges declined.");
-        println!("   → For remote monitoring only, use: all-smi view --hosts <url1> <url2>");
-        println!("   → For local monitoring, administrator privileges are required.");
-        println!();
-        std::process::exit(0);
-    }
-
-    // Check if we already have sudo privileges
-    if has_sudo_privileges() {
-        println!();
-        println!("✅ Administrator privileges already available.");
-        println!("   Starting system monitoring...");
-        println!();
-
-        // Add a small delay so user can see the message before terminal is cleared
-        std::thread::sleep(std::time::Duration::from_millis(1000));
-        return;
-    }
-
+    print!("To proceed, you need to enter your sudo password.");
     println!();
     println!("🔑 Requesting administrator privileges...");
     println!("   (You may be prompted for your password)");
@@ -118,9 +105,6 @@ pub fn request_sudo_with_explanation() {
 
     // Flush output to ensure all messages are displayed before sudo prompt
     io::stdout().flush().unwrap();
-
-    // Add a small pause to ensure messages are visible
-    std::thread::sleep(std::time::Duration::from_millis(500));
 
     // Attempt to get sudo privileges
     let status = Command::new("sudo")
@@ -146,122 +130,7 @@ pub fn request_sudo_with_explanation() {
     println!("   Starting system monitoring...");
     println!();
 
-    // Add a small delay so user can see the message before terminal is cleared
-    std::thread::sleep(std::time::Duration::from_millis(1500));
-}
-
-pub fn request_sudo_with_explanation_and_fallback() -> bool {
-    // Always show the explanation first, regardless of sudo status
-
-    println!("🔧 all-smi: System Monitoring Interface");
-    println!("============================================");
-    println!();
-    println!("This application monitors GPU, CPU, and memory usage on your system.");
-    println!();
-    println!("🔒 Administrator privileges are required for local monitoring because:");
-    println!("   • Access to hardware metrics requires the 'powermetrics' command");
-    println!("   • powermetrics needs elevated privileges to read low-level system data");
-    println!("   • This includes GPU utilization, power consumption, and thermal information");
-    println!();
-    println!("🛡️  Security Information:");
-    println!("   • all-smi only reads system metrics - it does not modify your system");
-    println!("   • The sudo access is used exclusively for running 'powermetrics'");
-    println!("   • No data is transmitted externally without your explicit configuration");
-    println!();
-    println!("📋 What will be monitored:");
-    println!("   • GPU: Utilization, memory usage, temperature, power consumption");
-    println!("   • CPU: Core utilization and performance metrics");
-    println!("   • Memory: System RAM usage and allocation");
-    println!("   • Storage: Disk usage and performance");
-    println!();
-
-    // Give user a choice to continue
-    print!("Do you want to continue and grant administrator privileges? [y/N]: ");
-    io::stdout().flush().unwrap();
-
-    let mut input = String::new();
-    io::stdin()
-        .read_line(&mut input)
-        .expect("Failed to read user input");
-
-    let input = input.trim().to_lowercase();
-    if input != "y" && input != "yes" {
-        println!();
-        println!("❌ Administrator privileges declined.");
-        println!();
-        println!("💡 Alternative: You can still use all-smi for remote monitoring!");
-        println!("   Remote monitoring allows you to monitor other systems without sudo.");
-        println!();
-        print!("Would you like to continue in remote monitoring mode? [y/N]: ");
-        io::stdout().flush().unwrap();
-
-        let mut fallback_input = String::new();
-        io::stdin()
-            .read_line(&mut fallback_input)
-            .expect("Failed to read user input");
-
-        let fallback_input = fallback_input.trim().to_lowercase();
-        if fallback_input == "y" || fallback_input == "yes" {
-            println!();
-            println!("📡 Remote monitoring mode selected.");
-            println!("   Use the following commands to monitor remote systems:");
-            println!("   → all-smi view --hosts http://host1:9090 http://host2:9090");
-            println!("   → all-smi view --hostfile hosts.csv");
-            println!();
-            println!("   Note: Remote systems must be running all-smi in API mode:");
-            println!("   → all-smi api --port 9090");
-            println!();
-            return false; // User chose remote monitoring
-        } else {
-            println!();
-            println!("❌ Exiting all-smi.");
-            println!("   To use all-smi later:");
-            println!("   → For local monitoring: all-smi view (requires sudo)");
-            println!("   → For remote monitoring: all-smi view --hosts <url1> <url2>");
-            println!();
-            std::process::exit(0);
-        }
-    }
-
-    println!();
-    println!("🔑 Requesting administrator privileges...");
-    println!("   (You may be prompted for your password)");
-    println!();
-
-    // Flush output to ensure all messages are displayed before sudo prompt
-    io::stdout().flush().unwrap();
-
-    // Add a small pause to ensure messages are visible
-    std::thread::sleep(std::time::Duration::from_millis(500));
-
-    // Attempt to get sudo privileges
-    let status = Command::new("sudo")
-        .arg("-v")
-        .status()
-        .expect("Failed to execute sudo command");
-
-    if !status.success() {
-        println!("❌ Failed to acquire administrator privileges.");
-        println!();
-        println!("💡 Troubleshooting:");
-        println!("   • Make sure you entered the correct password");
-        println!("   • Ensure your user account has administrator privileges");
-        println!("   • Try running 'sudo -v' manually to test sudo access");
-        println!();
-        println!("   For remote monitoring without sudo, use:");
-        println!("   → all-smi view --hosts <url1> <url2>");
-        println!();
-        std::process::exit(1);
-    }
-
-    println!("✅ Administrator privileges granted successfully.");
-    println!("   Starting local system monitoring...");
-    println!();
-
-    // Add a small delay so user can see the message before terminal is cleared
-    std::thread::sleep(std::time::Duration::from_millis(1500));
-
-    true // User granted sudo permissions
+    true // Always return true if we reach this point (sudo was successful)
 }
 
 #[cfg(test)]
