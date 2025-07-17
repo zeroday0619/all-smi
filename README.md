@@ -118,6 +118,7 @@ http://gpu-node3:9090
   - NVIDIA: PCIe info, performance states, power limits
   - NVIDIA Jetson: DLA utilization monitoring
   - Apple Silicon: ANE power monitoring, thermal pressure levels
+  - Tenstorrent NPUs: Real-time telemetry via luwen library, board-specific TDP calculations
   
 ### CPU Monitoring
 - **Comprehensive CPU Metrics:**
@@ -171,6 +172,8 @@ http://gpu-node3:9090
   - NVIDIA GPUs via NVML and nvidia-smi (fallback)
   - CPU monitoring via /proc filesystem
   - Memory monitoring with detailed statistics
+  - Tenstorrent NPUs (Grayskull, Wormhole, Blackhole) via luwen library
+  - Furiosa NPUs via furiosactl (infrastructure ready)
 - **macOS:** 
   - Apple Silicon GPUs via powermetrics and Metal framework
   - ANE (Apple Neural Engine) power tracking
@@ -209,7 +212,7 @@ http://gpu-node3:9090
   - Simulates realistic GPU clusters with 8 GPUs per node
   - Configurable port ranges for multiple instances
   - Failure simulation for resilience testing
-  - Platform-specific metric generation (NVIDIA, Apple Silicon, Jetson)
+  - Platform-specific metric generation (NVIDIA, Apple Silicon, Jetson, Tenstorrent)
   - Background metric updates with realistic variations
 - **Performance Optimized:**
   - Template-based response generation
@@ -283,9 +286,10 @@ This project is licensed under the MIT License. See the LICENSE file for details
 ## Changelog
 
 ### Recent Updates
-- **v0.5.0 (2025/07/16):** Enhanced Apple Silicon support with ANE power in watts, P+E frequency display, thermal pressure text, interactive process sorting, and configurable PowerMetrics intervals
-- **v0.4.3 (2025/07/14):** Fix P-CPU/E-CPU gauges for all Apple Silicon variants including M1 Pro hybrid format
-- **v0.4.2 (2025/07/12):** Eliminate PowerMetrics temp file growth with in-memory buffer, Homebrew installation support
+- **v0.6.0 (2025/07/18):** Added Tenstorrent NPU support, improved UI alignment and terminal resize handling, modularized API metrics, and enhanced disk filtering
+- **v0.5.0 (2025/07/12):** Enhanced Apple Silicon support with ANE power in watts, P+E frequency display, thermal pressure text, interactive process sorting, and configurable PowerMetrics intervals
+- **v0.4.3 (2025/07/11):** Fix P-CPU/E-CPU gauges for all Apple Silicon variants including M1 Pro hybrid format
+- **v0.4.2 (2025/07/10):** Eliminate PowerMetrics temp file growth with in-memory buffer, Homebrew installation support
 - **v0.4.1 (2025/07/10):** Mock server improvements, efficient Apple Silicon and NVidia GPU support
 - **v0.4.0 (2025/07/08):** Architectural refactoring, Smart sudo detection and comprehensive unit testing
 - **v0.3.3 (2025/07/07):** CPU, Memory, and ANE support, and UI fixes
