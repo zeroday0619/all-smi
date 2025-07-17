@@ -7,7 +7,11 @@ use nvml_wrapper::error::NvmlError;
 use nvml_wrapper::{cuda_driver_version_major, cuda_driver_version_minor, Nvml};
 use std::collections::{HashMap, HashSet};
 use std::process::Command;
+use std::sync::Mutex;
 use sysinfo::System;
+
+// Global status for NVML error messages
+static NVML_STATUS: Mutex<Option<String>> = Mutex::new(None);
 
 pub struct NvidiaGpuReader;
 
@@ -15,9 +19,16 @@ impl GpuReader for NvidiaGpuReader {
     fn get_gpu_info(&self) -> Vec<GpuInfo> {
         // Try NVML first
         match Nvml::init() {
-            Ok(nvml) => self.get_gpu_info_nvml(&nvml),
+            Ok(nvml) => {
+                // Clear any previous error status on success
+                if let Ok(mut status) = NVML_STATUS.lock() {
+                    *status = None;
+                }
+                self.get_gpu_info_nvml(&nvml)
+            }
             Err(e) => {
-                eprintln!("Failed to initialize NVML: {e}. Falling back to nvidia-smi.");
+                // Store the error status for notification
+                set_nvml_status(e);
                 self.get_gpu_info_nvidia_smi()
             }
         }
@@ -48,7 +59,8 @@ impl NvidiaGpuReader {
         match Nvml::init() {
             Ok(nvml) => self.get_gpu_processes_nvml(&nvml),
             Err(e) => {
-                eprintln!("Failed to initialize NVML: {e}. Falling back to nvidia-smi.");
+                // Store the error status for notification
+                set_nvml_status(e);
                 self.get_gpu_processes_nvidia_smi()
             }
         }
@@ -457,13 +469,24 @@ impl NvidiaGpuReader {
 
 /// Get a user-friendly message about NVML status
 pub fn get_nvml_status_message() -> Option<String> {
-    match Nvml::init() {
-        Ok(_) => None, // No message when NVML works
-        Err(NvmlError::LibloadingError(_)) => {
-            Some("NVML unavailable - using nvidia-smi fallback".to_string())
-        }
-        Err(NvmlError::DriverNotLoaded) => Some("NVIDIA driver not loaded".to_string()),
-        Err(NvmlError::NoPermission) => Some("Insufficient permissions for NVML".to_string()),
-        Err(_) => Some("NVML unavailable - using nvidia-smi fallback".to_string()),
+    // Only return the stored status, don't try to initialize NVML here
+    if let Ok(status) = NVML_STATUS.lock() {
+        status.clone()
+    } else {
+        None
+    }
+}
+
+/// Store NVML error status
+fn set_nvml_status(error: NvmlError) {
+    let message = match error {
+        NvmlError::LibloadingError(_) => "NVML unavailable - using nvidia-smi fallback".to_string(),
+        NvmlError::DriverNotLoaded => "NVIDIA driver not loaded".to_string(),
+        NvmlError::NoPermission => "Insufficient permissions for NVML".to_string(),
+        _ => "NVML unavailable - using nvidia-smi fallback".to_string(),
+    };
+
+    if let Ok(mut status) = NVML_STATUS.lock() {
+        *status = Some(message);
     }
 }

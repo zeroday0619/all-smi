@@ -1,10 +1,13 @@
 #[cfg(target_os = "macos")]
 pub mod apple_silicon;
+pub mod furiosa;
 pub mod nvidia;
 pub mod nvidia_jetson;
+pub mod tenstorrent;
 
-// Re-export NVML status function for UI
+// Re-export status functions for UI
 pub use nvidia::get_nvml_status_message;
+pub use tenstorrent::get_tenstorrent_status_message;
 
 // CPU reader modules
 #[cfg(target_os = "linux")]

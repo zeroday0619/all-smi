@@ -1,6 +1,7 @@
 use crate::device::{
-    nvidia, nvidia_jetson,
-    platform_detection::{get_os_type, has_nvidia, is_jetson},
+    furiosa, nvidia, nvidia_jetson,
+    platform_detection::{get_os_type, has_furiosa, has_nvidia, has_tenstorrent, is_jetson},
+    tenstorrent,
     traits::{CpuReader, GpuReader, MemoryReader},
 };
 
@@ -16,10 +17,21 @@ pub fn get_gpu_readers() -> Vec<Box<dyn GpuReader>> {
 
     match os_type {
         "linux" => {
-            if is_jetson() {
+            // Only create NVIDIA reader if we actually have NVIDIA GPUs
+            if is_jetson() && has_nvidia() {
                 readers.push(Box::new(nvidia_jetson::NvidiaJetsonGpuReader {}));
-            } else if has_nvidia() {
+            } else if has_nvidia() && !is_jetson() {
                 readers.push(Box::new(nvidia::NvidiaGpuReader {}));
+            }
+
+            // Check for Furiosa NPU support
+            if has_furiosa() {
+                readers.push(Box::new(furiosa::FuriosaReader::new()));
+            }
+
+            // Check for Tenstorrent NPU support
+            if has_tenstorrent() {
+                readers.push(Box::new(tenstorrent::TenstorrentReader::new()));
             }
         }
         "macos" =>
