@@ -123,11 +123,18 @@ fn render_title_section(line_idx: usize, width: usize) -> String {
         "",
         "GPU Monitoring and Management Tool",
         "",
-        "Developed and maintained as part of the open-source Backend.AI project.",
     ];
+
+    let description_lines = ["Developed and maintained as part of the Backend.AI project."];
 
     if line_idx < title_lines.len() {
         center_text_colored(title_lines[line_idx], width, Color::Cyan)
+    } else if line_idx < title_lines.len() + description_lines.len() {
+        center_text_colored(
+            description_lines[line_idx - title_lines.len()],
+            width,
+            Color::Green,
+        )
     } else {
         " ".repeat(width)
     }
