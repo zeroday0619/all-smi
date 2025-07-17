@@ -6,7 +6,7 @@
 [![dependency status](https://deps.rs/repo/github/inureyes/all-smi/status.svg)](https://deps.rs/repo/github/inureyes/all-smi)
 
 
-`all-smi` is a command-line utility for monitoring GPU hardware across multiple systems. It provides a real-time view of GPU utilization, memory usage, temperature, power consumption, and other metrics. The tool is designed to be a cross-platform alternative to `nvidia-smi`, with support for NVIDIA GPUs, Apple Silicon GPUs, and NVIDIA Jetson platforms.
+`all-smi` is a command-line utility for monitoring GPU hardware across multiple systems. It provides a real-time view of GPU utilization, memory usage, temperature, power consumption, and other metrics. The tool is designed to be a cross-platform alternative to `nvidia-smi`, with support for NVIDIA GPUs, NVIDIA Jetson platforms, Apple Silicon GPUs, and Tenstorrent NPUs.
 
 The application presents a terminal-based user interface with cluster overview, interactive sorting, and both local and remote monitoring capabilities. It also provides an API mode for Prometheus metrics integration.
 
@@ -116,9 +116,9 @@ http://gpu-node3:9090
 - **Interactive Sorting:** Sort GPUs by utilization, memory usage, or default (hostname+index) order
 - **Platform-Specific Features:**
   - NVIDIA: PCIe info, performance states, power limits
+  - NVIDIA Jetson: DLA utilization monitoring
   - Apple Silicon: ANE power monitoring, thermal pressure levels
-  - Jetson: DLA utilization monitoring
-
+  
 ### CPU Monitoring
 - **Comprehensive CPU Metrics:**
   - Real-time CPU utilization with per-socket breakdown
@@ -218,7 +218,7 @@ http://gpu-node3:9090
 
 ### API Mode (Prometheus Metrics)
 
-Expose GPU metrics in Prometheus format for integration with monitoring systems:
+Expose hardware metrics in Prometheus format for integration with monitoring systems:
 
 ```bash
 # Start API server
@@ -231,75 +231,14 @@ all-smi api --port 9090 --interval 5
 all-smi api --port 9090 --processes
 ```
 
-Metrics available at `http://localhost:9090/metrics` include:
+Metrics are available at `http://localhost:9090/metrics` and include comprehensive hardware monitoring for:
+- **GPUs:** Utilization, memory, temperature, power, frequency (NVIDIA, Apple Silicon, Tenstorrent)
+- **CPUs:** Utilization, frequency, temperature, power (with P/E core metrics for Apple Silicon)
+- **Memory:** System and swap memory statistics
+- **Storage:** Disk usage information
+- **Processes:** GPU process metrics (with --processes flag)
 
-**GPU Metrics:**
-- `all_smi_gpu_utilization` - GPU utilization percentage
-- `all_smi_gpu_memory_used_bytes` - GPU memory used in bytes
-- `all_smi_gpu_memory_total_bytes` - GPU memory total in bytes
-- `all_smi_gpu_temperature_celsius` - GPU temperature in celsius
-- `all_smi_gpu_power_consumption_watts` - GPU power consumption in watts
-- `all_smi_gpu_frequency_mhz` - GPU frequency in MHz
-- `all_smi_gpu_info` - GPU device information (info metric with labels)
-
-**NVIDIA Specific:**
-- `all_smi_gpu_pcie_gen_current` - Current PCIe generation
-- `all_smi_gpu_pcie_width_current` - Current PCIe link width
-- `all_smi_gpu_performance_state` - GPU performance state (P0=0, P1=1, etc.)
-- `all_smi_gpu_clock_graphics_max_mhz` - Maximum graphics clock in MHz
-- `all_smi_gpu_clock_memory_max_mhz` - Maximum memory clock in MHz
-- `all_smi_gpu_power_limit_current_watts` - Current power limit in watts
-- `all_smi_gpu_power_limit_max_watts` - Maximum power limit in watts
-
-**Jetson Specific:**
-- `all_smi_dla_utilization` - DLA utilization percentage
-
-**Apple Silicon GPU Specific:**
-- `all_smi_ane_utilization` - ANE utilization in mW
-- `all_smi_ane_power_watts` - ANE power consumption in watts
-- `all_smi_thermal_pressure_info` - Thermal pressure level (info metric with level label)
-
-**CPU Metrics:**
-- `all_smi_cpu_utilization` - CPU utilization percentage
-- `all_smi_cpu_socket_count` - Number of CPU sockets
-- `all_smi_cpu_core_count` - Total number of CPU cores
-- `all_smi_cpu_thread_count` - Total number of CPU threads
-- `all_smi_cpu_frequency_mhz` - CPU frequency in MHz
-- `all_smi_cpu_temperature_celsius` - CPU temperature in celsius
-- `all_smi_cpu_power_consumption_watts` - CPU power consumption in watts
-- `all_smi_cpu_socket_utilization` - Per-socket CPU utilization (multi-socket systems)
-
-**Apple Silicon CPU Specific:**
-- `all_smi_cpu_p_core_count` - Number of performance cores
-- `all_smi_cpu_e_core_count` - Number of efficiency cores
-- `all_smi_cpu_gpu_core_count` - Number of integrated GPU cores
-- `all_smi_cpu_p_core_utilization` - P-core utilization percentage
-- `all_smi_cpu_e_core_utilization` - E-core utilization percentage
-- `all_smi_cpu_p_cluster_frequency_mhz` - P-cluster frequency in MHz
-- `all_smi_cpu_e_cluster_frequency_mhz` - E-cluster frequency in MHz
-
-**Memory Metrics:**
-- `all_smi_memory_total_bytes` - Total system memory in bytes
-- `all_smi_memory_used_bytes` - Used system memory in bytes
-- `all_smi_memory_available_bytes` - Available system memory in bytes
-- `all_smi_memory_free_bytes` - Free system memory in bytes
-- `all_smi_memory_utilization` - Memory utilization percentage
-- `all_smi_swap_total_bytes` - Total swap space in bytes
-- `all_smi_swap_used_bytes` - Used swap space in bytes
-- `all_smi_swap_free_bytes` - Free swap space in bytes
-- `all_smi_memory_buffers_bytes` - Memory used for buffers (Linux)
-- `all_smi_memory_cached_bytes` - Memory used for cache (Linux)
-
-**Storage Metrics:**
-- `all_smi_disk_total_bytes` - Total disk space in bytes
-- `all_smi_disk_available_bytes` - Available disk space in bytes
-
-**Process Metrics (when --processes flag is used):**
-- `all_smi_gpu_process_memory_bytes` - GPU memory used by process
-- `all_smi_gpu_process_sm_util` - Process GPU SM utilization
-- `all_smi_gpu_process_mem_util` - Process GPU memory utilization
-- `all_smi_gpu_process_enc_util` - Process GPU encoder utilization
-- `all_smi_gpu_process_dec_util` - Process GPU decoder utilization
+For a complete list of all available metrics, see [API.md](API.md).
 
 ### Quick Start with Make Commands
 

@@ -123,6 +123,7 @@ fn render_title_section(line_idx: usize, width: usize) -> String {
         "",
         "GPU Monitoring and Management Tool",
         "",
+        "Developed and maintained as part of the open-source Backend.AI project.",
     ];
 
     if line_idx < title_lines.len() {
@@ -153,21 +154,21 @@ fn render_shortcuts_section(
         ("  Home End", "Jump to top/bottom", "shortcut"),
         ("", "", ""),
         ("Display Control:", "", "header"),
-        ("  h / 1", "Toggle this help screen", "shortcut"),
-        ("  q", "Exit application", "shortcut"),
+        ("  H", "Toggle this help screen", "shortcut"),
+        ("  Q", "Exit application", "shortcut"),
         ("  ESC", "Close help or exit", "shortcut"),
         ("", "", ""),
         ("Data Sorting:", "", "header"),
-        ("  d", "Sort by default (hostname+index)", "shortcut"),
-        ("  u", "Sort by GPU utilization", "shortcut"),
-        ("  g", "Sort by GPU memory usage", "shortcut"),
+        ("  D", "Sort by default (hostname+index)", "shortcut"),
+        ("  U", "Sort by GPU utilization", "shortcut"),
+        ("  G", "Sort by GPU memory usage", "shortcut"),
     ];
 
     // Add mode-specific shortcuts
     if !is_remote {
         shortcuts_lines.extend(vec![
-            ("  p", "Sort processes by PID", "shortcut"),
-            ("  m", "Sort processes by memory", "shortcut"),
+            ("  P", "Sort processes by PID", "shortcut"),
+            ("  M", "Sort processes by memory", "shortcut"),
         ]);
     }
 
