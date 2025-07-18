@@ -130,6 +130,15 @@ jobs:
     # ───────────────────────────────────────────────────────────────
     # Step 5: Build the binary
     # ───────────────────────────────────────────────────────────────
+    - name: Install protobuf compiler (for tenstorrent)
+      run: |
+        if [[ "${{ runner.os }}" == "macOS" ]]; then
+          brew install protobuf
+        else
+          sudo apt update
+          sudo apt install -y protobuf-compiler
+        fi
+
     - name: Build release binary
       run: |
         if [[ "${{ matrix.cross }}" == "true" ]]; then

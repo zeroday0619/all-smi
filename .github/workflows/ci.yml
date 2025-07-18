@@ -20,6 +20,11 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install system dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y protobuf-compiler
+
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
 
@@ -48,6 +53,8 @@ jobs:
 
       - name: Build binary
         run: |
+          sudo apt update
+          sudo apt install -y protobuf-compiler
           cargo build --release --bin all-smi
 
   docker-check:
