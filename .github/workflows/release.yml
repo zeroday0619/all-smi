@@ -245,3 +245,4 @@ jobs:
         tap: lablup/homebrew-tap
         # Formula name to update
         formula: all-smi
+
