@@ -171,7 +171,7 @@ fn handle_down_arrow(state: &mut AppState, args: &ViewArgs) {
             state
                 .gpu_info
                 .iter()
-                .filter(|info| info.hostname == state.tabs[state.current_tab])
+                .filter(|info| info.host_id == state.tabs[state.current_tab])
                 .count()
         };
 
@@ -182,7 +182,7 @@ fn handle_down_arrow(state: &mut AppState, args: &ViewArgs) {
             state
                 .storage_info
                 .iter()
-                .filter(|info| info.hostname == state.tabs[state.current_tab])
+                .filter(|info| info.host_id == state.tabs[state.current_tab])
                 .count()
         };
 
@@ -222,7 +222,7 @@ fn handle_page_up(state: &mut AppState, args: &ViewArgs) {
             state
                 .storage_info
                 .iter()
-                .filter(|info| info.hostname == *current_hostname)
+                .filter(|info| info.host_id == *current_hostname)
                 .count()
         } else {
             0
@@ -266,7 +266,7 @@ fn handle_page_down(state: &mut AppState, args: &ViewArgs) {
             state
                 .storage_info
                 .iter()
-                .filter(|info| info.hostname == *current_hostname)
+                .filter(|info| info.host_id == *current_hostname)
                 .count()
         } else {
             0
@@ -289,7 +289,7 @@ fn handle_page_down(state: &mut AppState, args: &ViewArgs) {
             state
                 .gpu_info
                 .iter()
-                .filter(|info| info.hostname == state.tabs[state.current_tab])
+                .filter(|info| info.host_id == state.tabs[state.current_tab])
                 .count()
         };
 

@@ -516,7 +516,8 @@ impl TenstorrentReader {
                     time,
                     name: static_info.device_name.clone(),
                     device_type: "NPU".to_string(),
-                    hostname: hostname.clone(),
+                    host_id: hostname.clone(), // For local mode, host_id is just the hostname
+                    hostname: hostname.clone(), // DNS hostname
                     instance: format!("tt{index}"),
                     utilization,
                     ane_utilization: 0.0,

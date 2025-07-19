@@ -192,7 +192,7 @@ mod tests {
             tab_scroll_offset: 0,
             process_horizontal_scroll_offset: 0,
             device_name_scroll_offsets: HashMap::new(),
-            hostname_scroll_offsets: HashMap::new(),
+            host_id_scroll_offsets: HashMap::new(),
             frame_counter: 0,
             storage_info: Vec::new(),
             show_help: false,

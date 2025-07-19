@@ -158,7 +158,7 @@ impl LayoutCalculator {
                 state
                     .storage_info
                     .iter()
-                    .filter(|info| info.hostname == *current_hostname)
+                    .filter(|info| info.host_id == *current_hostname)
                     .count()
             } else {
                 0

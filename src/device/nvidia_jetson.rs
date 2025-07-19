@@ -93,7 +93,8 @@ impl GpuReader for NvidiaJetsonGpuReader {
             time: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
             name,
             device_type: "GPU".to_string(),
-            hostname: get_hostname(),
+            host_id: get_hostname(), // For local mode, host_id is just the hostname
+            hostname: get_hostname(), // DNS hostname
             instance: get_hostname(),
             utilization,
             ane_utilization: 0.0,

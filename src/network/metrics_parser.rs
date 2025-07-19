@@ -129,7 +129,11 @@ impl MetricsParser {
                 time: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
                 name: gpu_name,
                 device_type: "GPU".to_string(), // Default to GPU, can be overridden by gpu_info metric
-                hostname: host.to_string(),     // Use full host address as key
+                host_id: host.to_string(),      // Host identifier (e.g., "10.82.128.41:9090")
+                hostname: labels
+                    .get("instance")
+                    .cloned()
+                    .unwrap_or_else(|| host.to_string()), // DNS hostname from instance label
                 instance: labels
                     .get("instance")
                     .cloned()
@@ -247,7 +251,11 @@ impl MetricsParser {
             };
 
             CpuInfo {
-                hostname: host.to_string(), // Use full host address as key
+                host_id: host.to_string(), // Host identifier (e.g., "10.82.128.41:9090")
+                hostname: labels
+                    .get("instance")
+                    .cloned()
+                    .unwrap_or_else(|| host.to_string()), // DNS hostname from instance label
                 instance: labels
                     .get("instance")
                     .cloned()
@@ -324,7 +332,11 @@ impl MetricsParser {
         let memory_info = memory_info_map
             .entry(memory_key)
             .or_insert_with(|| MemoryInfo {
-                hostname: host.to_string(), // Use full host address as key
+                host_id: host.to_string(), // Host identifier (e.g., "10.82.128.41:9090")
+                hostname: labels
+                    .get("instance")
+                    .cloned()
+                    .unwrap_or_else(|| host.to_string()), // DNS hostname from instance label
                 instance: labels
                     .get("instance")
                     .cloned()
@@ -373,7 +385,11 @@ impl MetricsParser {
         let storage_info = storage_info_map
             .entry(storage_key)
             .or_insert_with(|| StorageInfo {
-                hostname: host.to_string(), // Use full host address as key
+                host_id: host.to_string(), // Host identifier (e.g., "10.82.128.41:9090")
+                hostname: labels
+                    .get("instance")
+                    .cloned()
+                    .unwrap_or_else(|| host.to_string()), // DNS hostname from instance label
                 mount_point: mount_point.clone(),
                 total_bytes: 0,
                 available_bytes: 0,
@@ -489,7 +505,8 @@ all_smi_ane_utilization{gpu="NVIDIA H200 141GB HBM3", instance="node-0058", uuid
         let gpu = &gpu_info[0];
         assert_eq!(gpu.uuid, "GPU-12345");
         assert_eq!(gpu.name, "NVIDIA H200 141GB HBM3");
-        assert_eq!(gpu.hostname, host);
+        assert_eq!(gpu.host_id, host);
+        assert_eq!(gpu.hostname, "node-0058");
         assert_eq!(gpu.instance, "node-0058");
         assert_eq!(gpu.utilization, 25.5);
         assert_eq!(gpu.used_memory, 8589934592);
@@ -519,7 +536,8 @@ all_smi_cpu_power_consumption_watts{cpu_model="Intel Xeon", instance="node-0058"
 
         assert_eq!(cpu_info.len(), 1);
         let cpu = &cpu_info[0];
-        assert_eq!(cpu.hostname, host);
+        assert_eq!(cpu.host_id, host);
+        assert_eq!(cpu.hostname, "node-0058");
         assert_eq!(cpu.instance, "node-0058");
         assert_eq!(cpu.cpu_model, "Intel Xeon");
         assert_eq!(cpu.utilization, 45.2);
@@ -585,7 +603,8 @@ all_smi_memory_utilization{instance="node-0058", hostname="node-0058", index="0"
 
         assert_eq!(memory_info.len(), 1);
         let memory = &memory_info[0];
-        assert_eq!(memory.hostname, host);
+        assert_eq!(memory.host_id, host);
+        assert_eq!(memory.hostname, "node-0058");
         assert_eq!(memory.instance, "node-0058");
         assert_eq!(memory.total_bytes, 137438953472);
         assert_eq!(memory.used_bytes, 68719476736);
@@ -611,7 +630,8 @@ all_smi_disk_available_bytes{instance="node-0058", mount_point="/home", index="1
         assert_eq!(storage_info.len(), 2);
 
         let root_storage = storage_info.iter().find(|s| s.mount_point == "/").unwrap();
-        assert_eq!(root_storage.hostname, host);
+        assert_eq!(root_storage.host_id, host);
+        assert_eq!(root_storage.hostname, "node-0058");
         assert_eq!(root_storage.total_bytes, 4398046511104);
         assert_eq!(root_storage.available_bytes, 891915494941);
         assert_eq!(root_storage.index, 0);
@@ -620,7 +640,8 @@ all_smi_disk_available_bytes{instance="node-0058", mount_point="/home", index="1
             .iter()
             .find(|s| s.mount_point == "/home")
             .unwrap();
-        assert_eq!(home_storage.hostname, host);
+        assert_eq!(home_storage.host_id, host);
+        assert_eq!(home_storage.hostname, "node-0058");
         assert_eq!(home_storage.total_bytes, 1099511627776);
         assert_eq!(home_storage.available_bytes, 549755813888);
         assert_eq!(home_storage.index, 1);
@@ -649,7 +670,8 @@ all_smi_disk_total_bytes{instance="node-0001", mount_point="/", index="0"} 21990
 
         assert_eq!(gpu_info[0].name, "NVIDIA RTX 4090");
         assert_eq!(gpu_info[0].utilization, 75.0);
-        assert_eq!(gpu_info[0].hostname, host);
+        assert_eq!(gpu_info[0].host_id, host);
+        assert_eq!(gpu_info[0].hostname, "node-0001");
         assert_eq!(gpu_info[0].instance, "node-0001");
 
         assert_eq!(cpu_info[0].cpu_model, "AMD Ryzen");
@@ -711,9 +733,11 @@ all_smi_cpu_utilization{cpu_model="Intel Xeon", instance="production-node-42", h
 
         let (gpu_info, cpu_info, _, _) = parser.parse_metrics(test_data, host, &re);
 
-        assert_eq!(gpu_info[0].hostname, host);
+        assert_eq!(gpu_info[0].host_id, host);
+        assert_eq!(gpu_info[0].hostname, "production-node-42");
         assert_eq!(gpu_info[0].instance, "production-node-42");
-        assert_eq!(cpu_info[0].hostname, host);
+        assert_eq!(cpu_info[0].host_id, host);
+        assert_eq!(cpu_info[0].hostname, "production-node-42");
         assert_eq!(cpu_info[0].instance, "production-node-42");
     }
 

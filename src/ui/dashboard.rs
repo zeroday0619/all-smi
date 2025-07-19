@@ -276,7 +276,7 @@ fn print_node_view_and_history<W: Write>(stdout: &mut W, state: &AppState, param
         let node_gpus: Vec<_> = state
             .gpu_info
             .iter()
-            .filter(|gpu| &gpu.hostname == *node)
+            .filter(|gpu| &gpu.host_id == *node)
             .collect();
         if !node_gpus.is_empty() {
             let node_util =
