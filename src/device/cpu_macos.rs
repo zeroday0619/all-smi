@@ -131,6 +131,7 @@ impl MacOsCpuReader {
         }];
 
         Ok(CpuInfo {
+            host_id: hostname.clone(), // For local mode, host_id is just the hostname
             hostname,
             instance,
             cpu_model,
@@ -189,6 +190,7 @@ impl MacOsCpuReader {
         }
 
         Ok(CpuInfo {
+            host_id: hostname.clone(), // For local mode, host_id is just the hostname
             hostname,
             instance,
             cpu_model,

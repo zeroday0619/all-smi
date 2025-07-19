@@ -23,8 +23,9 @@ pub struct GpuInfo {
     pub time: String,
     pub name: String,
     pub device_type: String, // "GPU", "NPU", etc.
-    pub hostname: String,
-    pub instance: String,
+    pub host_id: String,     // Host identifier (e.g., "10.82.128.41:9090")
+    pub hostname: String,    // DNS hostname of the server
+    pub instance: String,    // Instance name from metrics
     pub utilization: f64,
     pub ane_utilization: f64,
     pub dla_utilization: Option<f64>,
@@ -62,8 +63,9 @@ pub struct ProcessInfo {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CpuInfo {
-    pub hostname: String,
-    pub instance: String,
+    pub host_id: String,  // Host identifier (e.g., "10.82.128.41:9090")
+    pub hostname: String, // DNS hostname of the server
+    pub instance: String, // Instance name from metrics
     pub cpu_model: String,
     pub architecture: String, // "x86_64", "arm64", etc.
     pub platform_type: CpuPlatformType,
@@ -114,8 +116,9 @@ pub struct AppleSiliconCpuInfo {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct MemoryInfo {
-    pub hostname: String,
-    pub instance: String,
+    pub host_id: String,       // Host identifier (e.g., "10.82.128.41:9090")
+    pub hostname: String,      // DNS hostname of the server
+    pub instance: String,      // Instance name from metrics
     pub total_bytes: u64,      // Total system memory in bytes
     pub used_bytes: u64,       // Used memory in bytes
     pub available_bytes: u64,  // Available memory in bytes

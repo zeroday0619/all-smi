@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 #[derive(Clone, Debug)]
 pub struct ConnectionStatus {
-    pub hostname: String, // This is the server address key (e.g., "localhost:10001")
+    pub host_id: String, // This is the server address key (e.g., "localhost:10001")
     #[allow(dead_code)]
     pub url: String,
     pub actual_hostname: Option<String>, // The real hostname from API (e.g., "node-0001")
@@ -19,9 +19,9 @@ pub struct ConnectionStatus {
 }
 
 impl ConnectionStatus {
-    pub fn new(hostname: String, url: String) -> Self {
+    pub fn new(host_id: String, url: String) -> Self {
         Self {
-            hostname,
+            host_id,
             url,
             actual_hostname: None,
             is_connected: false,
@@ -76,7 +76,7 @@ pub struct AppState {
     pub tab_scroll_offset: usize,
     pub process_horizontal_scroll_offset: usize,
     pub device_name_scroll_offsets: HashMap<String, usize>,
-    pub hostname_scroll_offsets: HashMap<String, usize>,
+    pub host_id_scroll_offsets: HashMap<String, usize>,
     pub frame_counter: u64,
     pub storage_info: Vec<StorageInfo>,
     pub show_help: bool,
@@ -89,6 +89,8 @@ pub struct AppState {
     // Connection status tracking for remote mode
     pub connection_status: HashMap<String, ConnectionStatus>,
     pub known_hosts: Vec<String>,
+    // Reverse lookup: actual_hostname -> host_id for efficient connection status retrieval
+    pub hostname_to_host_id: HashMap<String, String>,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -147,7 +149,7 @@ impl AppState {
             tab_scroll_offset: 0,
             process_horizontal_scroll_offset: 0,
             device_name_scroll_offsets: HashMap::new(),
-            hostname_scroll_offsets: HashMap::new(),
+            host_id_scroll_offsets: HashMap::new(),
             frame_counter: 0,
             storage_info: Vec::new(),
             show_help: false,
@@ -160,6 +162,7 @@ impl AppState {
             // Connection status tracking for remote mode
             connection_status: HashMap::new(),
             known_hosts: Vec::new(),
+            hostname_to_host_id: HashMap::new(),
         }
     }
 }

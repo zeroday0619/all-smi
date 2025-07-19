@@ -109,7 +109,8 @@ impl GpuReader for AppleSiliconGpuReader {
             time: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
             name: self.name.clone(),
             device_type: "GPU".to_string(),
-            hostname: get_hostname(),
+            host_id: get_hostname(), // For local mode, host_id is just the hostname
+            hostname: get_hostname(), // DNS hostname
             instance: get_hostname(),
             utilization: metrics.utilization.unwrap_or(0.0),
             ane_utilization: metrics.ane_utilization.unwrap_or(0.0),

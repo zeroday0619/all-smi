@@ -73,9 +73,9 @@ impl MetricsParser {
             }
         }
 
-        // Update hostnames to use instance name if available
+        // Store instance name in detail field if available, but keep host as the key
         if let Some(instance_name) = host_instance_name {
-            self.update_hostnames(
+            self.update_instance_names(
                 &mut gpu_info_map,
                 &mut cpu_info_map,
                 &mut memory_info_map,
@@ -129,8 +129,15 @@ impl MetricsParser {
                 time: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
                 name: gpu_name,
                 device_type: "GPU".to_string(), // Default to GPU, can be overridden by gpu_info metric
-                hostname: host.split(':').next().unwrap_or_default().to_string(),
-                instance: host.to_string(),
+                host_id: host.to_string(),      // Host identifier (e.g., "10.82.128.41:9090")
+                hostname: labels
+                    .get("instance")
+                    .cloned()
+                    .unwrap_or_else(|| host.to_string()), // DNS hostname from instance label
+                instance: labels
+                    .get("instance")
+                    .cloned()
+                    .unwrap_or_else(|| host.to_string()),
                 utilization: 0.0,
                 ane_utilization: 0.0,
                 dla_utilization: None,
@@ -227,7 +234,7 @@ impl MetricsParser {
         host: &str,
     ) {
         let cpu_model = labels.get("cpu_model").cloned().unwrap_or_default();
-        let hostname = host.split(':').next().unwrap_or_default().to_string();
+        // Keep the full host address including port
         let cpu_index = labels.get("index").cloned().unwrap_or("0".to_string());
 
         let cpu_key = format!("{host}:{cpu_index}");
@@ -244,8 +251,15 @@ impl MetricsParser {
             };
 
             CpuInfo {
-                hostname: hostname.clone(),
-                instance: host.to_string(),
+                host_id: host.to_string(), // Host identifier (e.g., "10.82.128.41:9090")
+                hostname: labels
+                    .get("instance")
+                    .cloned()
+                    .unwrap_or_else(|| host.to_string()), // DNS hostname from instance label
+                instance: labels
+                    .get("instance")
+                    .cloned()
+                    .unwrap_or_else(|| host.to_string()),
                 cpu_model: cpu_model.clone(),
                 architecture: "".to_string(),
                 platform_type,
@@ -311,15 +325,22 @@ impl MetricsParser {
         value: f64,
         host: &str,
     ) {
-        let hostname = host.split(':').next().unwrap_or_default().to_string();
+        // Keep the full host address including port
         let memory_index = labels.get("index").cloned().unwrap_or("0".to_string());
         let memory_key = format!("{host}:{memory_index}");
 
         let memory_info = memory_info_map
             .entry(memory_key)
             .or_insert_with(|| MemoryInfo {
-                hostname: hostname.clone(),
-                instance: host.to_string(),
+                host_id: host.to_string(), // Host identifier (e.g., "10.82.128.41:9090")
+                hostname: labels
+                    .get("instance")
+                    .cloned()
+                    .unwrap_or_else(|| host.to_string()), // DNS hostname from instance label
+                instance: labels
+                    .get("instance")
+                    .cloned()
+                    .unwrap_or_else(|| host.to_string()),
                 total_bytes: 0,
                 used_bytes: 0,
                 available_bytes: 0,
@@ -352,7 +373,7 @@ impl MetricsParser {
         value: f64,
         host: &str,
     ) {
-        let hostname = host.split(':').next().unwrap_or_default().to_string();
+        // Keep the full host address including port
         let mount_point = labels.get("mount_point").cloned().unwrap_or_default();
         let storage_index = labels.get("index").cloned().unwrap_or("0".to_string());
 
@@ -364,7 +385,11 @@ impl MetricsParser {
         let storage_info = storage_info_map
             .entry(storage_key)
             .or_insert_with(|| StorageInfo {
-                hostname: hostname.clone(),
+                host_id: host.to_string(), // Host identifier (e.g., "10.82.128.41:9090")
+                hostname: labels
+                    .get("instance")
+                    .cloned()
+                    .unwrap_or_else(|| host.to_string()), // DNS hostname from instance label
                 mount_point: mount_point.clone(),
                 total_bytes: 0,
                 available_bytes: 0,
@@ -393,7 +418,7 @@ impl MetricsParser {
         }
     }
 
-    fn update_hostnames(
+    fn update_instance_names(
         &self,
         gpu_info_map: &mut HashMap<String, GpuInfo>,
         cpu_info_map: &mut HashMap<String, CpuInfo>,
@@ -401,17 +426,21 @@ impl MetricsParser {
         storage_info_map: &mut HashMap<String, StorageInfo>,
         instance_name: &str,
     ) {
+        // Store instance name in detail field but keep hostname as the host address
         for gpu_info in gpu_info_map.values_mut() {
-            gpu_info.hostname = instance_name.to_string();
+            gpu_info
+                .detail
+                .insert("instance_name".to_string(), instance_name.to_string());
         }
-        for cpu_info in cpu_info_map.values_mut() {
-            cpu_info.hostname = instance_name.to_string();
+        for _cpu_info in cpu_info_map.values_mut() {
+            // For CPU info, we may want to store instance name differently
+            // since it doesn't have a detail field by default
         }
-        for memory_info in memory_info_map.values_mut() {
-            memory_info.hostname = instance_name.to_string();
+        for _memory_info in memory_info_map.values_mut() {
+            // Similarly for memory info
         }
-        for storage_info in storage_info_map.values_mut() {
-            storage_info.hostname = instance_name.to_string();
+        for _storage_info in storage_info_map.values_mut() {
+            // And storage info
         }
     }
 }
@@ -476,7 +505,9 @@ all_smi_ane_utilization{gpu="NVIDIA H200 141GB HBM3", instance="node-0058", uuid
         let gpu = &gpu_info[0];
         assert_eq!(gpu.uuid, "GPU-12345");
         assert_eq!(gpu.name, "NVIDIA H200 141GB HBM3");
+        assert_eq!(gpu.host_id, host);
         assert_eq!(gpu.hostname, "node-0058");
+        assert_eq!(gpu.instance, "node-0058");
         assert_eq!(gpu.utilization, 25.5);
         assert_eq!(gpu.used_memory, 8589934592);
         assert_eq!(gpu.total_memory, 34359738368);
@@ -505,7 +536,9 @@ all_smi_cpu_power_consumption_watts{cpu_model="Intel Xeon", instance="node-0058"
 
         assert_eq!(cpu_info.len(), 1);
         let cpu = &cpu_info[0];
+        assert_eq!(cpu.host_id, host);
         assert_eq!(cpu.hostname, "node-0058");
+        assert_eq!(cpu.instance, "node-0058");
         assert_eq!(cpu.cpu_model, "Intel Xeon");
         assert_eq!(cpu.utilization, 45.2);
         assert_eq!(cpu.socket_count, 2);
@@ -570,7 +603,9 @@ all_smi_memory_utilization{instance="node-0058", hostname="node-0058", index="0"
 
         assert_eq!(memory_info.len(), 1);
         let memory = &memory_info[0];
+        assert_eq!(memory.host_id, host);
         assert_eq!(memory.hostname, "node-0058");
+        assert_eq!(memory.instance, "node-0058");
         assert_eq!(memory.total_bytes, 137438953472);
         assert_eq!(memory.used_bytes, 68719476736);
         assert_eq!(memory.available_bytes, 68719476736);
@@ -595,6 +630,7 @@ all_smi_disk_available_bytes{instance="node-0058", mount_point="/home", index="1
         assert_eq!(storage_info.len(), 2);
 
         let root_storage = storage_info.iter().find(|s| s.mount_point == "/").unwrap();
+        assert_eq!(root_storage.host_id, host);
         assert_eq!(root_storage.hostname, "node-0058");
         assert_eq!(root_storage.total_bytes, 4398046511104);
         assert_eq!(root_storage.available_bytes, 891915494941);
@@ -604,6 +640,7 @@ all_smi_disk_available_bytes{instance="node-0058", mount_point="/home", index="1
             .iter()
             .find(|s| s.mount_point == "/home")
             .unwrap();
+        assert_eq!(home_storage.host_id, host);
         assert_eq!(home_storage.hostname, "node-0058");
         assert_eq!(home_storage.total_bytes, 1099511627776);
         assert_eq!(home_storage.available_bytes, 549755813888);
@@ -633,7 +670,9 @@ all_smi_disk_total_bytes{instance="node-0001", mount_point="/", index="0"} 21990
 
         assert_eq!(gpu_info[0].name, "NVIDIA RTX 4090");
         assert_eq!(gpu_info[0].utilization, 75.0);
+        assert_eq!(gpu_info[0].host_id, host);
         assert_eq!(gpu_info[0].hostname, "node-0001");
+        assert_eq!(gpu_info[0].instance, "node-0001");
 
         assert_eq!(cpu_info[0].cpu_model, "AMD Ryzen");
         assert_eq!(cpu_info[0].utilization, 60.0);
@@ -694,8 +733,12 @@ all_smi_cpu_utilization{cpu_model="Intel Xeon", instance="production-node-42", h
 
         let (gpu_info, cpu_info, _, _) = parser.parse_metrics(test_data, host, &re);
 
+        assert_eq!(gpu_info[0].host_id, host);
         assert_eq!(gpu_info[0].hostname, "production-node-42");
+        assert_eq!(gpu_info[0].instance, "production-node-42");
+        assert_eq!(cpu_info[0].host_id, host);
         assert_eq!(cpu_info[0].hostname, "production-node-42");
+        assert_eq!(cpu_info[0].instance, "production-node-42");
     }
 
     #[test]

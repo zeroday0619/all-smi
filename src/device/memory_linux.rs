@@ -61,6 +61,7 @@ impl MemoryReader for LinuxMemoryReader {
             let now = Local::now();
 
             memory_info.push(MemoryInfo {
+                host_id: hostname.clone(), // For local mode, host_id is just the hostname
                 hostname: hostname.clone(),
                 instance: hostname,
                 total_bytes,

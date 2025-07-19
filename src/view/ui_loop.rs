@@ -175,7 +175,7 @@ impl UiLoop {
 
     fn update_scroll_offsets(&self, state: &mut AppState) {
         let mut new_device_name_scroll_offsets = state.device_name_scroll_offsets.clone();
-        let mut new_hostname_scroll_offsets = state.hostname_scroll_offsets.clone();
+        let mut new_hostname_scroll_offsets = state.host_id_scroll_offsets.clone();
         let mut processed_hostnames = HashSet::new();
 
         for gpu in &state.gpu_info {
@@ -185,15 +185,15 @@ impl UiLoop {
                     .or_insert(0);
                 *offset = (*offset + 1) % (gpu.name.len() + 3);
             }
-            if gpu.hostname.len() > 9 && processed_hostnames.insert(gpu.hostname.clone()) {
+            if gpu.hostname.len() > 9 && processed_hostnames.insert(gpu.host_id.clone()) {
                 let offset = new_hostname_scroll_offsets
-                    .entry(gpu.hostname.clone())
+                    .entry(gpu.host_id.clone())
                     .or_insert(0);
                 *offset = (*offset + 1) % (gpu.hostname.len() + 3);
             }
         }
         state.device_name_scroll_offsets = new_device_name_scroll_offsets;
-        state.hostname_scroll_offsets = new_hostname_scroll_offsets;
+        state.host_id_scroll_offsets = new_hostname_scroll_offsets;
     }
 
     fn render_help_popup_content(
@@ -293,7 +293,7 @@ impl UiLoop {
                 state
                     .gpu_info
                     .iter()
-                    .filter(|info| info.hostname == state.tabs[state.current_tab])
+                    .filter(|info| info.host_id == state.tabs[state.current_tab])
                     .collect()
             };
 
@@ -327,8 +327,8 @@ impl UiLoop {
                 .copied()
                 .unwrap_or(0);
             let hostname_scroll_offset = state
-                .hostname_scroll_offsets
-                .get(&gpu_info.hostname)
+                .host_id_scroll_offsets
+                .get(&gpu_info.host_id)
                 .copied()
                 .unwrap_or(0);
 
@@ -349,11 +349,22 @@ impl UiLoop {
             let current_hostname = &state.tabs[state.current_tab];
 
             // Check connection status for the current node
-            let is_connected = state
-                .connection_status
-                .get(current_hostname)
-                .map(|status| status.is_connected)
-                .unwrap_or(true); // Default to connected for local mode
+            let is_connected =
+                if let Some(host_id) = state.hostname_to_host_id.get(current_hostname) {
+                    // Found in reverse lookup, get the connection status
+                    state
+                        .connection_status
+                        .get(host_id)
+                        .map(|status| status.is_connected)
+                        .unwrap_or(false)
+                } else {
+                    // Direct lookup by host_id
+                    state
+                        .connection_status
+                        .get(current_hostname)
+                        .map(|status| status.is_connected)
+                        .unwrap_or(true) // Default to connected for local mode
+                };
 
             if !is_connected {
                 // Show elegant disconnection notification
@@ -365,7 +376,7 @@ impl UiLoop {
             let cpu_info_to_display: Vec<_> = state
                 .cpu_info
                 .iter()
-                .filter(|info| info.hostname == *current_hostname)
+                .filter(|info| info.host_id == *current_hostname)
                 .collect();
 
             for (i, cpu_info) in cpu_info_to_display.iter().enumerate() {
@@ -376,7 +387,7 @@ impl UiLoop {
             let memory_info_to_display: Vec<_> = state
                 .memory_info
                 .iter()
-                .filter(|info| info.hostname == *current_hostname)
+                .filter(|info| info.host_id == *current_hostname)
                 .collect();
 
             for (i, memory_info) in memory_info_to_display.iter().enumerate() {
@@ -387,7 +398,7 @@ impl UiLoop {
             let storage_info_to_display: Vec<_> = state
                 .storage_info
                 .iter()
-                .filter(|info| info.hostname == *current_hostname)
+                .filter(|info| info.host_id == *current_hostname)
                 .collect();
 
             let visible_storage = storage_info_to_display

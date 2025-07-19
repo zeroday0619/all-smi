@@ -106,6 +106,20 @@ impl DataCollector {
         mut hosts: Vec<String>,
         hostfile: Option<String>,
     ) {
+        // Strip protocol prefix from command line hosts
+        hosts = hosts
+            .into_iter()
+            .map(|host| {
+                if let Some(stripped) = host.strip_prefix("http://") {
+                    stripped.to_string()
+                } else if let Some(stripped) = host.strip_prefix("https://") {
+                    stripped.to_string()
+                } else {
+                    host
+                }
+            })
+            .collect();
+
         // Load hosts from file if specified
         if let Some(file_path) = hostfile {
             hosts = self.load_hosts_from_file(hosts, file_path).await;
@@ -167,7 +181,8 @@ impl DataCollector {
                 mount_point: mount_point_str.to_string(),
                 total_bytes: disk.total_space(),
                 available_bytes: disk.available_space(),
-                hostname: hostname.clone(),
+                host_id: hostname.clone(), // For local mode, host_id is just the hostname
+                hostname: hostname.clone(), // DNS hostname
                 index: index as u32,
             });
         }
@@ -182,7 +197,16 @@ impl DataCollector {
                 .map(|s| s.trim())
                 .filter(|s| !s.is_empty())
                 .filter(|s| !s.starts_with('#'))
-                .map(|s| s.to_string())
+                .map(|s| {
+                    // Strip protocol prefix if present
+                    if let Some(stripped) = s.strip_prefix("http://") {
+                        stripped.to_string()
+                    } else if let Some(stripped) = s.strip_prefix("https://") {
+                        stripped.to_string()
+                    } else {
+                        s.to_string()
+                    }
+                })
                 .collect();
             hosts.extend(file_hosts);
         }
@@ -338,11 +362,30 @@ impl DataCollector {
             state.known_hosts = hosts.iter().map(|h| extract_host_identifier(h)).collect();
         }
 
+        // Clear the reverse lookup map before rebuilding it
+        state.hostname_to_host_id.clear();
+
         // Update connection status for each received status
-        for status in connection_statuses {
+        for mut status in connection_statuses {
+            // Preserve actual_hostname from previous successful connection if current doesn't have it
+            if status.actual_hostname.is_none() {
+                if let Some(existing_status) = state.connection_status.get(&status.host_id) {
+                    if let Some(existing_hostname) = &existing_status.actual_hostname {
+                        status.actual_hostname = Some(existing_hostname.clone());
+                    }
+                }
+            }
+
+            // Update the reverse lookup map if we have an actual hostname
+            if let Some(actual_hostname) = &status.actual_hostname {
+                state
+                    .hostname_to_host_id
+                    .insert(actual_hostname.clone(), status.host_id.clone());
+            }
+
             state
                 .connection_status
-                .insert(status.hostname.clone(), status);
+                .insert(status.host_id.clone(), status);
         }
 
         // For hosts that didn't return a status (e.g., Ok(None) or Err cases),
@@ -408,21 +451,21 @@ impl DataCollector {
     }
 
     fn update_tabs(&self, state: &mut AppState) {
-        let mut hostnames: Vec<String> = state
+        let mut host_ids: Vec<String> = state
             .gpu_info
             .iter()
-            .map(|info| info.hostname.clone())
+            .map(|info| info.host_id.clone())
             .collect::<HashSet<_>>()
             .into_iter()
             .collect();
-        hostnames.sort();
+        host_ids.sort();
 
         // For single node, skip "All" tab and go directly to node tab
-        let mut tabs = if hostnames.len() <= 1 {
-            hostnames.clone()
+        let mut tabs = if host_ids.len() <= 1 {
+            host_ids.clone()
         } else {
             let mut tabs = vec!["All".to_string()];
-            tabs.extend(hostnames);
+            tabs.extend(host_ids);
             tabs
         };
 
@@ -435,34 +478,12 @@ impl DataCollector {
     }
 
     fn update_remote_tabs(&self, state: &mut AppState) {
-        // Create tabs in the same order as known_hosts (preserves hosts.csv order)
-        let display_names: Vec<String> = state
-            .known_hosts
-            .iter()
-            .map(|host_id| {
-                // Use actual hostname if connected, otherwise use URL
-                if let Some(connection_status) = state.connection_status.get(host_id) {
-                    if connection_status.is_connected {
-                        if let Some(actual_hostname) = &connection_status.actual_hostname {
-                            actual_hostname.clone()
-                        } else {
-                            host_id.clone()
-                        }
-                    } else {
-                        host_id.clone()
-                    }
-                } else {
-                    host_id.clone()
-                }
-            })
-            .collect();
-
-        // For single node, skip "All" tab and go directly to node tab
-        let tabs = if display_names.len() <= 1 {
-            display_names
+        // Keep host addresses as tabs for consistent keying
+        let tabs = if state.known_hosts.len() <= 1 {
+            state.known_hosts.clone()
         } else {
             let mut tabs = vec!["All".to_string()];
-            tabs.extend(display_names);
+            tabs.extend(state.known_hosts.clone());
             tabs
         };
 

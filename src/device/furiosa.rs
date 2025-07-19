@@ -261,7 +261,8 @@ impl FuriosaReader {
                             time: time.clone(),
                             name: format!("Furiosa {}", device.product_name),
                             device_type: "NPU".to_string(),
-                            hostname: hostname.clone(),
+                            host_id: hostname.clone(), // For local mode, host_id is just the hostname
+                            hostname: hostname.clone(), // DNS hostname
                             instance: device.dev_name.clone(),
                             utilization: 0.0, // TODO: Get from furiosactl top or other source
                             ane_utilization: 0.0,
