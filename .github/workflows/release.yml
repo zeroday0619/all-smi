@@ -245,4 +245,5 @@ jobs:
         tap: lablup/homebrew-tap
         # Formula name to update
         formula: all-smi
-
+        # Release tag to update formula version
+        tag: ${{ github.event.release.tag_name || github.event.inputs.release_tag }}      
