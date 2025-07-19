@@ -45,8 +45,10 @@ jobs:
       matrix:
         include:
           # Linux x86_64 (glibc)
+          # Uses Ubuntu 22.04 for compatibility
+          # with most glibc-based systems
           - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
+            os: ubuntu-22.04
             artifact_name: all-smi
             asset_name: all-smi-linux-x86_64
             cross: false
@@ -61,8 +63,10 @@ jobs:
             archive_ext: ".tar.gz"
           
           # Linux ARM64 (glibc)
+          # Uses Ubuntu 22.04 for compatibility
+          # with most glibc-based systems
           - target: aarch64-unknown-linux-gnu
-            os: ubuntu-24.04-arm
+            os: ubuntu-22.04-arm
             artifact_name: all-smi
             asset_name: all-smi-linux-aarch64
             cross: false
