@@ -62,7 +62,7 @@ jobs:
             os: ubuntu-latest
             artifact_name: all-smi
             asset_name: all-smi-linux-x86_64-musl
-            cross: true
+            cross: false
             archive_ext: ".tar.gz"
           
           # Linux ARM64 (glibc)
@@ -145,19 +145,17 @@ jobs:
           sudo apt update
           sudo apt install -y protobuf-compiler
         fi
+        if [[ "${{ matrix.target }}" == "x86_64-unknown-linux-musl" ]]; then
+          sudo apt install -y musl-tools
+        fi
 
     - name: Build release binary
       run: |
         if [[ "${{ matrix.cross }}" == "true" ]]; then
-          if [[ "${{ matrix.target }}" == "x86_64-unknown-linux-musl" ]]; then
-            cross build --release --target ${{ matrix.target }} --dockerfile Dockerfile.protoc --locked
-          else
-            cross build --release --target ${{ matrix.target }} --locked
-          fi
+          cross build --release --target ${{ matrix.target }} --locked
         else
           cargo build --release --target ${{ matrix.target }} --locked
         fi
-    
     # ───────────────────────────────────────────────────────────────
     # Step 6: macOS code signing
     # ───────────────────────────────────────────────────────────────
