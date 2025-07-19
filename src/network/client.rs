@@ -157,21 +157,15 @@ impl NetworkClient {
                             let (gpu_info, cpu_info, memory_info, storage_info) =
                                 parser.parse_metrics(&text, &host, re);
 
-                            // Extract the actual hostname from device info if available
-                            let actual_hostname = if let Some(first_gpu) = gpu_info.first() {
-                                Some(first_gpu.hostname.clone())
+                            // Extract the instance name from device info if available
+                            let instance_name = if let Some(first_gpu) = gpu_info.first() {
+                                Some(first_gpu.instance.clone())
                             } else if let Some(first_cpu) = cpu_info.first() {
-                                Some(first_cpu.hostname.clone())
-                            } else if let Some(first_memory) = memory_info.first() {
-                                Some(first_memory.hostname.clone())
-                            } else {
-                                storage_info
-                                    .first()
-                                    .map(|first_storage| first_storage.hostname.clone())
-                            };
+                                Some(first_cpu.instance.clone())
+                            } else { memory_info.first().map(|first_memory| first_memory.instance.clone()) };
 
-                            // Store the actual hostname while keeping the URL as the key
-                            connection_status.actual_hostname = actual_hostname;
+                            // Store the instance name as actual_hostname for display purposes
+                            connection_status.actual_hostname = instance_name;
                             connection_statuses.push(connection_status);
 
                             all_gpu_info.extend(gpu_info);

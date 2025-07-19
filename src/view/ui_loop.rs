@@ -349,11 +349,22 @@ impl UiLoop {
             let current_hostname = &state.tabs[state.current_tab];
 
             // Check connection status for the current node
-            let is_connected = state
-                .connection_status
-                .get(current_hostname)
-                .map(|status| status.is_connected)
-                .unwrap_or(true); // Default to connected for local mode
+            let is_connected =
+                if let Some(host_id) = state.hostname_to_host_id.get(current_hostname) {
+                    // Found in reverse lookup, get the connection status
+                    state
+                        .connection_status
+                        .get(host_id)
+                        .map(|status| status.is_connected)
+                        .unwrap_or(false)
+                } else {
+                    // Direct lookup by host_id
+                    state
+                        .connection_status
+                        .get(current_hostname)
+                        .map(|status| status.is_connected)
+                        .unwrap_or(true) // Default to connected for local mode
+                };
 
             if !is_connected {
                 // Show elegant disconnection notification

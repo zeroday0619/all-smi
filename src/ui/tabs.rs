@@ -40,7 +40,20 @@ pub fn draw_tabs<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
         .collect();
 
     for (i, tab) in node_tabs {
-        let tab_width = tab.len() as u16 + 2; // Tab name + 2 spaces padding
+        // Get display name (instance name) while keeping tab as the key
+        let display_name = if tab == "All" {
+            tab.to_string()
+        } else if let Some(connection_status) = state.connection_status.get(tab) {
+            connection_status
+                .actual_hostname
+                .as_ref()
+                .unwrap_or(tab)
+                .clone()
+        } else {
+            tab.to_string()
+        };
+
+        let tab_width = display_name.len() as u16 + 2; // Display name + 2 spaces padding
         if available_width < tab_width {
             break; // No more space
         }
@@ -67,7 +80,7 @@ pub fn draw_tabs<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
             }
         };
 
-        labels.push((format!(" {tab} "), color));
+        labels.push((format!(" {display_name} "), color));
 
         available_width -= tab_width;
     }
@@ -117,7 +130,17 @@ pub fn calculate_tab_visibility(state: &AppState, cols: u16) -> TabVisibility {
         .skip(1)
         .skip(state.tab_scroll_offset)
     {
-        let tab_width = tab.len() as u16 + 2;
+        // Get display name for width calculation
+        let display_name = if let Some(connection_status) = state.connection_status.get(tab) {
+            connection_status
+                .actual_hostname
+                .as_ref()
+                .unwrap_or(tab)
+                .clone()
+        } else {
+            tab.to_string()
+        };
+        let tab_width = display_name.len() as u16 + 2;
         if available_width < tab_width {
             break;
         }
@@ -181,6 +204,7 @@ mod tests {
             tenstorrent_notification_shown: false,
             connection_status: HashMap::new(),
             known_hosts: Vec::new(),
+            hostname_to_host_id: HashMap::new(),
         }
     }
 

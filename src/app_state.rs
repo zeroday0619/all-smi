@@ -89,6 +89,8 @@ pub struct AppState {
     // Connection status tracking for remote mode
     pub connection_status: HashMap<String, ConnectionStatus>,
     pub known_hosts: Vec<String>,
+    // Reverse lookup: actual_hostname -> host_id for efficient connection status retrieval
+    pub hostname_to_host_id: HashMap<String, String>,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -160,6 +162,7 @@ impl AppState {
             // Connection status tracking for remote mode
             connection_status: HashMap::new(),
             known_hosts: Vec::new(),
+            hostname_to_host_id: HashMap::new(),
         }
     }
 }

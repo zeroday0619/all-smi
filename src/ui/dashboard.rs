@@ -267,10 +267,10 @@ struct NodeViewParams {
 }
 
 fn print_node_view_and_history<W: Write>(stdout: &mut W, state: &AppState, params: NodeViewParams) {
-    // Get nodes (excluding "All" tab)
+    // Get nodes (excluding "All" tab) - these are host addresses
     let nodes: Vec<&String> = state.tabs.iter().skip(1).collect();
 
-    // Calculate per-node utilization
+    // Calculate per-node utilization using host addresses as keys
     let mut node_utils: HashMap<String, f64> = HashMap::new();
     for node in &nodes {
         let node_gpus: Vec<_> = state
@@ -386,18 +386,10 @@ fn print_node_view_row<W: Write>(stdout: &mut W, params: NodeViewRowParams) {
     for (col, node) in row_nodes.iter().enumerate() {
         let util = params.node_utils.get(*node).unwrap_or(&0.0);
 
-        // Find connection status by looking for a status where actual_hostname matches the display name
-        // or where the hostname (URL key) matches if no actual_hostname is set
+        // Look up connection status using the host address (node is a host address)
         let is_connected = params
             .connection_status
-            .values()
-            .find(|status| {
-                if let Some(actual_hostname) = &status.actual_hostname {
-                    actual_hostname == *node
-                } else {
-                    &status.hostname == *node
-                }
-            })
+            .get(*node)
             .map(|status| status.is_connected)
             .unwrap_or(false);
 

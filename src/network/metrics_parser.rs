@@ -73,9 +73,9 @@ impl MetricsParser {
             }
         }
 
-        // Update hostnames to use instance name if available
+        // Store instance name in detail field if available, but keep host as the key
         if let Some(instance_name) = host_instance_name {
-            self.update_hostnames(
+            self.update_instance_names(
                 &mut gpu_info_map,
                 &mut cpu_info_map,
                 &mut memory_info_map,
@@ -129,8 +129,11 @@ impl MetricsParser {
                 time: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
                 name: gpu_name,
                 device_type: "GPU".to_string(), // Default to GPU, can be overridden by gpu_info metric
-                hostname: host.split(':').next().unwrap_or_default().to_string(),
-                instance: host.to_string(),
+                hostname: host.to_string(),     // Use full host address as key
+                instance: labels
+                    .get("instance")
+                    .cloned()
+                    .unwrap_or_else(|| host.to_string()),
                 utilization: 0.0,
                 ane_utilization: 0.0,
                 dla_utilization: None,
@@ -227,7 +230,7 @@ impl MetricsParser {
         host: &str,
     ) {
         let cpu_model = labels.get("cpu_model").cloned().unwrap_or_default();
-        let hostname = host.split(':').next().unwrap_or_default().to_string();
+        // Keep the full host address including port
         let cpu_index = labels.get("index").cloned().unwrap_or("0".to_string());
 
         let cpu_key = format!("{host}:{cpu_index}");
@@ -244,8 +247,11 @@ impl MetricsParser {
             };
 
             CpuInfo {
-                hostname: hostname.clone(),
-                instance: host.to_string(),
+                hostname: host.to_string(), // Use full host address as key
+                instance: labels
+                    .get("instance")
+                    .cloned()
+                    .unwrap_or_else(|| host.to_string()),
                 cpu_model: cpu_model.clone(),
                 architecture: "".to_string(),
                 platform_type,
@@ -311,15 +317,18 @@ impl MetricsParser {
         value: f64,
         host: &str,
     ) {
-        let hostname = host.split(':').next().unwrap_or_default().to_string();
+        // Keep the full host address including port
         let memory_index = labels.get("index").cloned().unwrap_or("0".to_string());
         let memory_key = format!("{host}:{memory_index}");
 
         let memory_info = memory_info_map
             .entry(memory_key)
             .or_insert_with(|| MemoryInfo {
-                hostname: hostname.clone(),
-                instance: host.to_string(),
+                hostname: host.to_string(), // Use full host address as key
+                instance: labels
+                    .get("instance")
+                    .cloned()
+                    .unwrap_or_else(|| host.to_string()),
                 total_bytes: 0,
                 used_bytes: 0,
                 available_bytes: 0,
@@ -352,7 +361,7 @@ impl MetricsParser {
         value: f64,
         host: &str,
     ) {
-        let hostname = host.split(':').next().unwrap_or_default().to_string();
+        // Keep the full host address including port
         let mount_point = labels.get("mount_point").cloned().unwrap_or_default();
         let storage_index = labels.get("index").cloned().unwrap_or("0".to_string());
 
@@ -364,7 +373,7 @@ impl MetricsParser {
         let storage_info = storage_info_map
             .entry(storage_key)
             .or_insert_with(|| StorageInfo {
-                hostname: hostname.clone(),
+                hostname: host.to_string(), // Use full host address as key
                 mount_point: mount_point.clone(),
                 total_bytes: 0,
                 available_bytes: 0,
@@ -393,7 +402,7 @@ impl MetricsParser {
         }
     }
 
-    fn update_hostnames(
+    fn update_instance_names(
         &self,
         gpu_info_map: &mut HashMap<String, GpuInfo>,
         cpu_info_map: &mut HashMap<String, CpuInfo>,
@@ -401,17 +410,21 @@ impl MetricsParser {
         storage_info_map: &mut HashMap<String, StorageInfo>,
         instance_name: &str,
     ) {
+        // Store instance name in detail field but keep hostname as the host address
         for gpu_info in gpu_info_map.values_mut() {
-            gpu_info.hostname = instance_name.to_string();
+            gpu_info
+                .detail
+                .insert("instance_name".to_string(), instance_name.to_string());
         }
-        for cpu_info in cpu_info_map.values_mut() {
-            cpu_info.hostname = instance_name.to_string();
+        for _cpu_info in cpu_info_map.values_mut() {
+            // For CPU info, we may want to store instance name differently
+            // since it doesn't have a detail field by default
         }
-        for memory_info in memory_info_map.values_mut() {
-            memory_info.hostname = instance_name.to_string();
+        for _memory_info in memory_info_map.values_mut() {
+            // Similarly for memory info
         }
-        for storage_info in storage_info_map.values_mut() {
-            storage_info.hostname = instance_name.to_string();
+        for _storage_info in storage_info_map.values_mut() {
+            // And storage info
         }
     }
 }
