@@ -1,0 +1,36 @@
+# .github/workflows/update_homebrew_formula.yml
+name: Update Homebrew Formula
+
+on:
+  workflow_dispatch:  # Allow manual triggering
+    inputs:
+      release_tag:
+        description: 'Release tag to upload artifacts to (e.g. v1.2.3)'
+        required: false
+
+# Required permissions for release uploads
+permissions:
+  contents: write
+
+jobs:
+  update-homebrew:
+    name: Update Homebrew Formula
+    runs-on: macos-latest  # macOS has Homebrew pre-installed
+    # Access secrets from "packaging" environment
+    environment: packaging
+   
+    steps:
+    # ───────────────────────────────────────────────────────────────
+    # Update Homebrew formula in tap repository
+    # ───────────────────────────────────────────────────────────────
+    - name: Bump Homebrew formula version
+      uses: dawidd6/action-homebrew-bump-formula@v5
+      with:
+        # GitHub token with 'public_repo' and 'workflow' scopes
+        token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        # Update directly without forking
+        no_fork: true
+        # Target tap repository
+        tap: lablup/homebrew-tap
+        # Formula name to update
+        formula: all-smi
