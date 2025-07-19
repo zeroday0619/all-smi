@@ -149,7 +149,11 @@ jobs:
     - name: Build release binary
       run: |
         if [[ "${{ matrix.cross }}" == "true" ]]; then
-          cross build --release --target ${{ matrix.target }} --locked
+          if [[ "${{ matrix.target }}" == "x86_64-unknown-linux-musl" ]]; then
+            cross build --release --target ${{ matrix.target }} --dockerfile Dockerfile.protoc --locked
+          else
+            cross build --release --target ${{ matrix.target }} --locked
+          fi
         else
           cargo build --release --target ${{ matrix.target }} --locked
         fi
