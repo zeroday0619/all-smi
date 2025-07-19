@@ -10,11 +10,7 @@ use crate::view::{
 
 pub async fn run_view_mode(args: &ViewArgs) {
     // Initialize application state
-    let mut initial_state = AppState::new();
-    let is_remote_mode = args.hosts.is_some() || args.hostfile.is_some();
-    if is_remote_mode {
-        initial_state.loading = false;
-    }
+    let initial_state = AppState::new();
 
     let app_state = Arc::new(Mutex::new(initial_state));
 
