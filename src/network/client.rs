@@ -122,6 +122,7 @@ impl NetworkClient {
         // Process results as they arrive using streaming with overall timeout
         let mut _successful_connections = 0;
         let mut _failed_connections = 0;
+        let mut responses_received = 0;
 
         // Set overall timeout for collecting results (4 seconds)
         let overall_timeout = Duration::from_secs(4);
@@ -132,6 +133,8 @@ impl NetworkClient {
             tokio::select! {
                 // Process next result if available
                 Some(task_result) = fetch_futures.next() => {
+                    responses_received += 1;
+
                     match task_result {
                         Ok(Some((host, text, error))) => {
                             let host_identifier = host.clone();
@@ -142,36 +145,34 @@ impl NetworkClient {
                                 _failed_connections += 1;
                                 connection_status.mark_failure(error_msg);
                                 connection_statuses.push(connection_status);
-                                continue;
+                            } else {
+                                _successful_connections += 1;
+                                connection_status.mark_success();
+
+                                if text.is_empty() {
+                                    connection_statuses.push(connection_status);
+                                } else {
+                                    let parser = super::metrics_parser::MetricsParser::new();
+                                    let (gpu_info, cpu_info, memory_info, storage_info) =
+                                        parser.parse_metrics(&text, &host, re);
+
+                                    // Extract the instance name from device info if available
+                                    let instance_name = if let Some(first_gpu) = gpu_info.first() {
+                                        Some(first_gpu.instance.clone())
+                                    } else if let Some(first_cpu) = cpu_info.first() {
+                                        Some(first_cpu.instance.clone())
+                                    } else { memory_info.first().map(|first_memory| first_memory.instance.clone()) };
+
+                                    // Store the instance name as actual_hostname for display purposes
+                                    connection_status.actual_hostname = instance_name;
+                                    connection_statuses.push(connection_status);
+
+                                    all_gpu_info.extend(gpu_info);
+                                    all_cpu_info.extend(cpu_info);
+                                    all_memory_info.extend(memory_info);
+                                    all_storage_info.extend(storage_info);
+                                }
                             }
-
-                            _successful_connections += 1;
-                            connection_status.mark_success();
-
-                            if text.is_empty() {
-                                connection_statuses.push(connection_status);
-                                continue;
-                            }
-
-                            let parser = super::metrics_parser::MetricsParser::new();
-                            let (gpu_info, cpu_info, memory_info, storage_info) =
-                                parser.parse_metrics(&text, &host, re);
-
-                            // Extract the instance name from device info if available
-                            let instance_name = if let Some(first_gpu) = gpu_info.first() {
-                                Some(first_gpu.instance.clone())
-                            } else if let Some(first_cpu) = cpu_info.first() {
-                                Some(first_cpu.instance.clone())
-                            } else { memory_info.first().map(|first_memory| first_memory.instance.clone()) };
-
-                            // Store the instance name as actual_hostname for display purposes
-                            connection_status.actual_hostname = instance_name;
-                            connection_statuses.push(connection_status);
-
-                            all_gpu_info.extend(gpu_info);
-                            all_cpu_info.extend(cpu_info);
-                            all_memory_info.extend(memory_info);
-                            all_storage_info.extend(storage_info);
                         }
                         Ok(None) => {
                             _failed_connections += 1;
@@ -181,6 +182,11 @@ impl NetworkClient {
                             _failed_connections += 1;
                             // We don't have host information for Err results, so we can't create a connection status
                         }
+                    }
+
+                    // Check if we've received responses from all hosts
+                    if responses_received >= total_hosts {
+                        break;
                     }
                 }
                 // Timeout reached - return partial results
