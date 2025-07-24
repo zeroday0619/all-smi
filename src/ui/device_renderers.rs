@@ -222,7 +222,13 @@ pub fn print_gpu_info<W: Write>(
     queue!(stdout, Print("\r\n")).unwrap();
 }
 
-pub fn print_cpu_info<W: Write>(stdout: &mut W, _index: usize, info: &CpuInfo, width: usize) {
+pub fn print_cpu_info<W: Write>(
+    stdout: &mut W,
+    _index: usize,
+    info: &CpuInfo,
+    width: usize,
+    show_per_core: bool,
+) {
     // Print CPU info line
     print_colored_text(stdout, "CPU ", Color::Cyan, None, None);
     print_colored_text(
@@ -397,8 +403,8 @@ pub fn print_cpu_info<W: Write>(stdout: &mut W, _index: usize, info: &CpuInfo, w
 
     queue!(stdout, Print("\r\n")).unwrap();
 
-    // Display per-core utilization if available
-    if !info.per_core_utilization.is_empty() {
+    // Display per-core utilization if available and enabled
+    if show_per_core && !info.per_core_utilization.is_empty() {
         let total_cores = info.per_core_utilization.len();
         let cores_per_line = if total_cores <= 16 { 4 } else { 8 };
 

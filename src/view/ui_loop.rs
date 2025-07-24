@@ -380,7 +380,7 @@ impl UiLoop {
                 .collect();
 
             for (i, cpu_info) in cpu_info_to_display.iter().enumerate() {
-                print_cpu_info(buffer, i, cpu_info, width);
+                print_cpu_info(buffer, i, cpu_info, width, state.show_per_core_cpu);
             }
 
             // Memory information for specific host
@@ -524,7 +524,7 @@ impl UiLoop {
     fn render_local_devices(&self, buffer: &mut BufferWriter, state: &AppState, width: usize) {
         // CPU information for local mode
         for (i, cpu_info) in state.cpu_info.iter().enumerate() {
-            print_cpu_info(buffer, i, cpu_info, width);
+            print_cpu_info(buffer, i, cpu_info, width, state.show_per_core_cpu);
         }
 
         // Memory information for local mode
