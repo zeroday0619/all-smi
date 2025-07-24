@@ -33,6 +33,7 @@ pub struct UiLoop {
     previous_show_help: bool,
     previous_loading: bool,
     previous_tab: usize,
+    previous_show_per_core_cpu: bool,
     last_render_time: std::time::Instant,
     resize_occurred: bool,
 }
@@ -48,6 +49,7 @@ impl UiLoop {
             previous_show_help: false,
             previous_loading: false,
             previous_tab: 0,
+            previous_show_per_core_cpu: false,
             last_render_time: std::time::Instant::now(),
             resize_occurred: false,
         })
@@ -101,6 +103,7 @@ impl UiLoop {
             let force_clear = state.show_help != self.previous_show_help
                 || state.loading != self.previous_loading
                 || state.current_tab != self.previous_tab
+                || state.show_per_core_cpu != self.previous_show_per_core_cpu
                 || self.resize_occurred;
 
             // Check if enough time has passed for rendering (throttle to prevent visual artifacts)
@@ -160,6 +163,7 @@ impl UiLoop {
             self.previous_show_help = state.show_help;
             self.previous_loading = state.loading;
             self.previous_tab = state.current_tab;
+            self.previous_show_per_core_cpu = state.show_per_core_cpu;
             self.resize_occurred = false;
 
             if queue!(stdout, cursor::Show).is_err() {
@@ -380,7 +384,7 @@ impl UiLoop {
                 .collect();
 
             for (i, cpu_info) in cpu_info_to_display.iter().enumerate() {
-                print_cpu_info(buffer, i, cpu_info, width);
+                print_cpu_info(buffer, i, cpu_info, width, state.show_per_core_cpu);
             }
 
             // Memory information for specific host
@@ -524,7 +528,7 @@ impl UiLoop {
     fn render_local_devices(&self, buffer: &mut BufferWriter, state: &AppState, width: usize) {
         // CPU information for local mode
         for (i, cpu_info) in state.cpu_info.iter().enumerate() {
-            print_cpu_info(buffer, i, cpu_info, width);
+            print_cpu_info(buffer, i, cpu_info, width, state.show_per_core_cpu);
         }
 
         // Memory information for local mode

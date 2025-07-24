@@ -1,5 +1,8 @@
 use crate::device::powermetrics_manager::get_powermetrics_manager;
-use crate::device::{AppleSiliconCpuInfo, CpuInfo, CpuPlatformType, CpuReader, CpuSocketInfo};
+use crate::device::{
+    AppleSiliconCpuInfo, CoreType, CoreUtilization, CpuInfo, CpuPlatformType, CpuReader,
+    CpuSocketInfo,
+};
 use crate::utils::system::get_hostname;
 use chrono::Local;
 use std::cell::RefCell;
@@ -71,17 +74,42 @@ impl MacOsCpuReader {
         let cpu_utilization = self.get_cpu_utilization_powermetrics()?;
         let (p_core_utilization, e_core_utilization) = self.get_apple_silicon_core_utilization()?;
 
-        // Get CPU frequency information from PowerMetricsManager if available
-        let (base_frequency, max_frequency, p_cluster_freq, e_cluster_freq) =
+        // Get CPU frequency information and per-core data from PowerMetricsManager if available
+        let (base_frequency, max_frequency, p_cluster_freq, e_cluster_freq, per_core_utilization) =
             if let Some(manager) = get_powermetrics_manager() {
                 if let Ok(data) = manager.get_latest_data_result() {
                     // Use actual frequencies from powermetrics
                     let avg_freq = (data.p_cluster_frequency + data.e_cluster_frequency) / 2;
+
+                    // Convert per-core data
+                    let mut cores = Vec::new();
+                    for (i, residency) in data.core_active_residencies.iter().enumerate() {
+                        let core_type = if i < data.core_cluster_types.len() {
+                            match data.core_cluster_types[i] {
+                                crate::device::powermetrics_parser::CoreType::Performance => {
+                                    CoreType::Performance
+                                }
+                                crate::device::powermetrics_parser::CoreType::Efficiency => {
+                                    CoreType::Efficiency
+                                }
+                            }
+                        } else {
+                            CoreType::Standard
+                        };
+
+                        cores.push(CoreUtilization {
+                            core_id: i as u32,
+                            core_type,
+                            utilization: *residency,
+                        });
+                    }
+
                     (
                         avg_freq,
                         data.p_cluster_frequency, // P-cluster frequency as max
                         Some(data.p_cluster_frequency),
                         Some(data.e_cluster_frequency),
+                        cores,
                     )
                 } else {
                     (
@@ -89,6 +117,7 @@ impl MacOsCpuReader {
                         self.get_cpu_max_frequency()?,
                         None,
                         None,
+                        Vec::new(),
                     )
                 }
             } else {
@@ -97,6 +126,7 @@ impl MacOsCpuReader {
                     self.get_cpu_max_frequency()?,
                     None,
                     None,
+                    Vec::new(),
                 )
             };
 
@@ -148,6 +178,7 @@ impl MacOsCpuReader {
             power_consumption,
             per_socket_info,
             apple_silicon_info,
+            per_core_utilization,
             time,
         })
     }
@@ -207,6 +238,7 @@ impl MacOsCpuReader {
             power_consumption,
             per_socket_info,
             apple_silicon_info: None,
+            per_core_utilization: Vec::new(), // Intel Macs don't have easy per-core data
             time,
         })
     }

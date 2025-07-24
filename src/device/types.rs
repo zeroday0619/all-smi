@@ -80,7 +80,22 @@ pub struct CpuInfo {
     pub power_consumption: Option<f64>,      // Power consumption in watts (if available)
     pub per_socket_info: Vec<CpuSocketInfo>, // Per-socket information
     pub apple_silicon_info: Option<AppleSiliconCpuInfo>, // Apple Silicon specific info
+    pub per_core_utilization: Vec<CoreUtilization>, // Per-core utilization data
     pub time: String,                        // Timestamp
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct CoreUtilization {
+    pub core_id: u32,        // Core identifier (0-based)
+    pub core_type: CoreType, // Type of core (Performance, Efficiency, Standard)
+    pub utilization: f64,    // Core utilization percentage (0-100)
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub enum CoreType {
+    Performance, // P-cores (Apple Silicon) or Performance cores (Intel/AMD)
+    Efficiency,  // E-cores (Apple Silicon) or Efficiency cores (Intel/AMD)
+    Standard,    // Regular cores (no P/E distinction)
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
