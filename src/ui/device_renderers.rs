@@ -328,6 +328,12 @@ pub fn print_cpu_info<W: Write>(
             None,
         );
     }
+    // Display CPU temperature if available (not on macOS)
+    if let Some(temp) = info.temperature {
+        print_colored_text(stdout, " Temp:", Color::Magenta, None, None);
+        print_colored_text(stdout, &format!("{temp}°C"), Color::White, None, None);
+    }
+
     print_colored_text(stdout, " Cache:", Color::Red, None, None);
     print_colored_text(
         stdout,
