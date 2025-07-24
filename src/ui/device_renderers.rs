@@ -396,6 +396,132 @@ pub fn print_cpu_info<W: Write>(stdout: &mut W, _index: usize, info: &CpuInfo, w
     }
 
     queue!(stdout, Print("\r\n")).unwrap();
+
+    // Display per-core utilization if available
+    if !info.per_core_utilization.is_empty() {
+        let total_cores = info.per_core_utilization.len();
+        let cores_per_line = if total_cores <= 16 { 4 } else { 8 };
+
+        // Group cores by type for simpler labeling
+        let mut p_cores = Vec::new();
+        let mut e_cores = Vec::new();
+        let mut standard_cores = Vec::new();
+
+        for core in &info.per_core_utilization {
+            match core.core_type {
+                crate::device::CoreType::Performance => p_cores.push(core),
+                crate::device::CoreType::Efficiency => e_cores.push(core),
+                crate::device::CoreType::Standard => standard_cores.push(core),
+            }
+        }
+
+        // Calculate the width for each core bar
+        let available_width = width.saturating_sub(10); // 5 padding each side
+        let spacing_between_cores = 2;
+        let core_bar_width =
+            (available_width - (cores_per_line - 1) * spacing_between_cores) / cores_per_line;
+
+        // Display P-cores
+        let mut cores_displayed = 0;
+        for (i, core) in p_cores.iter().enumerate() {
+            if cores_displayed % cores_per_line == 0 && cores_displayed > 0 {
+                queue!(stdout, Print("\r\n")).unwrap();
+            }
+
+            if cores_displayed % cores_per_line == 0 {
+                print_colored_text(stdout, "     ", Color::White, None, None); // 5 char left padding
+            }
+
+            let label = format!("P{}", i + 1);
+            draw_bar(
+                stdout,
+                &label,
+                core.utilization,
+                100.0,
+                core_bar_width,
+                None,
+            );
+
+            cores_displayed += 1;
+            if cores_displayed % cores_per_line != 0 && cores_displayed < total_cores {
+                print_colored_text(stdout, "  ", Color::White, None, None); // spacing between cores
+            }
+        }
+
+        // Display E-cores
+        for (i, core) in e_cores.iter().enumerate() {
+            if cores_displayed % cores_per_line == 0 && cores_displayed > 0 {
+                queue!(stdout, Print("\r\n")).unwrap();
+            }
+
+            if cores_displayed % cores_per_line == 0 {
+                print_colored_text(stdout, "     ", Color::White, None, None); // 5 char left padding
+            }
+
+            let label = format!("E{}", i + 1);
+            draw_bar(
+                stdout,
+                &label,
+                core.utilization,
+                100.0,
+                core_bar_width,
+                None,
+            );
+
+            cores_displayed += 1;
+            if cores_displayed % cores_per_line != 0 && cores_displayed < total_cores {
+                print_colored_text(stdout, "  ", Color::White, None, None); // spacing between cores
+            }
+        }
+
+        // Display standard cores (for systems without P/E distinction)
+        for (i, core) in standard_cores.iter().enumerate() {
+            if cores_displayed % cores_per_line == 0 && cores_displayed > 0 {
+                queue!(stdout, Print("\r\n")).unwrap();
+            }
+
+            if cores_displayed % cores_per_line == 0 {
+                print_colored_text(stdout, "     ", Color::White, None, None); // 5 char left padding
+            }
+
+            let label = format!("C{}", i + 1);
+            draw_bar(
+                stdout,
+                &label,
+                core.utilization,
+                100.0,
+                core_bar_width,
+                None,
+            );
+
+            cores_displayed += 1;
+            if cores_displayed % cores_per_line != 0 && cores_displayed < total_cores {
+                print_colored_text(stdout, "  ", Color::White, None, None); // spacing between cores
+            }
+        }
+
+        // Add right padding for the last line if needed
+        if cores_displayed % cores_per_line != 0 {
+            let remaining_cores = cores_per_line - (cores_displayed % cores_per_line);
+            let remaining_width =
+                remaining_cores * core_bar_width + (remaining_cores - 1) * spacing_between_cores;
+            print_colored_text(
+                stdout,
+                &" ".repeat(remaining_width + spacing_between_cores),
+                Color::White,
+                None,
+                None,
+            );
+        }
+
+        // Add final right padding
+        let total_line_width =
+            cores_per_line * core_bar_width + (cores_per_line - 1) * spacing_between_cores;
+        let right_padding = width - 5 - total_line_width;
+        print_colored_text(stdout, &" ".repeat(right_padding), Color::White, None, None);
+
+        queue!(stdout, Print("\r\n")).unwrap();
+    }
 }
 
 pub fn print_memory_info<W: Write>(stdout: &mut W, _index: usize, info: &MemoryInfo, width: usize) {

@@ -274,6 +274,7 @@ impl MetricsParser {
                 power_consumption: None,
                 per_socket_info: Vec::new(),
                 apple_silicon_info: None,
+                per_core_utilization: Vec::new(),
                 time: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
             }
         });

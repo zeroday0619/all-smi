@@ -1,4 +1,6 @@
-use crate::device::{CpuInfo, CpuPlatformType, CpuReader, CpuSocketInfo};
+use crate::device::{
+    CoreType, CoreUtilization, CpuInfo, CpuPlatformType, CpuReader, CpuSocketInfo,
+};
 use crate::utils::system::get_hostname;
 use chrono::Local;
 use std::fs;
@@ -46,7 +48,7 @@ impl LinuxCpuReader {
 
         // Read /proc/stat for CPU utilization
         let stat_content = fs::read_to_string("/proc/stat")?;
-        let (overall_utilization, per_socket_info) =
+        let (overall_utilization, per_socket_info, per_core_utilization) =
             self.parse_cpu_stat(&stat_content, socket_count)?;
 
         // Try to get CPU temperature (may not be available on all systems)
@@ -73,6 +75,7 @@ impl LinuxCpuReader {
             power_consumption,
             per_socket_info,
             apple_silicon_info: None, // Not applicable for Linux
+            per_core_utilization,
             time,
         })
     }
@@ -174,9 +177,10 @@ impl LinuxCpuReader {
         &self,
         content: &str,
         socket_count: u32,
-    ) -> Result<(f64, Vec<CpuSocketInfo>), Box<dyn std::error::Error>> {
+    ) -> Result<(f64, Vec<CpuSocketInfo>, Vec<CoreUtilization>), Box<dyn std::error::Error>> {
         let mut overall_utilization = 0.0;
         let mut per_socket_info = Vec::new();
+        let mut per_core_utilization = Vec::new();
 
         let lines: Vec<&str> = content.lines().collect();
 
@@ -201,6 +205,54 @@ impl LinuxCpuReader {
             }
         }
 
+        // Parse individual CPU core stats
+        for line in lines.iter() {
+            if line.starts_with("cpu") && !line.starts_with("cpu ") {
+                // Extract CPU core number
+                if let Some(cpu_num_str) = line.split_whitespace().next() {
+                    if let Some(cpu_num_str) = cpu_num_str.strip_prefix("cpu") {
+                        if let Ok(core_id) = cpu_num_str.parse::<u32>() {
+                            let fields: Vec<&str> = line.split_whitespace().collect();
+                            if fields.len() >= 8 {
+                                let user: u64 = fields[1].parse().unwrap_or(0);
+                                let nice: u64 = fields[2].parse().unwrap_or(0);
+                                let system: u64 = fields[3].parse().unwrap_or(0);
+                                let idle: u64 = fields[4].parse().unwrap_or(0);
+                                let iowait: u64 = fields[5].parse().unwrap_or(0);
+                                let irq: u64 = fields[6].parse().unwrap_or(0);
+                                let softirq: u64 = fields[7].parse().unwrap_or(0);
+
+                                let total_time =
+                                    user + nice + system + idle + iowait + irq + softirq;
+                                let active_time = total_time - idle - iowait;
+
+                                let utilization = if total_time > 0 {
+                                    (active_time as f64 / total_time as f64) * 100.0
+                                } else {
+                                    0.0
+                                };
+
+                                // Check if this is a P-core or E-core based on CPU topology
+                                // For now, we'll use Standard type for all Linux cores
+                                // In the future, we could check /sys/devices/system/cpu/cpu*/cpufreq/base_frequency
+                                // to distinguish between P-cores and E-cores on Intel systems
+                                let core_type = CoreType::Standard;
+
+                                per_core_utilization.push(CoreUtilization {
+                                    core_id,
+                                    core_type,
+                                    utilization,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Sort cores by ID for consistent display
+        per_core_utilization.sort_by_key(|c| c.core_id);
+
         // Create per-socket info (simplified - assumes even distribution across sockets)
         for socket_id in 0..socket_count {
             per_socket_info.push(CpuSocketInfo {
@@ -213,7 +265,7 @@ impl LinuxCpuReader {
             });
         }
 
-        Ok((overall_utilization, per_socket_info))
+        Ok((overall_utilization, per_socket_info, per_core_utilization))
     }
 
     fn get_cpu_temperature(&self) -> Option<u32> {
