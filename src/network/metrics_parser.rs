@@ -314,6 +314,39 @@ impl MetricsParser {
                     apple_info.e_core_utilization = value;
                 }
             }
+            "cpu_core_utilization" => {
+                // Parse per-core utilization
+                if let (Some(core_id_str), Some(core_type_str)) =
+                    (labels.get("core_id"), labels.get("core_type"))
+                {
+                    if let Ok(core_id) = core_id_str.parse::<u32>() {
+                        let core_type = match core_type_str.as_str() {
+                            "P" => crate::device::CoreType::Performance,
+                            "E" => crate::device::CoreType::Efficiency,
+                            _ => crate::device::CoreType::Standard,
+                        };
+
+                        // Ensure vector is large enough
+                        while cpu_info.per_core_utilization.len() <= core_id as usize {
+                            cpu_info
+                                .per_core_utilization
+                                .push(crate::device::CoreUtilization {
+                                    core_id: cpu_info.per_core_utilization.len() as u32,
+                                    core_type: crate::device::CoreType::Standard,
+                                    utilization: 0.0,
+                                });
+                        }
+
+                        // Update the specific core
+                        cpu_info.per_core_utilization[core_id as usize] =
+                            crate::device::CoreUtilization {
+                                core_id,
+                                core_type,
+                                utilization: value,
+                            };
+                    }
+                }
+            }
             _ => {}
         }
     }

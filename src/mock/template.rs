@@ -389,6 +389,35 @@ fn add_cpu_metrics(
         cpu.frequency_mhz
     ));
 
+    // Per-core CPU utilization metrics
+    if !cpu.per_core_utilization.is_empty() {
+        template
+            .push_str("# HELP all_smi_cpu_core_utilization Per-core CPU utilization percentage\n");
+        template.push_str("# TYPE all_smi_cpu_core_utilization gauge\n");
+
+        for (core_id, _) in cpu.per_core_utilization.iter().enumerate() {
+            let core_type =
+                if let (Some(p_count), Some(_e_count)) = (cpu.p_core_count, cpu.e_core_count) {
+                    if core_id < p_count as usize {
+                        "P"
+                    } else {
+                        "E"
+                    }
+                } else {
+                    "C"
+                };
+
+            let core_labels = format!(
+                "cpu_model=\"{}\", instance=\"{}\", hostname=\"{}\", core_id=\"{}\", core_type=\"{}\"",
+                cpu.model, instance_name, instance_name, core_id, core_type
+            );
+
+            template.push_str(&format!(
+                "all_smi_cpu_core_utilization{{{core_labels}}} {{PLACEHOLDER_CPU_CORE_{core_id}_UTIL}}\n"
+            ));
+        }
+    }
+
     // Optional CPU metrics (temperature and power)
     if cpu.temperature_celsius.is_some() {
         template.push_str("# HELP all_smi_cpu_temperature_celsius CPU temperature in celsius\n");
@@ -714,6 +743,14 @@ pub fn render_response(
 
     if let Some(power) = cpu.power_consumption_watts {
         response = response.replace(PLACEHOLDER_CPU_POWER, &format!("{power:.3}"));
+    }
+
+    // Replace per-core CPU utilization metrics
+    for (core_id, util) in cpu.per_core_utilization.iter().enumerate() {
+        response = response.replace(
+            &format!("{{PLACEHOLDER_CPU_CORE_{core_id}_UTIL}}"),
+            &format!("{util:.2}"),
+        );
     }
 
     // Apple Silicon specific replacements

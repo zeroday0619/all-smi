@@ -232,6 +232,40 @@ impl<'a> CpuMetricExporter<'a> {
             }
         }
     }
+
+    fn export_per_core_metrics(&self, builder: &mut MetricBuilder, info: &CpuInfo, _index: usize) {
+        if !info.per_core_utilization.is_empty() {
+            // Help and type for per-core utilization
+            builder
+                .help(
+                    "all_smi_cpu_core_utilization",
+                    "Per-core CPU utilization percentage",
+                )
+                .type_("all_smi_cpu_core_utilization", "gauge");
+
+            for core in &info.per_core_utilization {
+                let core_type_str = match core.core_type {
+                    crate::device::CoreType::Performance => "P",
+                    crate::device::CoreType::Efficiency => "E",
+                    crate::device::CoreType::Standard => "C",
+                };
+
+                let core_labels = [
+                    ("cpu_model", info.cpu_model.as_str()),
+                    ("instance", info.instance.as_str()),
+                    ("hostname", info.hostname.as_str()),
+                    ("core_id", &core.core_id.to_string()),
+                    ("core_type", core_type_str),
+                ];
+
+                builder.metric(
+                    "all_smi_cpu_core_utilization",
+                    &core_labels,
+                    core.utilization,
+                );
+            }
+        }
+    }
 }
 
 impl<'a> MetricExporter for CpuMetricExporter<'a> {
@@ -242,6 +276,7 @@ impl<'a> MetricExporter for CpuMetricExporter<'a> {
             self.export_basic_metrics(&mut builder, info, i);
             self.export_socket_metrics(&mut builder, info, i);
             self.export_apple_silicon_metrics(&mut builder, info, i);
+            self.export_per_core_metrics(&mut builder, info, i);
         }
 
         builder.build()

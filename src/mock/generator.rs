@@ -129,23 +129,46 @@ pub fn generate_cpu_metrics(platform: &PlatformType) -> CpuMetrics {
                 _ => (4, 4, 8),
             };
 
+            let total_cores = p_cores + e_cores;
+            let per_core_utilization: Vec<f32> = (0..total_cores)
+                .map(|i| {
+                    if i < p_cores {
+                        // P-cores typically have higher utilization
+                        rng.random_range(20.0..90.0)
+                    } else {
+                        // E-cores typically have lower utilization
+                        rng.random_range(5.0..50.0)
+                    }
+                })
+                .collect();
+
+            let utilization =
+                per_core_utilization.iter().sum::<f32>() / per_core_utilization.len() as f32;
+
+            // Calculate P-core and E-core utilization separately
+            let p_core_utilization =
+                per_core_utilization[..p_cores as usize].iter().sum::<f32>() / p_cores as f32;
+            let e_core_utilization =
+                per_core_utilization[p_cores as usize..].iter().sum::<f32>() / e_cores as f32;
+
             CpuMetrics {
                 model,
-                utilization: rng.random_range(15.0..75.0),
+                utilization,
                 socket_count: 1,
-                core_count: p_cores + e_cores,
-                thread_count: p_cores + e_cores, // Apple Silicon doesn't use hyperthreading
+                core_count: total_cores,
+                thread_count: total_cores, // Apple Silicon doesn't use hyperthreading
                 frequency_mhz: rng.random_range(3000..3500),
                 temperature_celsius: Some(rng.random_range(45..70)),
                 power_consumption_watts: Some(rng.random_range(15.0..35.0)),
-                socket_utilizations: vec![rng.random_range(15.0..75.0)],
+                socket_utilizations: vec![utilization],
                 p_core_count: Some(p_cores),
                 e_core_count: Some(e_cores),
                 gpu_core_count: Some(gpu_cores),
-                p_core_utilization: Some(rng.random_range(10.0..80.0)),
-                e_core_utilization: Some(rng.random_range(5.0..40.0)),
+                p_core_utilization: Some(p_core_utilization),
+                e_core_utilization: Some(e_core_utilization),
                 p_cluster_frequency_mhz: Some(rng.random_range(2800..3400)),
                 e_cluster_frequency_mhz: Some(rng.random_range(1000..1800)),
+                per_core_utilization,
             }
         }
         PlatformType::Intel => {
@@ -166,11 +189,22 @@ pub fn generate_cpu_metrics(platform: &PlatformType) -> CpuMetrics {
             let total_cores = socket_count * cores_per_socket;
             let total_threads = total_cores * 2; // Intel hyperthreading
 
-            let socket_utilizations: Vec<f32> = (0..socket_count)
-                .map(|_| rng.random_range(20.0..80.0))
+            let per_core_utilization: Vec<f32> = (0..total_cores)
+                .map(|_| rng.random_range(15.0..85.0))
                 .collect();
+
             let overall_util =
-                socket_utilizations.iter().sum::<f32>() / socket_utilizations.len() as f32;
+                per_core_utilization.iter().sum::<f32>() / per_core_utilization.len() as f32;
+
+            let socket_utilizations: Vec<f32> = (0..socket_count)
+                .map(|i| {
+                    let cores_in_socket = total_cores / socket_count;
+                    let start_idx = i as usize * cores_in_socket as usize;
+                    let end_idx = start_idx + cores_in_socket as usize;
+                    per_core_utilization[start_idx..end_idx].iter().sum::<f32>()
+                        / cores_in_socket as f32
+                })
+                .collect();
 
             CpuMetrics {
                 model,
@@ -189,6 +223,7 @@ pub fn generate_cpu_metrics(platform: &PlatformType) -> CpuMetrics {
                 e_core_utilization: None,
                 p_cluster_frequency_mhz: None,
                 e_cluster_frequency_mhz: None,
+                per_core_utilization,
             }
         }
         PlatformType::Amd => {
@@ -209,11 +244,22 @@ pub fn generate_cpu_metrics(platform: &PlatformType) -> CpuMetrics {
             let total_cores = socket_count * cores_per_socket;
             let total_threads = total_cores * 2; // AMD SMT
 
-            let socket_utilizations: Vec<f32> = (0..socket_count)
-                .map(|_| rng.random_range(25.0..85.0))
+            let per_core_utilization: Vec<f32> = (0..total_cores)
+                .map(|_| rng.random_range(20.0..85.0))
                 .collect();
+
             let overall_util =
-                socket_utilizations.iter().sum::<f32>() / socket_utilizations.len() as f32;
+                per_core_utilization.iter().sum::<f32>() / per_core_utilization.len() as f32;
+
+            let socket_utilizations: Vec<f32> = (0..socket_count)
+                .map(|i| {
+                    let cores_in_socket = total_cores / socket_count;
+                    let start_idx = i as usize * cores_in_socket as usize;
+                    let end_idx = start_idx + cores_in_socket as usize;
+                    per_core_utilization[start_idx..end_idx].iter().sum::<f32>()
+                        / cores_in_socket as f32
+                })
+                .collect();
 
             CpuMetrics {
                 model,
@@ -232,6 +278,7 @@ pub fn generate_cpu_metrics(platform: &PlatformType) -> CpuMetrics {
                 e_core_utilization: None,
                 p_cluster_frequency_mhz: None,
                 e_cluster_frequency_mhz: None,
+                per_core_utilization,
             }
         }
         PlatformType::Jetson => {
@@ -250,16 +297,22 @@ pub fn generate_cpu_metrics(platform: &PlatformType) -> CpuMetrics {
                 _ => (6, 6),
             };
 
+            let per_core_utilization: Vec<f32> =
+                (0..cores).map(|_| rng.random_range(15.0..75.0)).collect();
+
+            let utilization =
+                per_core_utilization.iter().sum::<f32>() / per_core_utilization.len() as f32;
+
             CpuMetrics {
                 model,
-                utilization: rng.random_range(20.0..70.0),
+                utilization,
                 socket_count: 1,
                 core_count: cores,
                 thread_count: threads,
                 frequency_mhz: rng.random_range(1400..2200),
                 temperature_celsius: Some(rng.random_range(55..75)),
                 power_consumption_watts: Some(rng.random_range(10.0..60.0)),
-                socket_utilizations: vec![rng.random_range(20.0..70.0)],
+                socket_utilizations: vec![utilization],
                 p_core_count: None,
                 e_core_count: None,
                 gpu_core_count: None,
@@ -267,6 +320,7 @@ pub fn generate_cpu_metrics(platform: &PlatformType) -> CpuMetrics {
                 e_core_utilization: None,
                 p_cluster_frequency_mhz: None,
                 e_cluster_frequency_mhz: None,
+                per_core_utilization,
             }
         }
         PlatformType::Nvidia => {
@@ -279,11 +333,16 @@ pub fn generate_cpu_metrics(platform: &PlatformType) -> CpuMetrics {
             let total_cores = socket_count * cores_per_socket;
             let total_threads = total_cores * 2;
 
-            let socket_utilizations: Vec<f32> = (0..socket_count)
-                .map(|_| rng.random_range(30.0..85.0))
+            let per_core_utilization: Vec<f32> = (0..total_cores)
+                .map(|_| rng.random_range(25.0..90.0))
                 .collect();
+
             let overall_util =
-                socket_utilizations.iter().sum::<f32>() / socket_utilizations.len() as f32;
+                per_core_utilization.iter().sum::<f32>() / per_core_utilization.len() as f32;
+
+            let socket_utilizations: Vec<f32> = (0..socket_count)
+                .map(|_| overall_util + rng.random_range(-5.0..5.0))
+                .collect();
 
             CpuMetrics {
                 model,
@@ -302,6 +361,7 @@ pub fn generate_cpu_metrics(platform: &PlatformType) -> CpuMetrics {
                 e_core_utilization: None,
                 p_cluster_frequency_mhz: None,
                 e_cluster_frequency_mhz: None,
+                per_core_utilization,
             }
         }
         PlatformType::Tenstorrent => {
@@ -314,11 +374,16 @@ pub fn generate_cpu_metrics(platform: &PlatformType) -> CpuMetrics {
             let total_cores = socket_count * cores_per_socket;
             let total_threads = total_cores * 2;
 
-            let socket_utilizations: Vec<f32> = (0..socket_count)
-                .map(|_| rng.random_range(25.0..75.0))
+            let per_core_utilization: Vec<f32> = (0..total_cores)
+                .map(|_| rng.random_range(20.0..80.0))
                 .collect();
+
             let overall_util =
-                socket_utilizations.iter().sum::<f32>() / socket_utilizations.len() as f32;
+                per_core_utilization.iter().sum::<f32>() / per_core_utilization.len() as f32;
+
+            let socket_utilizations: Vec<f32> = (0..socket_count)
+                .map(|_| overall_util + rng.random_range(-3.0..3.0))
+                .collect();
 
             CpuMetrics {
                 model,
@@ -337,6 +402,7 @@ pub fn generate_cpu_metrics(platform: &PlatformType) -> CpuMetrics {
                 e_core_utilization: None,
                 p_cluster_frequency_mhz: None,
                 e_cluster_frequency_mhz: None,
+                per_core_utilization,
             }
         }
     }
