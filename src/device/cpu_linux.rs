@@ -3,7 +3,9 @@ use crate::device::{
 };
 use crate::utils::system::get_hostname;
 use chrono::Local;
+use std::cell::RefCell;
 use std::fs;
+use std::process::Command;
 
 type CpuInfoParseResult = Result<
     (
@@ -23,11 +25,19 @@ type CpuInfoParseResult = Result<
 type CpuStatParseResult =
     Result<(f64, Vec<CpuSocketInfo>, Vec<CoreUtilization>), Box<dyn std::error::Error>>;
 
-pub struct LinuxCpuReader;
+pub struct LinuxCpuReader {
+    // Use Option<Option<u32>> to distinguish:
+    // - None: not cached yet
+    // - Some(None): lscpu was called but failed
+    // - Some(Some(value)): lscpu succeeded with value
+    cached_lscpu_cache_size: RefCell<Option<Option<u32>>>,
+}
 
 impl LinuxCpuReader {
     pub fn new() -> Self {
-        Self
+        Self {
+            cached_lscpu_cache_size: RefCell::new(None),
+        }
     }
 
     fn get_cpu_info_from_proc(&self) -> Result<CpuInfo, Box<dyn std::error::Error>> {
@@ -46,8 +56,15 @@ impl LinuxCpuReader {
             total_threads,
             base_frequency,
             max_frequency,
-            cache_size,
+            mut cache_size,
         ) = self.parse_cpuinfo(&cpuinfo_content)?;
+
+        // If cache_size is 0, try to get it from lscpu
+        if cache_size == 0 {
+            if let Some(lscpu_cache) = self.get_cache_size_from_lscpu() {
+                cache_size = lscpu_cache;
+            }
+        }
 
         // Read /proc/stat for CPU utilization
         let stat_content = fs::read_to_string("/proc/stat")?;
@@ -285,6 +302,107 @@ impl LinuxCpuReader {
         }
 
         None
+    }
+
+    fn get_cache_size_from_lscpu(&self) -> Option<u32> {
+        // Check if we have cached value
+        if let Some(cached_result) = &*self.cached_lscpu_cache_size.borrow() {
+            // We've already tried lscpu, return the cached result
+            return *cached_result;
+        }
+
+        // Try to get cache size from lscpu
+        let result = if let Ok(output) = Command::new("lscpu").output() {
+            let output_str = String::from_utf8_lossy(&output.stdout);
+
+            // Look for cache lines (L3 preferred, then L2 as fallback)
+            // Note: On some systems like Jetson, the lines might be indented
+            let mut found_l3_cache = None;
+            let mut found_l2_cache = None;
+
+            for line in output_str.lines() {
+                let line = line.trim();
+
+                // Check for L3 cache (handle both "L3:" and "L3 cache:" formats)
+                if line.starts_with("L3:") || line.starts_with("L3 cache:") {
+                    if let Some(size_part) = line.split(':').nth(1) {
+                        let size_part = size_part.trim();
+
+                        // Parse different formats: "4 MiB", "4MiB", "4096 KiB", etc.
+                        // Also handle format with instances: "4 MiB (2 instances)"
+                        let parts: Vec<&str> = size_part.split_whitespace().collect();
+                        if !parts.is_empty() {
+                            if let Ok(size) = parts[0].parse::<f64>() {
+                                let unit = if parts.len() > 1 {
+                                    parts[1].to_lowercase()
+                                } else {
+                                    // Try to extract unit from the first part if it's like "4MiB"
+                                    let num_end = parts[0]
+                                        .find(|c: char| !c.is_numeric() && c != '.')
+                                        .unwrap_or(parts[0].len());
+                                    parts[0][num_end..].to_lowercase()
+                                };
+
+                                let size_mb = match unit.as_str() {
+                                    "mib" | "mb" => size as u32,
+                                    "kib" | "kb" => (size / 1024.0) as u32,
+                                    "gib" | "gb" => (size * 1024.0) as u32,
+                                    _ => 0,
+                                };
+
+                                if size_mb > 0 {
+                                    found_l3_cache = Some(size_mb);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Check for L2 cache as fallback (handle both "L2:" and "L2 cache:" formats)
+                if (line.starts_with("L2:") || line.starts_with("L2 cache:"))
+                    && found_l3_cache.is_none()
+                {
+                    if let Some(size_part) = line.split(':').nth(1) {
+                        let size_part = size_part.trim();
+
+                        let parts: Vec<&str> = size_part.split_whitespace().collect();
+                        if !parts.is_empty() {
+                            if let Ok(size) = parts[0].parse::<f64>() {
+                                let unit = if parts.len() > 1 {
+                                    parts[1].to_lowercase()
+                                } else {
+                                    let num_end = parts[0]
+                                        .find(|c: char| !c.is_numeric() && c != '.')
+                                        .unwrap_or(parts[0].len());
+                                    parts[0][num_end..].to_lowercase()
+                                };
+
+                                let size_mb = match unit.as_str() {
+                                    "mib" | "mb" => size as u32,
+                                    "kib" | "kb" => (size / 1024.0) as u32,
+                                    "gib" | "gb" => (size * 1024.0) as u32,
+                                    _ => 0,
+                                };
+
+                                if size_mb > 0 {
+                                    found_l2_cache = Some(size_mb);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Return L3 if found, otherwise L2
+            found_l3_cache.or(found_l2_cache)
+        } else {
+            None
+        };
+
+        // Cache the result (whether success or failure)
+        *self.cached_lscpu_cache_size.borrow_mut() = Some(result);
+
+        result
     }
 }
 
