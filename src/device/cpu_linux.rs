@@ -20,6 +20,9 @@ type CpuInfoParseResult = Result<
     Box<dyn std::error::Error>,
 >;
 
+type CpuStatParseResult =
+    Result<(f64, Vec<CpuSocketInfo>, Vec<CoreUtilization>), Box<dyn std::error::Error>>;
+
 pub struct LinuxCpuReader;
 
 impl LinuxCpuReader {
@@ -173,11 +176,7 @@ impl LinuxCpuReader {
         ))
     }
 
-    fn parse_cpu_stat(
-        &self,
-        content: &str,
-        socket_count: u32,
-    ) -> Result<(f64, Vec<CpuSocketInfo>, Vec<CoreUtilization>), Box<dyn std::error::Error>> {
+    fn parse_cpu_stat(&self, content: &str, socket_count: u32) -> CpuStatParseResult {
         let mut overall_utilization = 0.0;
         let mut per_socket_info = Vec::new();
         let mut per_core_utilization = Vec::new();
