@@ -2,37 +2,71 @@
 name: Update Homebrew Formula
 
 on:
-  workflow_dispatch:  # Allow manual triggering
+  workflow_dispatch:
     inputs:
       release_tag:
-        description: 'Release tag to upload artifacts to (e.g. v1.2.3)'
-        required: false
+        description: 'Release tag (e.g. v0.6.2)'
+        required: true
 
-# Required permissions for release uploads
 permissions:
   contents: write
 
 jobs:
   update-homebrew:
     name: Update Homebrew Formula
-    runs-on: macos-latest  # macOS has Homebrew pre-installed
-    # Access secrets from "packaging" environment
+    runs-on: macos-latest
     environment: packaging
-   
+
     steps:
-    # ───────────────────────────────────────────────────────────────
-    # Update Homebrew formula in tap repository
-    # ───────────────────────────────────────────────────────────────
-    - name: Bump Homebrew formula version
-      uses: dawidd6/action-homebrew-bump-formula@v5
-      with:
-        # GitHub token with 'public_repo' and 'workflow' scopes
-        token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-        # Update directly without forking
-        no_fork: true
-        # Target tap repository
-        tap: lablup/homebrew-tap
-        # Formula name to update
-        formula: all-smi
-        # Release tag to update formula version
-        tag: ${{ github.event.inputs.release_tag }}        
+      - name: Checkout current repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: brew install gnu-sed
+
+      - name: Clone Homebrew tap
+        run: |
+          git clone https://x-access-token:${{ secrets.HOMEBREW_TAP_TOKEN }}@github.com/lablup/homebrew-tap.git
+          cd homebrew-tap
+          git config user.name "GitHub Action"
+          git config user.email "actions@github.com"
+
+      - name: Download and calculate SHA256
+        run: |
+          VERSION="${{ github.event.inputs.release_tag }}"
+          VERSION="${VERSION#v}" # Remove leading 'v'
+
+          MAC_URL="https://github.com/inureyes/all-smi/releases/download/v${VERSION}/all-smi-macos-aarch64.zip"
+          LINUX_ARM_URL="https://github.com/inureyes/all-smi/releases/download/v${VERSION}/all-smi-linux-aarch64.tar.gz"
+          LINUX_X86_URL="https://github.com/inureyes/all-smi/releases/download/v${VERSION}/all-smi-linux-x86_64.tar.gz"
+
+          mkdir -p tmp
+          curl -Ls "$MAC_URL" -o tmp/mac.zip
+          curl -Ls "$LINUX_ARM_URL" -o tmp/linux-arm.tar.gz
+          curl -Ls "$LINUX_X86_URL" -o tmp/linux-x86.tar.gz
+
+          MAC_SHA=$(shasum -a 256 tmp/mac.zip | awk '{print $1}')
+          LINUX_ARM_SHA=$(shasum -a 256 tmp/linux-arm.tar.gz | awk '{print $1}')
+          LINUX_X86_SHA=$(shasum -a 256 tmp/linux-x86.tar.gz | awk '{print $1}')
+
+          echo "version: $VERSION"
+          echo "mac_sha=$MAC_SHA" >> $GITHUB_ENV
+          echo "linux_arm_sha=$LINUX_ARM_SHA" >> $GITHUB_ENV
+          echo "linux_x86_sha=$LINUX_X86_SHA" >> $GITHUB_ENV
+          echo "version=$VERSION" >> $GITHUB_ENV
+
+      - name: Update formula
+        run: |
+          cd homebrew-tap
+
+          gsed -i "s/^  version .*/  version   \"$version\"/" Formula/all-smi.rb
+          gsed -i "s|all-smi-macos-aarch64.zip\".*|all-smi-macos-aarch64.zip\"\n      sha256  \"$mac_sha\"|" Formula/all-smi.rb
+          gsed -i "s|all-smi-linux-aarch64.tar.gz\".*|all-smi-linux-aarch64.tar.gz\"\n      sha256   \"$linux_arm_sha\"|" Formula/all-smi.rb
+          gsed -i "s|all-smi-linux-x86_64.tar.gz\".*|all-smi-linux-x86_64.tar.gz\"\n      sha256   \"$linux_x86_sha\"|" Formula/all-smi.rb
+
+      - name: Commit and push
+        run: |
+          cd homebrew-tap
+          git add Formula/all-smi.rb
+          git commit -m "bump: all-smi to v${{ env.version }}"
+          git push origin main
