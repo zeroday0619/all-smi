@@ -1,5 +1,5 @@
 # .github/workflows/release.yml
-name: release
+name: Release
 
 # ═══════════════════════════════════════════════════════════════
 # Workflow Triggers
@@ -214,36 +214,3 @@ jobs:
       with:
         tag_name: ${{ github.event.release.tag_name || github.event.inputs.release_tag }}
         files: ${{ matrix.asset_name }}${{ matrix.archive_ext }}
-
-  # ═══════════════════════════════════════════════════════════════
-  # Job: Update Homebrew Formula
-  # ═══════════════════════════════════════════════════════════════
-  # Updates the Homebrew formula after all builds complete.
-  # This ensures the formula points to the new release artifacts.
-  # ───────────────────────────────────────────────────────────────
-  update-homebrew:
-    name: Update Homebrew Formula
-    needs: build  # Only run after all builds succeed
-    runs-on: macos-latest  # macOS has Homebrew pre-installed
-    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.update_homebrew == 'true')
-    
-    # Access secrets from "packaging" environment
-    environment: packaging
-    
-    steps:
-    # ───────────────────────────────────────────────────────────────
-    # Update Homebrew formula in tap repository
-    # ───────────────────────────────────────────────────────────────
-    - name: Bump Homebrew formula version
-      uses: dawidd6/action-homebrew-bump-formula@v5
-      with:
-        # GitHub token with 'public_repo' and 'workflow' scopes
-        token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-        # Update directly without forking
-        no_fork: true
-        # Target tap repository
-        tap: lablup/homebrew-tap
-        # Formula name to update
-        formula: all-smi
-        # Release tag to update formula version
-        tag: ${{ github.event.release.tag_name || github.event.inputs.release_tag }}      
