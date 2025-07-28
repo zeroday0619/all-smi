@@ -1,13 +1,13 @@
 name: Update Homebrew Formula
 
 on:
-  workflow_dispatch:  # 수동 실행
+  workflow_dispatch:
     inputs:
       release_tag:
-        description: 'Release tag (e.g. v0.6.2)'
+        description: 'Release tag (e.g. v0.6.3)'
         required: false
 
-  workflow_run:       # "Release" 워크플로우가 끝났을 때 자동 실행
+  workflow_run:
     workflows: ["Release"]
     types:
       - completed
@@ -21,7 +21,6 @@ jobs:
     runs-on: macos-latest
     environment: packaging
 
-    # Release 워크플로우가 실패했을 경우 실행 안 함
     if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
 
     steps:
@@ -53,8 +52,8 @@ jobs:
       - name: Download release artifacts and calculate SHA256
         run: |
           cd homebrew-tap
-          VERSION="${{ env.VERSION }}"
-          VERSION="${VERSION#v}"  # remove leading 'v'
+          RAW_VERSION="${{ env.VERSION }}"
+          VERSION="${RAW_VERSION#v}"  # Remove leading 'v'
 
           MAC_URL="https://github.com/inureyes/all-smi/releases/download/v${VERSION}/all-smi-macos-aarch64.zip"
           LINUX_ARM_URL="https://github.com/inureyes/all-smi/releases/download/v${VERSION}/all-smi-linux-aarch64.tar.gz"
@@ -65,25 +64,32 @@ jobs:
           curl -Ls "$LINUX_ARM_URL" -o tmp/linux-arm.tar.gz
           curl -Ls "$LINUX_X86_URL" -o tmp/linux-x86.tar.gz
 
-          MAC_SHA=$(shasum -a 256 tmp/mac.zip | awk '{print $1}')
-          LINUX_ARM_SHA=$(shasum -a 256 tmp/linux-arm.tar.gz | awk '{print $1}')
-          LINUX_X86_SHA=$(shasum -a 256 tmp/linux-x86.tar.gz | awk '{print $1}')
+          echo "mac_url=$MAC_URL" >> $GITHUB_ENV
+          echo "linux_arm_url=$LINUX_ARM_URL" >> $GITHUB_ENV
+          echo "linux_x86_url=$LINUX_X86_URL" >> $GITHUB_ENV
 
-          echo "mac_sha=$MAC_SHA" >> $GITHUB_ENV
-          echo "linux_arm_sha=$LINUX_ARM_SHA" >> $GITHUB_ENV
-          echo "linux_x86_sha=$LINUX_X86_SHA" >> $GITHUB_ENV
+          echo "mac_sha=$(shasum -a 256 tmp/mac.zip | awk '{print $1}')" >> $GITHUB_ENV
+          echo "linux_arm_sha=$(shasum -a 256 tmp/linux-arm.tar.gz | awk '{print $1}')" >> $GITHUB_ENV
+          echo "linux_x86_sha=$(shasum -a 256 tmp/linux-x86.tar.gz | awk '{print $1}')" >> $GITHUB_ENV
 
       - name: Update formula
         run: |
           cd homebrew-tap
-          gsed -i "s/^  version .*/  version   \"${VERSION}\"/" Formula/all-smi.rb
-          gsed -i "s|all-smi-macos-aarch64.zip\".*|all-smi-macos-aarch64.zip\"\n      sha256  \"${mac_sha}\"|" Formula/all-smi.rb
-          gsed -i "s|all-smi-linux-aarch64.tar.gz\".*|all-smi-linux-aarch64.tar.gz\"\n      sha256   \"${linux_arm_sha}\"|" Formula/all-smi.rb
-          gsed -i "s|all-smi-linux-x86_64.tar.gz\".*|all-smi-linux-x86_64.tar.gz\"\n      sha256   \"${linux_x86_sha}\"|" Formula/all-smi.rb
+
+          gsed -i "s/^  version .*/  version \"${VERSION}\"/" Formula/all-smi.rb
+
+          gsed -i "s|https://github.com/.*/all-smi-macos-aarch64.zip|${mac_url}|" Formula/all-smi.rb
+          gsed -i "/macos-aarch64.zip\"/!b;n;c\      sha256 \"${mac_sha}\"" Formula/all-smi.rb
+
+          gsed -i "s|https://github.com/.*/all-smi-linux-aarch64.tar.gz|${linux_arm_url}|" Formula/all-smi.rb
+          gsed -i "/linux-aarch64.tar.gz\"/!b;n;c\      sha256 \"${linux_arm_sha}\"" Formula/all-smi.rb
+
+          gsed -i "s|https://github.com/.*/all-smi-linux-x86_64.tar.gz|${linux_x86_url}|" Formula/all-smi.rb
+          gsed -i "/linux-x86_64.tar.gz\"/!b;n;c\      sha256 \"${linux_x86_sha}\"" Formula/all-smi.rb
 
       - name: Commit and push changes to tap
         run: |
           cd homebrew-tap
           git add Formula/all-smi.rb
-          git commit -m "bump: all-smi to v${VERSION}"
+          git commit -m "bump: all-smi to v${{ env.VERSION }}"
           git push origin main
