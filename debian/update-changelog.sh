@@ -1,38 +1,56 @@
-#!/bin/bash
-# Script to update debian/changelog from GitHub releases
+#!/usr/bin/env bash
+# --------------------------------------------------------------
+# Regenerates debian/changelog from GitHub releases.
+# •	If you pass a <tag> argument, only that release is processed.
+# •	If you pass multiple tags separated by spaces, they’re processed in that order.
+# •	If no tags are supplied, the script processes the latest 100 releases.
+# •	Use -d | --distro to set the target distribution (e.g., jammy, noble); the default is jammy.
+# --------------------------------------------------------------
 
-set -e
+set -euo pipefail
 
-# Check if gh CLI is installed
-if ! command -v gh &> /dev/null; then
-    echo "Error: GitHub CLI (gh) is not installed"
-    exit 1
+DISTRO="jammy"
+TAGS=()
+
+# --------------------- CLI parsing ---------------------------
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -d|--distro)
+      DISTRO="$2"; shift 2 ;;
+    -h|--help)
+      echo "Usage: $0 [-d distro] [tag1 [tag2 ...]]"; exit 0 ;;
+    *)
+      TAGS+=("$1"); shift ;;
+  esac
+done
+
+# --------------------- Dependency check ----------------------
+command -v gh   >/dev/null || { echo "❌ gh CLI not found"; exit 1; }
+command -v jq   >/dev/null || { echo "❌ jq not found"; exit 1; }
+
+# --------------------- Collect release list ------------------
+if [[ ${#TAGS[@]} -eq 0 ]]; then
+  # Latest 100 tags if no specific tags provided
+  mapfile -t TAGS < <(gh release list --limit 100 --json tagName -q '.[].tagName')
 fi
 
-# Get all releases
-RELEASES=$(gh release list --limit 100 --json tagName,publishedAt,name,body)
+# debian/changelog 
+> debian/changelog.tmp
 
-# Start fresh changelog
-echo -n "" > debian/changelog.tmp
+for TAG in "${TAGS[@]}"; do
+  echo "ℹ️  Processing $TAG"
+  rel_json=$(gh release view "$TAG" --json tagName,publishedAt,name,body)
 
-# Process each release
-echo "$RELEASES" | jq -r '.[] | @base64' | while read -r release; do
-    _jq() {
-        echo "${release}" | base64 -d | jq -r "${1}"
-    }
-    
-    TAG=$(_jq '.tagName')
-    VERSION="${TAG#v}"
-    DATE=$(_jq '.publishedAt')
-    NAME=$(_jq '.name')
-    BODY=$(_jq '.body')
-    
-    # Format date for debian changelog
-    FORMATTED_DATE=$(date -d "$DATE" "+%a, %d %b %Y %H:%M:%S %z")
-    
-    # Write changelog entry
-    cat >> debian/changelog.tmp << EOF
-all-smi (${VERSION}-1~ubuntu1) jammy; urgency=medium
+  VERSION="${TAG#v}"
+  DATE=$(echo "$rel_json" | jq -r '.publishedAt')
+  NAME=$(echo "$rel_json" | jq -r '.name')
+  BODY=$(echo "$rel_json" | jq -r '.body')
+
+  # Debian date format
+  FORMATTED_DATE=$(date -d "$DATE" "+%a, %d %b %Y %H:%M:%S %z")
+
+  cat >> debian/changelog.tmp <<EOF
+all-smi (${VERSION}-1~${DISTRO}1) ${DISTRO}; urgency=medium
 
   * ${NAME}
 $(echo "$BODY" | sed 's/^/  /')
@@ -42,7 +60,5 @@ $(echo "$BODY" | sed 's/^/  /')
 EOF
 done
 
-# Replace the changelog
 mv debian/changelog.tmp debian/changelog
-
-echo "Updated debian/changelog from GitHub releases"
+echo "✅ debian/changelog updated for: ${TAGS[*]}"

@@ -1,5 +1,5 @@
-# .github/workflows/debian_package.yml
-name: Build and Upload Debian Package
+# .github/workflows/debian_build.yml
+name: Build Debian Packages
 
 # ═══════════════════════════════════════════════════════════════
 # Workflow Triggers
@@ -10,26 +10,19 @@ name: Build and Upload Debian Package
 # ───────────────────────────────────────────────────────────────
 on:
   workflow_run:
-    workflows: ["release"]
+    workflows: ["Release"]
     types: [completed]
     branches: [main]
   
   workflow_dispatch:
     inputs:
       release_tag:
-        description: 'Release tag to build packages for (e.g. v0.6.3)'
-        required: true
-      upload_to_ppa:
-        description: 'Upload to Ubuntu PPA after build'
+        description: 'Release tag to build packages for (e.g. v0.5.0). Empty = latest release'
         required: false
-        default: 'true'
-        type: choice
-        options:
-          - 'true'
-          - 'false'
 
+# Required permissions for release uploads
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   # ═══════════════════════════════════════════════════════════════
@@ -43,9 +36,6 @@ jobs:
     
     # Only run if the release workflow succeeded or manual trigger
     if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
-    
-    # Access secrets from "packaging" environment
-    environment: packaging
     
     strategy:
       fail-fast: false
@@ -78,6 +68,20 @@ jobs:
             arch: arm64
             os: ubuntu-24.04-arm
             binary_asset: all-smi-linux-aarch64.tar.gz
+          
+          # Ubuntu 24.10 (Oracular) - AMD64
+          - distro: oracular
+            version: "24.10"
+            arch: amd64
+            os: ubuntu-24.04
+            binary_asset: all-smi-linux-x86_64.tar.gz
+          
+          # Ubuntu 24.10 (Oracular) - ARM64  
+          - distro: oracular
+            version: "24.10"
+            arch: arm64
+            os: ubuntu-24.04-arm
+            binary_asset: all-smi-linux-aarch64.tar.gz
     
     steps:
     # ───────────────────────────────────────────────────────────────
@@ -87,14 +91,14 @@ jobs:
       uses: actions/checkout@v4
       with:
         fetch-depth: 0  # Full history for changelog generation
-    
+
     # ───────────────────────────────────────────────────────────────
     # Step 2: Determine release tag
     # ───────────────────────────────────────────────────────────────
     - name: Get release tag
       id: get_tag
       run: |
-        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ github.event.inputs.release_tag }}" ]; then
           echo "tag=${{ github.event.inputs.release_tag }}" >> "$GITHUB_OUTPUT"
         else
           # Get the latest release tag
@@ -103,9 +107,18 @@ jobs:
         fi
       env:
         GH_TOKEN: ${{ github.token }}
-    
+
     # ───────────────────────────────────────────────────────────────
-    # Step 3: Download pre-built binary from release
+    # Step 3: Update changelog
+    # ───────────────────────────────────────────────────────────────
+    - name: Update debian/changelog from release
+      run: |
+        bash ./debian/update-changelog.sh -d ${{ matrix.distro }} ${{ steps.get_tag.outputs.tag }}
+      env:
+        GH_TOKEN: ${{ github.token }}
+        
+    # ───────────────────────────────────────────────────────────────
+    # Step 4: Download pre-built binary from release
     # ───────────────────────────────────────────────────────────────
     - name: Download release binary
       run: |
@@ -128,7 +141,7 @@ jobs:
         GH_TOKEN: ${{ github.token }}
     
     # ───────────────────────────────────────────────────────────────
-    # Step 4: Setup build environment
+    # Step 5: Setup build environment
     # ───────────────────────────────────────────────────────────────
     - name: Install build dependencies
       run: |
@@ -139,13 +152,11 @@ jobs:
           dh-make \
           fakeroot \
           lintian \
-          dput \
-          gpg \
           dpkg-dev \
           build-essential
     
     # ───────────────────────────────────────────────────────────────
-    # Step 5: Prepare for building
+    # Step 6: Prepare for building
     # ───────────────────────────────────────────────────────────────
     - name: Prepare package version
       run: |
@@ -154,34 +165,29 @@ jobs:
         VERSION="${VERSION#v}"
         echo "PACKAGE_VERSION=${VERSION}" >> "$GITHUB_ENV"
         
-        # Update debian changelog for the target distro
-        DEBEMAIL="inureyes@gmail.com" \
-        DEBFULLNAME="Jeongkyu Shin" \
-        dch --distribution ${{ matrix.distro }} \
-            --newversion "${VERSION}-1~${{ matrix.distro }}1" \
-            --force-distribution \
-            "Release ${VERSION} for ${{ matrix.distro }}"
+        # Verify changelog was updated correctly
+        head -n 1 debian/changelog | grep -q "${VERSION}-1~${{ matrix.distro }}1" || {
+          echo "Error: Changelog version mismatch. Expected ${VERSION}-1~${{ matrix.distro }}1"
+          echo "Found: $(head -n 1 debian/changelog)"
+          exit 1
+        }
     
     # ───────────────────────────────────────────────────────────────
-    # Step 6: Prepare architecture-specific build
+    # Step 7: Setup for binary package build
     # ───────────────────────────────────────────────────────────────
-    - name: Prepare for architecture-specific build
+    - name: Setup for binary build
       run: |
-        # Set target architecture properly in control file
+        # Use binary-specific packaging files
+        if [ -f debian/control.binary ]; then
+          cp debian/control.binary debian/control
+        fi
+        if [ -f debian/rules.binary ]; then
+          cp debian/rules.binary debian/rules
+          chmod +x debian/rules
+        fi
+        
+        # Set target architecture in control file
         sed -i '/^Architecture:/c\Architecture: '${{ matrix.arch }} debian/control
-        echo "::group::Updated debian/control"
-        cat debian/control
-        echo "::endgroup::"
-    
-    # ───────────────────────────────────────────────────────────────
-    # Step 7: Import GPG signing key
-    # ───────────────────────────────────────────────────────────────
-    - name: Import GPG key
-      if: github.event.workflow_run.conclusion == 'success' || github.event.inputs.upload_to_ppa == 'true'
-      run: |
-        echo "${{ secrets.GPG_PRIVATE_KEY }}" | gpg --batch --import
-        # Trust the key
-        echo -e "5\ny\n" | gpg --command-fd 0 --expert --edit-key "${{ secrets.GPG_KEY_ID }}" trust
     
     # ───────────────────────────────────────────────────────────────
     # Step 8: Build binary package
@@ -190,78 +196,76 @@ jobs:
       run: |
         # Build binary package using the pre-built binary
         dpkg-buildpackage -b -uc -us
-    
+
     # ───────────────────────────────────────────────────────────────
     # Step 9: Run lintian checks
     # ───────────────────────────────────────────────────────────────
     - name: Check package with lintian
       run: |
         lintian --info --display-level ">=warning" ../*.deb || true
-    
-    # ───────────────────────────────────────────────────────────────
-    # Step 10: Build source package (only for amd64 to avoid duplicates)
-    # ───────────────────────────────────────────────────────────────
-    - name: Build source package
-      if: matrix.arch == 'amd64'
-      run: |
-        # Clean the build directory
-        debian/rules clean
-        
-        # Remove the pre-built binary to create a clean source package
-        rm -f all-smi
-        
-        # Restore original Architecture field for source package
-        sed -i "s/Architecture: .*/Architecture: amd64 arm64/" debian/control
-        
-        # Build source package for PPA
-        dpkg-buildpackage -S -sa -k"${{ secrets.GPG_KEY_ID }}"
-    
-    # ───────────────────────────────────────────────────────────────
-    # Step 11: Upload to PPA (only source packages from amd64 builds)
-    # ───────────────────────────────────────────────────────────────
-    - name: Upload to Ubuntu PPA
-      if: (github.event.workflow_run.conclusion == 'success' || github.event.inputs.upload_to_ppa == 'true') && matrix.arch == 'amd64'
-      run: |
-        # Configure dput for PPA upload
-        cat > ~/.dput.cf << EOF
-        [backend-ai-ppa]
-        fqdn = ppa.launchpad.net
-        method = ftp
-        incoming = ~lablup/ubuntu/backend-ai/
-        login = anonymous
-        allow_unsigned_uploads = 0
-        EOF
-        
-        # Upload source package to PPA
-        # The PPA will build binary packages for all architectures
-        dput backend-ai-ppa ../*_source.changes
-    
-    # ───────────────────────────────────────────────────────────────
-    # Step 12: Move build artifacts to local directory for upload
-    # ───────────────────────────────────────────────────────────────
-    - name: Move build artifacts
-      run: |
-        mkdir -p artifacts
-        mv ../*.deb artifacts/ || true
-        mv ../*.dsc artifacts/ || true
-        mv ../*.changes artifacts/ || true
-        mv ../*.buildinfo artifacts/ || true
-        mv ../*.tar.* artifacts/ || true
 
     # ───────────────────────────────────────────────────────────────
-    # Step 13: Upload artifacts
+    # Step 10: Prepare artifacts
+    # ───────────────────────────────────────────────────────────────
+    - name: Prepare artifacts
+      run: |
+        set -e
+        VER="${{ env.PACKAGE_VERSION }}"
+        DIST="${{ matrix.distro }}"
+        SERIES="${{ matrix.version }}"
+        ARCH="${{ matrix.arch }}"
+
+        mkdir -p artifacts
+
+        for f in ../*_${ARCH}.deb; do
+          mv "$f" "artifacts/all-smi_${VER}_ubuntu${SERIES}.${DIST}_${ARCH}.deb"
+        done
+
+        for f in ../*_${ARCH}.buildinfo; do
+          mv "$f" "artifacts/all-smi_${VER}_ubuntu${SERIES}.${DIST}_${ARCH}.buildinfo"
+        done
+
+    # ───────────────────────────────────────────────────────────────
+    # Step 11: Upload build artifacts
     # ───────────────────────────────────────────────────────────────
     - name: Upload build artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: debian-package-${{ matrix.distro }}-${{ matrix.arch }}
+        name: all-smi_${{ env.PACKAGE_VERSION }}_ubuntu${{ matrix.version }}.${{ matrix.distro }}_${{ matrix.arch }}
         path: artifacts/
         retention-days: 7
 
+    # ───────────────────────────────────────────────────────────────
+    # Step 12: Delete existing release artifacts (if any)
+    # ───────────────────────────────────────────────────────────────
+    - name: Delete existing release artifacts
+      if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+      run: |
+        # Get list of assets to delete
+        TAG="${{ steps.get_tag.outputs.tag }}"
+        DIST="${{ matrix.distro }}"
+        ARCH="${{ matrix.arch }}"
+        
+        # Delete existing .deb files for this specific distribution/architecture
+        gh release view "$TAG" --json assets -q '.assets[].name' | while read -r asset; do
+          if [[ "$asset" == *"ubuntu"*"$DIST"*"$ARCH"*".deb" ]]; then
+            echo "Deleting existing asset: $asset"
+            gh release delete-asset "$TAG" "$asset" -y || true
+          fi
+        done
+      env:
+        GH_TOKEN: ${{ github.token }}
+    
+    # ───────────────────────────────────────────────────────────────
+    # Step 13: Upload new release artifacts
+    # ───────────────────────────────────────────────────────────────
     - name: Upload release artifact
       if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
       uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ steps.get_tag.outputs.tag }}
         files: artifacts/*.deb
-        # name: all-smi_${{ steps.get_tag.outputs.tag }}_${{ matrix.distro }}_${{ matrix.arch }}.deb
+        # Don't fail if some files don't match the pattern
+        fail_on_unmatched_files: false
+        # Don't update the "latest" release pointer
+        make_latest: false
