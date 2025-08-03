@@ -54,6 +54,7 @@ jobs:
           cd homebrew-tap
           RAW_VERSION="${{ env.VERSION }}"
           VERSION="${RAW_VERSION#v}"  # Remove leading 'v'
+          echo "VERSION_NO_V=$VERSION" >> $GITHUB_ENV  # Export version without 'v' to GitHub env
 
           MAC_URL="https://github.com/inureyes/all-smi/releases/download/v${VERSION}/all-smi-macos-aarch64.zip"
           LINUX_ARM_URL="https://github.com/inureyes/all-smi/releases/download/v${VERSION}/all-smi-linux-aarch64.tar.gz"
@@ -75,6 +76,7 @@ jobs:
       - name: Update formula
         run: |
           cd homebrew-tap
+          VERSION="${{ env.VERSION_NO_V }}"  # Use version without 'v'
 
           gsed -i "s/^  version .*/  version \"${VERSION}\"/" Formula/all-smi.rb
 
@@ -91,5 +93,5 @@ jobs:
         run: |
           cd homebrew-tap
           git add Formula/all-smi.rb
-          git commit -m "bump: all-smi to v${{ env.VERSION }}"
+          git commit -m "bump: all-smi to v${{ env.VERSION_NO_V }}"
           git push origin main
