@@ -50,16 +50,25 @@ For Debian and other Debian-based distributions, download the `.deb` package fro
 
 ```bash
 # Download the latest .deb package (replace VERSION with the actual version)
-wget https://github.com/inureyes/all-smi/releases/download/vVERSION/all-smi_VERSION_amd64.deb
+wget https://github.com/inureyes/all-smi/releases/download/vVERSION/all-smi_VERSION_OS_ARCH.deb
+# Example: all-smi_0.7.0_ubuntu24.04.noble_amd64.deb
 
 # Install the package
-sudo dpkg -i all-smi_VERSION_amd64.deb
+sudo dpkg -i all-smi_VERSION_OS_ARCH.deb
 
 # If there are dependency issues, fix them with:
 sudo apt-get install -f
 ```
 
-### Option 4: Install from Cargo
+### Option 4: Download Pre-built Binary
+
+Download the latest release from the [GitHub releases page](https://github.com/inureyes/all-smi/releases):
+
+1. Go to https://github.com/inureyes/all-smi/releases
+2. Download the appropriate binary for your platform
+3. Extract the archive and place the binary in your `$PATH`
+
+### Option 5: Install from Cargo
 
 Install all-smi through Cargo:
 
@@ -68,14 +77,6 @@ cargo install all-smi
 ```
 
 After installation, the binary will be available in your `$PATH` as `all-smi`.
-
-### Option 5: Download Pre-built Binary
-
-Download the latest release from the [GitHub releases page](https://github.com/inureyes/all-smi/releases):
-
-1. Go to https://github.com/inureyes/all-smi/releases
-2. Download the appropriate binary for your platform
-3. Extract the archive and place the binary in your `$PATH`
 
 ### Option 6: Build from Source
 
