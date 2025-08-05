@@ -4,7 +4,7 @@
 pub const SCREEN_MARGIN: usize = 10;
 
 /// Animation speed for loading indicator (lower = faster)
-pub const ANIMATION_SPEED: u64 = 3;
+pub const ANIMATION_SPEED: u64 = 2;
 
 /// Maximum size of the loading indicator block
 pub const BLOCK_SIZE_MAX: usize = 3;
