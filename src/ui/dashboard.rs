@@ -27,12 +27,52 @@ pub fn draw_system_view<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
             .count()
     };
     let total_gpus = state.gpu_info.len();
-    let total_memory_gb = state
-        .gpu_info
-        .iter()
-        .map(|gpu| gpu.total_memory)
-        .sum::<u64>() as f64
-        / (1024.0 * 1024.0 * 1024.0);
+
+    // Check if we're on Apple Silicon
+    let is_apple_silicon = state.gpu_info.iter().any(|gpu| {
+        gpu.detail
+            .get("Architecture")
+            .map(|arch| arch == "Apple Silicon")
+            .unwrap_or(false)
+    });
+
+    // Calculate GPU cores/count based on mode
+    // - Remote mode: show number of GPUs in the cluster
+    // - Local Apple Silicon: show actual GPU core count
+    // - Local non-Apple Silicon: show number of GPUs
+    let gpu_cores_display = if !is_local_mode {
+        // Remote mode: show total number of GPUs
+        total_gpus
+    } else if is_apple_silicon {
+        // Local Apple Silicon: show actual GPU core count
+        state
+            .gpu_info
+            .iter()
+            .map(|gpu| gpu.gpu_core_count.unwrap_or(0) as usize)
+            .sum::<usize>()
+    } else {
+        // Local non-Apple Silicon: show number of GPUs
+        total_gpus
+    };
+
+    let total_memory_gb = if is_apple_silicon {
+        // Use system RAM for Apple Silicon
+        state
+            .memory_info
+            .iter()
+            .map(|memory| memory.total_bytes)
+            .sum::<u64>() as f64
+            / (1024.0 * 1024.0 * 1024.0)
+    } else {
+        // Use GPU memory for other platforms
+        state
+            .gpu_info
+            .iter()
+            .map(|gpu| gpu.total_memory)
+            .sum::<u64>() as f64
+            / (1024.0 * 1024.0 * 1024.0)
+    };
+
     let total_power_watts = state
         .gpu_info
         .iter()
@@ -79,31 +119,49 @@ pub fn draw_system_view<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
         0.0
     };
 
-    let avg_temperature = if total_gpus > 0 {
-        state
+    // For Apple Silicon, get thermal pressure text; for others, calculate numeric temperature
+    let (avg_temperature_display, temp_std_dev_display) = if is_apple_silicon && total_gpus > 0 {
+        // Get the thermal pressure text from the first GPU (they should all be the same on a single machine)
+        let thermal_pressure = state
             .gpu_info
-            .iter()
-            .map(|gpu| gpu.temperature as f64)
-            .sum::<f64>()
-            / total_gpus as f64
+            .first()
+            .and_then(|gpu| gpu.detail.get("Thermal Pressure"))
+            .cloned()
+            .unwrap_or_else(|| "Unknown".to_string());
+        (thermal_pressure, "N/A".to_string())
     } else {
-        0.0
-    };
+        // Calculate numeric temperature for non-Apple Silicon
+        let avg_temperature = if total_gpus > 0 {
+            state
+                .gpu_info
+                .iter()
+                .map(|gpu| gpu.temperature as f64)
+                .sum::<f64>()
+                / total_gpus as f64
+        } else {
+            0.0
+        };
 
-    // Calculate temperature standard deviation
-    let temp_std_dev = if total_gpus > 1 {
-        let temp_variance = state
-            .gpu_info
-            .iter()
-            .map(|gpu| {
-                let diff = gpu.temperature as f64 - avg_temperature;
-                diff * diff
-            })
-            .sum::<f64>()
-            / (total_gpus - 1) as f64;
-        temp_variance.sqrt()
-    } else {
-        0.0
+        // Calculate temperature standard deviation
+        let temp_std_dev = if total_gpus > 1 {
+            let temp_variance = state
+                .gpu_info
+                .iter()
+                .map(|gpu| {
+                    let diff = gpu.temperature as f64 - avg_temperature;
+                    diff * diff
+                })
+                .sum::<f64>()
+                / (total_gpus - 1) as f64;
+            temp_variance.sqrt()
+        } else {
+            0.0
+        };
+
+        (
+            format!("{avg_temperature:.0}°C"),
+            format!("±{temp_std_dev:.1}°C"),
+        )
     };
 
     let avg_power = if total_gpus > 0 {
@@ -113,12 +171,23 @@ pub fn draw_system_view<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
     };
 
     // Calculate used GPU memory in GB
-    let used_gpu_memory_gb = state
-        .gpu_info
-        .iter()
-        .map(|gpu| gpu.used_memory)
-        .sum::<u64>() as f64
-        / (1024.0 * 1024.0 * 1024.0);
+    let used_gpu_memory_gb = if is_apple_silicon {
+        // Use system RAM for Apple Silicon
+        state
+            .memory_info
+            .iter()
+            .map(|memory| memory.used_bytes)
+            .sum::<u64>() as f64
+            / (1024.0 * 1024.0 * 1024.0)
+    } else {
+        // Use GPU memory for other platforms
+        state
+            .gpu_info
+            .iter()
+            .map(|gpu| gpu.used_memory)
+            .sum::<u64>() as f64
+            / (1024.0 * 1024.0 * 1024.0)
+    };
 
     // First row: | Nodes | Total RAM | GPU Cores | Total GPU RAM | Avg. Temp | Total Power |
     print_dashboard_row(
@@ -134,13 +203,9 @@ pub fn draw_system_view<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
                 format_ram_value(total_system_memory_gb),
                 Color::Green,
             ),
-            ("GPU Cores", format!("{total_gpus}"), Color::Cyan),
+            ("GPU Cores", format!("{gpu_cores_display}"), Color::Cyan),
             ("Total VRAM", format_ram_value(total_memory_gb), Color::Blue),
-            (
-                "Avg. Temp",
-                format!("{avg_temperature:.0}°C"),
-                Color::Magenta,
-            ),
+            ("Avg. Temp", avg_temperature_display, Color::Magenta),
             (
                 "Total Power",
                 format!("{:.1}kW", total_power_watts / 1000.0),
@@ -166,11 +231,7 @@ pub fn draw_system_view<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
                 format_ram_value(used_gpu_memory_gb),
                 Color::Blue,
             ),
-            (
-                "Temp. Stdev",
-                format!("±{temp_std_dev:.1}°C"),
-                Color::Magenta,
-            ),
+            ("Temp. Stdev", temp_std_dev_display, Color::Magenta),
             ("Avg. Power", format!("{avg_power:.1}W"), Color::Red),
         ],
         box_width,

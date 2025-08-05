@@ -10,15 +10,18 @@ use sysinfo::System;
 pub struct AppleSiliconGpuReader {
     name: String,
     driver_version: Option<String>,
+    gpu_core_count: Option<u32>,
 }
 
 impl AppleSiliconGpuReader {
     pub fn new() -> Self {
         let (name, driver_version) = get_gpu_name_and_version();
+        let gpu_core_count = get_gpu_core_count();
 
         AppleSiliconGpuReader {
             name,
             driver_version,
+            gpu_core_count,
         }
     }
 
@@ -120,6 +123,7 @@ impl GpuReader for AppleSiliconGpuReader {
             total_memory: 0, // Using unified memory
             frequency: metrics.frequency.unwrap_or(0),
             power_consumption: metrics.power_consumption.unwrap_or(0.0),
+            gpu_core_count: self.gpu_core_count,
             detail,
         }]
     }
@@ -275,4 +279,33 @@ fn get_gpu_name_and_version() -> (String, Option<String>) {
     }
 
     (gpu_name, driver_version)
+}
+
+fn get_gpu_core_count() -> Option<u32> {
+    // Run the ioreg command to get GPU core count
+    let output = Command::new("ioreg")
+        .arg("-rc")
+        .arg("AGXAccelerator")
+        .arg("-d1")
+        .output()
+        .ok()?;
+
+    if output.status.success() {
+        let output_str = String::from_utf8_lossy(&output.stdout);
+        // Find the line containing "gpu-core-count"
+        for line in output_str.lines() {
+            if line.contains("\"gpu-core-count\"") {
+                // Split the line into whitespace-separated fields and get the third field
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 3 {
+                    if let Ok(core_count) = parts[2].parse::<u32>() {
+                        return Some(core_count);
+                    }
+                }
+            }
+        }
+        None
+    } else {
+        None
+    }
 }
