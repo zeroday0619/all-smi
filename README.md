@@ -313,6 +313,12 @@ Contributions are welcome! Areas for contribution include:
 
 Please submit pull requests or open issues for bugs, feature requests, or questions.
 
+## Acknowledgments
+
+This project is being developed with tremendous help from [Claude Code](https://claude.ai/code) and [Gemini CLI](https://github.com/google-gemini/gemini-cli). These AI-powered development tools have been instrumental in accelerating the development process, improving code quality, and implementing complex features across multiple hardware platforms.
+
+The journey of building all-smi with AI assistance has been a fascinating exploration of how domain expertise guides AI capabilities. From the initial three-day Rust learning sprint with Google AI Studio and ChatGPT to the recent development with Gemini CLI and Claude Code, this project demonstrates that the boundary of AI coding capability is tightly bound by the expertise of the person guiding it. [Read the full development story here](docs/AI_DEVELOPMENT_STORY.md).
+
 ## License
 
 This project is licensed under the Apache License 2.0.  
