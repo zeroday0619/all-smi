@@ -1,6 +1,7 @@
 use crate::device::{CpuInfo, GpuInfo, MemoryInfo, ProcessInfo};
 use crate::storage::info::StorageInfo;
 use crate::ui::notification::NotificationManager;
+use crate::utils::RuntimeEnvironment;
 use std::cmp::Ordering;
 use std::collections::{HashMap, VecDeque};
 use std::time::{Duration, Instant};
@@ -85,6 +86,9 @@ pub struct AppState {
     pub utilization_history: VecDeque<f64>,
     pub memory_history: VecDeque<f64>,
     pub temperature_history: VecDeque<f64>,
+    pub cpu_utilization_history: VecDeque<f64>,
+    pub system_memory_history: VecDeque<f64>,
+    pub cpu_temperature_history: VecDeque<f64>,
     pub notifications: NotificationManager,
     pub nvml_notification_shown: bool,
     pub tenstorrent_notification_shown: bool,
@@ -95,6 +99,8 @@ pub struct AppState {
     pub hostname_to_host_id: HashMap<String, String>,
     // Mode tracking - true for local monitoring, false for remote monitoring
     pub is_local_mode: bool,
+    // Runtime environment (container/VM) information
+    pub runtime_environment: RuntimeEnvironment,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -162,6 +168,9 @@ impl AppState {
             utilization_history: VecDeque::new(),
             memory_history: VecDeque::new(),
             temperature_history: VecDeque::new(),
+            cpu_utilization_history: VecDeque::new(),
+            system_memory_history: VecDeque::new(),
+            cpu_temperature_history: VecDeque::new(),
             notifications: NotificationManager::new(),
             nvml_notification_shown: false,
             tenstorrent_notification_shown: false,
@@ -170,6 +179,7 @@ impl AppState {
             known_hosts: Vec::new(),
             hostname_to_host_id: HashMap::new(),
             is_local_mode: true, // Default to local mode
+            runtime_environment: RuntimeEnvironment::detect(),
         }
     }
 }

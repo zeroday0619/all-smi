@@ -1,11 +1,17 @@
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::fs;
+use std::process::Command;
+
+use chrono::Local;
+use once_cell::sync::Lazy;
+
+use crate::device::container_info::{parse_cpu_stat_with_container_limits, ContainerInfo};
 use crate::device::{
     CoreType, CoreUtilization, CpuInfo, CpuPlatformType, CpuReader, CpuSocketInfo,
 };
 use crate::utils::system::get_hostname;
-use chrono::Local;
-use std::cell::RefCell;
-use std::fs;
-use std::process::Command;
+use crate::utils::{hz_to_mhz, khz_to_mhz, millicelsius_to_celsius};
 
 type CpuInfoParseResult = Result<
     (
@@ -25,18 +31,29 @@ type CpuInfoParseResult = Result<
 type CpuStatParseResult =
     Result<(f64, Vec<CpuSocketInfo>, Vec<CoreUtilization>), Box<dyn std::error::Error>>;
 
+// Cache container detection result globally to avoid repeated filesystem operations
+static CONTAINER_INFO: Lazy<ContainerInfo> = Lazy::new(ContainerInfo::detect);
+
 pub struct LinuxCpuReader {
     // Use Option<Option<u32>> to distinguish:
     // - None: not cached yet
     // - Some(None): lscpu was called but failed
     // - Some(Some(value)): lscpu succeeded with value
     cached_lscpu_cache_size: RefCell<Option<Option<u32>>>,
+    container_info: &'static ContainerInfo,
+}
+
+impl Default for LinuxCpuReader {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl LinuxCpuReader {
     pub fn new() -> Self {
         Self {
             cached_lscpu_cache_size: RefCell::new(None),
+            container_info: &*CONTAINER_INFO,
         }
     }
 
@@ -51,13 +68,32 @@ impl LinuxCpuReader {
             cpu_model,
             architecture,
             platform_type,
-            socket_count,
-            total_cores,
-            total_threads,
+            mut socket_count,
+            mut total_cores,
+            mut total_threads,
             base_frequency,
             max_frequency,
             mut cache_size,
         ) = self.parse_cpuinfo(&cpuinfo_content)?;
+
+        // Adjust core/thread counts based on container limits
+        if self.container_info.is_container {
+            // If in a container, adjust the reported cores based on CPU quota
+            let effective_cores = self.container_info.effective_cpu_count.ceil() as u32;
+
+            // If cpuset is specified, use its count
+            if let Some(cpuset) = &self.container_info.cpuset_cpus {
+                total_cores = cpuset.len() as u32;
+                total_threads = total_cores; // Assume no hyperthreading for simplicity
+            } else if effective_cores < total_cores {
+                // Use quota-based limit if it's more restrictive
+                total_cores = effective_cores;
+                total_threads = effective_cores;
+            }
+
+            // Container typically appears as single socket
+            socket_count = 1;
+        }
 
         // If cache_size is 0, try to get it from lscpu
         if cache_size == 0 {
@@ -69,7 +105,37 @@ impl LinuxCpuReader {
         // Read /proc/stat for CPU utilization
         let stat_content = fs::read_to_string("/proc/stat")?;
         let (overall_utilization, per_socket_info, per_core_utilization) =
-            self.parse_cpu_stat(&stat_content, socket_count)?;
+            if self.container_info.is_container {
+                // Use container-aware parsing
+                let (utilization, active_cores) =
+                    parse_cpu_stat_with_container_limits(&stat_content, self.container_info);
+
+                // Convert active cores to per-core utilization
+                let mut core_utils = Vec::new();
+                for &core_id in &active_cores {
+                    // Parse individual core stats
+                    let core_util = self.get_core_utilization_from_stat(&stat_content, core_id);
+                    core_utils.push(CoreUtilization {
+                        core_id,
+                        core_type: CoreType::Standard,
+                        utilization: core_util,
+                    });
+                }
+
+                // Create socket info for container
+                let socket_info = vec![CpuSocketInfo {
+                    socket_id: 0,
+                    utilization,
+                    cores: total_cores,
+                    threads: total_threads,
+                    temperature: None,
+                    frequency_mhz: base_frequency,
+                }];
+
+                (utilization, socket_info, core_utils)
+            } else {
+                self.parse_cpu_stat(&stat_content, socket_count)?
+            };
 
         // Try to get CPU temperature (may not be available on all systems)
         let temperature = self.get_cpu_temperature();
@@ -101,6 +167,8 @@ impl LinuxCpuReader {
     }
 
     fn parse_cpuinfo(&self, content: &str) -> CpuInfoParseResult {
+        // Get container info to check CPU allocation
+        let container_info = self.container_info;
         let mut cpu_model = String::new();
         let mut architecture = String::new();
         let mut platform_type = CpuPlatformType::Other("Unknown".to_string());
@@ -108,9 +176,15 @@ impl LinuxCpuReader {
         let mut base_frequency = 0u32;
         let mut max_frequency = 0u32;
         let mut cache_size = 0u32;
+        let mut bogomips = 0f64;
+        let mut cpu_mhz_values = Vec::new();
+        let mut cpu_mhz_by_processor: HashMap<u32, f64> = HashMap::new();
+        let mut current_processor_id = None;
 
         let mut physical_ids = std::collections::HashSet::new();
         let mut processor_count = 0u32;
+        let mut cpu_implementer = String::new();
+        let mut cpu_part = String::new();
 
         for line in content.lines() {
             if line.starts_with("model name") {
@@ -127,6 +201,11 @@ impl LinuxCpuReader {
                     }
                 }
             } else if line.starts_with("processor") {
+                if let Some(value) = line.split(':').nth(1) {
+                    if let Ok(id) = value.trim().parse::<u32>() {
+                        current_processor_id = Some(id);
+                    }
+                }
                 processor_count += 1;
             } else if line.starts_with("physical id") {
                 if let Some(value) = line.split(':').nth(1) {
@@ -134,10 +213,16 @@ impl LinuxCpuReader {
                         physical_ids.insert(id);
                     }
                 }
-            } else if line.starts_with("cpu MHz") && base_frequency == 0 {
+            } else if line.starts_with("cpu MHz") {
                 if let Some(value) = line.split(':').nth(1) {
                     if let Ok(freq) = value.trim().parse::<f64>() {
-                        base_frequency = freq as u32;
+                        if freq > 0.0 {
+                            cpu_mhz_values.push(freq);
+                            // Map frequency to processor ID if available
+                            if let Some(proc_id) = current_processor_id {
+                                cpu_mhz_by_processor.insert(proc_id, freq);
+                            }
+                        }
                     }
                 }
             } else if line.starts_with("cache size") && cache_size == 0 {
@@ -147,6 +232,20 @@ impl LinuxCpuReader {
                         if let Ok(size) = size_str.parse::<u32>() {
                             cache_size = size / 1024; // Convert KB to MB
                         }
+                    }
+                }
+            } else if line.starts_with("CPU implementer") {
+                if let Some(value) = line.split(':').nth(1) {
+                    cpu_implementer = value.trim().to_string();
+                }
+            } else if line.starts_with("CPU part") {
+                if let Some(value) = line.split(':').nth(1) {
+                    cpu_part = value.trim().to_string();
+                }
+            } else if line.starts_with("bogomips") && bogomips == 0.0 {
+                if let Some(value) = line.split(':').nth(1) {
+                    if let Ok(bogo) = value.trim().parse::<f64>() {
+                        bogomips = bogo;
                     }
                 }
             }
@@ -165,19 +264,222 @@ impl LinuxCpuReader {
         // Try to get architecture from uname
         if let Ok(output) = std::process::Command::new("uname").arg("-m").output() {
             architecture = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+            // If architecture is ARM and we don't have a CPU model, construct one
+            if (architecture == "aarch64"
+                || architecture == "arm64"
+                || architecture.starts_with("arm"))
+                && cpu_model.is_empty()
+            {
+                platform_type = CpuPlatformType::Arm;
+
+                // Try to construct a model name from implementer and part
+                if !cpu_implementer.is_empty() || !cpu_part.is_empty() {
+                    let implementer_name = match cpu_implementer.as_str() {
+                        "0x41" => "ARM",
+                        "0x42" => "Broadcom",
+                        "0x43" => "Cavium",
+                        "0x44" => "DEC",
+                        "0x4e" => "NVIDIA",
+                        "0x50" => "APM",
+                        "0x51" => "Qualcomm",
+                        "0x53" => "Samsung",
+                        "0x54" => "HiSilicon",
+                        "0x56" => "Marvell",
+                        "0x61" => "Apple",
+                        "0x66" => "Faraday",
+                        "0x69" => "Intel",
+                        _ => "Unknown",
+                    };
+
+                    cpu_model = format!("{implementer_name} ARM Processor");
+                    if !cpu_part.is_empty() {
+                        cpu_model.push_str(&format!(" (Part: {cpu_part})"));
+                    }
+                } else {
+                    cpu_model = "ARM Processor".to_string();
+                }
+            }
         }
 
-        // Try to get max frequency from cpufreq
-        if let Ok(content) =
-            fs::read_to_string("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq")
-        {
-            if let Ok(freq_khz) = content.trim().parse::<u32>() {
-                max_frequency = freq_khz / 1000; // Convert kHz to MHz
+        // Calculate average frequency from cpu MHz values
+        // If in container, only use CPUs assigned to the container
+        if let Some(ref cpuset) = container_info.cpuset_cpus {
+            // Container mode: only average frequencies from assigned CPUs
+            let mut container_cpu_freqs = Vec::new();
+            for &cpu_id in cpuset {
+                if let Some(&freq) = cpu_mhz_by_processor.get(&cpu_id) {
+                    container_cpu_freqs.push(freq);
+                }
+            }
+            if !container_cpu_freqs.is_empty() {
+                let avg_freq =
+                    container_cpu_freqs.iter().sum::<f64>() / container_cpu_freqs.len() as f64;
+                base_frequency = avg_freq as u32;
+                // Container CPU frequency: Using container CPUs from cpuset
+            }
+        } else if !cpu_mhz_values.is_empty() {
+            // Host mode: use all CPU frequencies
+            let avg_freq = cpu_mhz_values.iter().sum::<f64>() / cpu_mhz_values.len() as f64;
+            base_frequency = avg_freq as u32;
+        }
+
+        // Try to get frequency from cpufreq
+        // If in container, try to read from one of the assigned CPUs
+        let cpu_to_check = if let Some(ref cpuset) = container_info.cpuset_cpus {
+            cpuset.first().copied().unwrap_or(0u32)
+        } else {
+            0u32
+        };
+
+        // Try multiple cpufreq paths (some ARM systems use different paths)
+        let cpufreq_paths = [
+            format!("/sys/devices/system/cpu/cpu{cpu_to_check}/cpufreq/cpuinfo_max_freq"),
+            format!("/sys/devices/system/cpu/cpu{cpu_to_check}/cpufreq/scaling_max_freq"),
+            "/sys/devices/system/cpu/cpufreq/policy0/cpuinfo_max_freq".to_string(),
+            "/sys/devices/system/cpu/cpufreq/policy0/scaling_max_freq".to_string(),
+        ];
+
+        for path in &cpufreq_paths {
+            if let Ok(content) = fs::read_to_string(path) {
+                if let Ok(freq_khz) = content.trim().parse::<u32>() {
+                    max_frequency = khz_to_mhz(freq_khz);
+                    // Found max frequency from scaling_max_freq
+                    break;
+                }
+            }
+        }
+
+        // Try to get current frequency for base frequency if we don't have it
+        if base_frequency == 0 {
+            let scaling_paths = [
+                format!("/sys/devices/system/cpu/cpu{cpu_to_check}/cpufreq/scaling_cur_freq"),
+                format!("/sys/devices/system/cpu/cpu{cpu_to_check}/cpufreq/cpuinfo_cur_freq"),
+                "/sys/devices/system/cpu/cpufreq/policy0/scaling_cur_freq".to_string(),
+                "/sys/devices/system/cpu/cpufreq/policy0/cpuinfo_cur_freq".to_string(),
+            ];
+
+            for path in &scaling_paths {
+                if let Ok(content) = fs::read_to_string(path) {
+                    if let Ok(freq_khz) = content.trim().parse::<u32>() {
+                        base_frequency = khz_to_mhz(freq_khz);
+                        // Found current frequency from scaling_cur_freq
+                        break;
+                    }
+                }
+            }
+        }
+
+        // If still no base frequency, try cpuinfo_min_freq
+        if base_frequency == 0 {
+            let min_freq_paths = [
+                format!("/sys/devices/system/cpu/cpu{cpu_to_check}/cpufreq/cpuinfo_min_freq"),
+                format!("/sys/devices/system/cpu/cpu{cpu_to_check}/cpufreq/scaling_min_freq"),
+                "/sys/devices/system/cpu/cpufreq/policy0/cpuinfo_min_freq".to_string(),
+                "/sys/devices/system/cpu/cpufreq/policy0/scaling_min_freq".to_string(),
+            ];
+
+            for path in &min_freq_paths {
+                if let Ok(content) = fs::read_to_string(path) {
+                    if let Ok(freq_khz) = content.trim().parse::<u32>() {
+                        base_frequency = khz_to_mhz(freq_khz);
+                        // Using min frequency from scaling_min_freq
+                        break;
+                    }
+                }
             }
         }
 
         if max_frequency == 0 {
             max_frequency = base_frequency;
+        }
+
+        // If we still don't have frequencies, try lscpu command as fallback
+        if base_frequency == 0 && max_frequency == 0 {
+            if let Ok(output) = std::process::Command::new("lscpu").output() {
+                if let Ok(lscpu_output) = String::from_utf8(output.stdout) {
+                    for line in lscpu_output.lines() {
+                        if line.starts_with("CPU MHz:") {
+                            if let Some(value) = line.split(':').nth(1) {
+                                if let Ok(freq) = value.trim().parse::<f64>() {
+                                    base_frequency = freq as u32;
+                                    break;
+                                }
+                            }
+                        } else if line.starts_with("CPU max MHz:") {
+                            if let Some(value) = line.split(':').nth(1) {
+                                if let Ok(freq) = value.trim().parse::<f64>() {
+                                    max_frequency = freq as u32;
+                                }
+                            }
+                        } else if line.starts_with("CPU min MHz:") && base_frequency == 0 {
+                            if let Some(value) = line.split(':').nth(1) {
+                                if let Ok(freq) = value.trim().parse::<f64>() {
+                                    base_frequency = freq as u32;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Try DMI/sysfs for ARM systems
+        if base_frequency == 0 && platform_type == CpuPlatformType::Arm {
+            // Check for ARM-specific frequency files
+            if let Ok(content) = fs::read_to_string("/sys/devices/system/cpu/cpu0/clock_rate") {
+                if let Ok(freq_hz) = content.trim().parse::<u64>() {
+                    base_frequency = hz_to_mhz(freq_hz);
+                    // Found clock_rate from device-tree
+                }
+            }
+
+            // Try to read from device tree
+            if base_frequency == 0 {
+                if let Ok(content) =
+                    fs::read_to_string("/proc/device-tree/cpus/cpu@0/clock-frequency")
+                {
+                    // Device tree values are often in big-endian format
+                    if content.len() >= 4 {
+                        let bytes = content.as_bytes();
+                        let freq_hz =
+                            u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as u64;
+                        if freq_hz > 0 {
+                            base_frequency = hz_to_mhz(freq_hz);
+                            // Found device-tree frequency
+                        }
+                    }
+                }
+            }
+        }
+
+        // Use BogoMIPS as last resort to estimate frequency
+        if base_frequency == 0 && bogomips > 0.0 {
+            // BogoMIPS calculation varies by architecture
+            let estimated_freq = match platform_type {
+                CpuPlatformType::Arm => {
+                    // On ARM, BogoMIPS is often close to actual frequency
+                    bogomips as u32
+                }
+                _ => {
+                    // On x86, BogoMIPS is roughly 2x the frequency
+                    (bogomips / 2.0) as u32
+                }
+            };
+            if estimated_freq > 0 {
+                base_frequency = estimated_freq;
+                // Estimated frequency from BogoMIPS
+            }
+        }
+
+        // Final fallback - use architecture-specific defaults
+        if base_frequency == 0 && max_frequency == 0 {
+            base_frequency = match platform_type {
+                CpuPlatformType::Arm => 2000, // Common ARM frequency
+                _ => 1000,                    // Generic default
+            };
+            max_frequency = base_frequency;
+            // Using default frequency for platform
         }
 
         Ok((
@@ -296,7 +598,7 @@ impl LinuxCpuReader {
         for path in &thermal_paths {
             if let Ok(content) = fs::read_to_string(path) {
                 if let Ok(temp_millicelsius) = content.trim().parse::<u32>() {
-                    return Some(temp_millicelsius / 1000); // Convert millicelsius to celsius
+                    return Some(millicelsius_to_celsius(temp_millicelsius));
                 }
             }
         }
@@ -404,6 +706,37 @@ impl LinuxCpuReader {
 
         result
     }
+
+    fn get_core_utilization_from_stat(&self, stat_content: &str, core_id: u32) -> f64 {
+        let cpu_line_prefix = format!("cpu{core_id}");
+
+        for line in stat_content.lines() {
+            if line.starts_with(&cpu_line_prefix)
+                && !line[cpu_line_prefix.len()..].starts_with(|c: char| c.is_ascii_digit())
+            {
+                let fields: Vec<&str> = line.split_whitespace().collect();
+                if fields.len() >= 8 {
+                    let user: u64 = fields[1].parse().unwrap_or(0);
+                    let nice: u64 = fields[2].parse().unwrap_or(0);
+                    let system: u64 = fields[3].parse().unwrap_or(0);
+                    let idle: u64 = fields[4].parse().unwrap_or(0);
+                    let iowait: u64 = fields[5].parse().unwrap_or(0);
+                    let irq: u64 = fields[6].parse().unwrap_or(0);
+                    let softirq: u64 = fields[7].parse().unwrap_or(0);
+
+                    let total_time = user + nice + system + idle + iowait + irq + softirq;
+                    let active_time = total_time - idle - iowait;
+
+                    if total_time > 0 {
+                        return (active_time as f64 / total_time as f64) * 100.0;
+                    }
+                }
+                break;
+            }
+        }
+
+        0.0
+    }
 }
 
 impl CpuReader for LinuxCpuReader {
@@ -429,3 +762,7 @@ impl CpuReader for LinuxCpuReader {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "cpu_linux/tests.rs"]
+mod tests;

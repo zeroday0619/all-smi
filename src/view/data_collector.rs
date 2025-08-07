@@ -75,10 +75,23 @@ impl DataCollector {
                 .flat_map(|reader| reader.get_memory_info())
                 .collect();
 
-            let all_processes: Vec<ProcessInfo> = gpu_readers
+            // Collect processes from GPU readers if available
+            let mut all_processes: Vec<ProcessInfo> = gpu_readers
                 .iter()
                 .flat_map(|reader| reader.get_process_info())
                 .collect();
+
+            // If no GPU readers available, collect all system processes
+            if gpu_readers.is_empty() {
+                use crate::device::process_list::get_all_processes;
+                use std::collections::HashSet;
+                use sysinfo::System;
+
+                let mut system = System::new_all();
+                system.refresh_all();
+                let empty_gpu_pids = HashSet::new();
+                all_processes = get_all_processes(&system, &empty_gpu_pids);
+            }
 
             // Collect local storage information
             let all_storage_info = self.collect_local_storage_info().await;
@@ -406,8 +419,73 @@ impl DataCollector {
     }
 
     fn update_utilization_history(&self, state: &mut AppState) {
-        // Only update history if we have valid GPU data
-        if !state.gpu_info.is_empty() && state.gpu_info.iter().any(|gpu| gpu.total_memory > 0) {
+        // Always collect CPU statistics if available
+        if !state.cpu_info.is_empty() {
+            let avg_cpu_utilization = state
+                .cpu_info
+                .iter()
+                .map(|cpu| cpu.utilization)
+                .sum::<f64>()
+                / state.cpu_info.len() as f64;
+
+            let avg_system_memory_usage = if !state.memory_info.is_empty() {
+                state
+                    .memory_info
+                    .iter()
+                    .map(|mem| {
+                        if mem.total_bytes > 0 {
+                            (mem.used_bytes as f64 / mem.total_bytes as f64) * 100.0
+                        } else {
+                            0.0
+                        }
+                    })
+                    .sum::<f64>()
+                    / state.memory_info.len() as f64
+            } else {
+                0.0
+            };
+
+            let cpu_temps: Vec<f64> = state
+                .cpu_info
+                .iter()
+                .filter_map(|cpu| cpu.temperature.map(|t| t as f64))
+                .collect();
+            let avg_cpu_temperature = if !cpu_temps.is_empty() {
+                cpu_temps.iter().sum::<f64>() / cpu_temps.len() as f64
+            } else {
+                0.0
+            };
+
+            state.cpu_utilization_history.push_back(avg_cpu_utilization);
+            state
+                .system_memory_history
+                .push_back(avg_system_memory_usage);
+            state.cpu_temperature_history.push_back(avg_cpu_temperature);
+
+            // Keep only last N entries
+            if state.cpu_utilization_history.len() > AppConfig::HISTORY_MAX_ENTRIES {
+                state.cpu_utilization_history.pop_front();
+            }
+            if state.system_memory_history.len() > AppConfig::HISTORY_MAX_ENTRIES {
+                state.system_memory_history.pop_front();
+            }
+            if state.cpu_temperature_history.len() > AppConfig::HISTORY_MAX_ENTRIES {
+                state.cpu_temperature_history.pop_front();
+            }
+        }
+
+        // Update history if we have GPU data OR if we're on Apple Silicon (which has 0 total_memory)
+        let has_gpu_data = !state.gpu_info.is_empty();
+        let is_apple_silicon = state.gpu_info.iter().any(|gpu| {
+            gpu.detail
+                .get("Architecture")
+                .map(|arch| arch == "Apple Silicon")
+                .unwrap_or(false)
+        });
+
+        if has_gpu_data
+            && (state.gpu_info.iter().any(|gpu| gpu.total_memory > 0) || is_apple_silicon)
+        {
             let avg_utilization = state
                 .gpu_info
                 .iter()
@@ -449,6 +527,58 @@ impl DataCollector {
             if state.temperature_history.len() > AppConfig::HISTORY_MAX_ENTRIES {
                 state.temperature_history.pop_front();
             }
+        } else if !state.cpu_info.is_empty() {
+            // Fallback to CPU-based statistics when no GPU is available
+            let avg_cpu_utilization = state
+                .cpu_info
+                .iter()
+                .map(|cpu| cpu.utilization)
+                .sum::<f64>()
+                / state.cpu_info.len() as f64;
+
+            let avg_memory_usage = if !state.memory_info.is_empty() {
+                state
+                    .memory_info
+                    .iter()
+                    .map(|mem| {
+                        if mem.total_bytes > 0 {
+                            (mem.used_bytes as f64 / mem.total_bytes as f64) * 100.0
+                        } else {
+                            0.0
+                        }
+                    })
+                    .sum::<f64>()
+                    / state.memory_info.len() as f64
+            } else {
+                0.0
+            };
+
+            // Use CPU temperature if available, otherwise use a placeholder
+            let cpu_temps: Vec<f64> = state
+                .cpu_info
+                .iter()
+                .filter_map(|cpu| cpu.temperature.map(|t| t as f64))
+                .collect();
+            let avg_temperature = if !cpu_temps.is_empty() {
+                cpu_temps.iter().sum::<f64>() / cpu_temps.len() as f64
+            } else {
+                0.0
+            };
+
+            state.utilization_history.push_back(avg_cpu_utilization);
+            state.memory_history.push_back(avg_memory_usage);
+            state.temperature_history.push_back(avg_temperature);
+
+            // Keep only last N entries as configured
+            if state.utilization_history.len() > AppConfig::HISTORY_MAX_ENTRIES {
+                state.utilization_history.pop_front();
+            }
+            if state.memory_history.len() > AppConfig::HISTORY_MAX_ENTRIES {
+                state.memory_history.pop_front();
+            }
+            if state.temperature_history.len() > AppConfig::HISTORY_MAX_ENTRIES {
+                state.temperature_history.pop_front();
+            }
         }
     }
 
@@ -460,16 +590,17 @@ impl DataCollector {
             .collect::<HashSet<_>>()
             .into_iter()
             .collect();
+
+        // If no GPU info available, use the local hostname
+        if host_ids.is_empty() {
+            host_ids.push(get_hostname());
+        }
+
         host_ids.sort();
 
         // Always create "All" tab for consistent UI behavior
         let mut tabs = vec!["All".to_string()];
         tabs.extend(host_ids);
-
-        // Ensure we have at least one tab
-        if tabs.is_empty() {
-            tabs.push("Local".to_string());
-        }
 
         state.tabs = tabs;
     }

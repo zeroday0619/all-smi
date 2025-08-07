@@ -201,6 +201,9 @@ mod tests {
             utilization_history: VecDeque::new(),
             memory_history: VecDeque::new(),
             temperature_history: VecDeque::new(),
+            cpu_utilization_history: VecDeque::new(),
+            system_memory_history: VecDeque::new(),
+            cpu_temperature_history: VecDeque::new(),
             notifications: crate::ui::notification::NotificationManager::new(),
             nvml_notification_shown: false,
             tenstorrent_notification_shown: false,
@@ -208,6 +211,7 @@ mod tests {
             known_hosts: Vec::new(),
             hostname_to_host_id: HashMap::new(),
             is_local_mode: false, // Test state assumes remote mode
+            runtime_environment: crate::utils::RuntimeEnvironment::detect(),
         }
     }
 
