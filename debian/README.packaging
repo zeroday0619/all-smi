@@ -42,3 +42,13 @@ If the build fails on Launchpad:
    - Network access attempts: Remove any code that downloads dependencies
    - Permission issues: Ensure proper file permissions in debian/rules
    - Cargo registry access: The build will fail if it tries to download crates
+
+### Automatic Version Incrementing
+The packaging scripts support automatic version incrementing to avoid conflicts with existing PPA versions:
+
+1. **get-next-ppa-version.sh**: Queries the PPA to find existing versions and calculates the next revision
+2. **update-changelog.sh**: Supports `--auto-increment` flag to use the next available version
+3. **GitHub Actions**: Automatically uses version incrementing when uploading to PPA
+
+Version format: `{version}-1~{distro}{revision}`
+- Example: `0.7.2-1~noble1` → `0.7.2-1~noble2` → `0.7.2-1~noble3`

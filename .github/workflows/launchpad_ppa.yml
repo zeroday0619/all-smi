@@ -82,12 +82,20 @@ jobs:
         GH_TOKEN: ${{ github.token }}
 
     # ───────────────────────────────────────────────────────────────
-    # Step 4: Update changelog
+    # Step 4: Update changelog with auto-increment
     # ───────────────────────────────────────────────────────────────
     - name: Update debian/changelog from release
       if: steps.check_distro.outputs.should_run == 'true'
       run: |
-        bash ./debian/update-changelog.sh -d ${{ matrix.distro }} ${{ steps.get_tag.outputs.tag }}
+        # Install curl for the version check script
+        sudo apt-get update && sudo apt-get install -y curl
+        
+        # Update changelog with auto-increment flag
+        bash ./debian/update-changelog.sh \
+          -d ${{ matrix.distro }} \
+          -p lablup/backend-ai \
+          --auto-increment \
+          ${{ steps.get_tag.outputs.tag }}
       env:
         GH_TOKEN: ${{ github.token }}
 
@@ -108,7 +116,7 @@ jobs:
           dpkg-dev \
           build-essential
 
-    # ───────────────────────────────────────────────────────────────
+    # ───────────────────────────────────────────────────────────────────
     # Step 6: Prepare package version
     # ───────────────────────────────────────────────────────────────
     - name: Prepare package version
@@ -119,9 +127,14 @@ jobs:
         VERSION="${VERSION#v}"
         echo "PACKAGE_VERSION=${VERSION}" >> "$GITHUB_ENV"
         
-        # Verify changelog was updated correctly
-        head -n 1 debian/changelog | grep -q "${VERSION}-1~${{ matrix.distro }}1" || {
-          echo "Error: Changelog version mismatch"
+        # Get the actual version from changelog (with auto-increment)
+        CHANGELOG_VERSION=$(head -n 1 debian/changelog | awk '{print $2}' | tr -d '()')
+        echo "FULL_PACKAGE_VERSION=${CHANGELOG_VERSION}" >> "$GITHUB_ENV"
+        echo "Package version: ${CHANGELOG_VERSION}"
+        
+        # Verify changelog contains the base version
+        head -n 1 debian/changelog | grep -q "${VERSION}-" || {
+          echo "Error: Changelog doesn't contain expected version ${VERSION}"
           exit 1
         }
 
@@ -250,4 +263,5 @@ jobs:
         dput backend-ai-ppa "$CHANGES_FILE"
         
         echo "✅ Successfully uploaded to PPA"
+        echo "📦 Version: $FULL_PACKAGE_VERSION"
         echo "📦 Package will be available at: https://launchpad.net/~lablup/+archive/ubuntu/backend-ai"

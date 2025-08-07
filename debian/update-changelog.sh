@@ -11,14 +11,24 @@ set -euo pipefail
 
 DISTRO="jammy"
 TAGS=()
+PPA="lablup/backend-ai"
+AUTO_INCREMENT=false
 
 # --------------------- CLI parsing ---------------------------
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -d|--distro)
       DISTRO="$2"; shift 2 ;;
+    -p|--ppa)
+      PPA="$2"; shift 2 ;;
+    -a|--auto-increment)
+      AUTO_INCREMENT=true; shift ;;
     -h|--help)
-      echo "Usage: $0 [-d distro] [tag1 [tag2 ...]]"; exit 0 ;;
+      echo "Usage: $0 [-d distro] [-p ppa] [-a|--auto-increment] [tag1 [tag2 ...]]"
+      echo "  -d, --distro         Target distribution (default: jammy)"
+      echo "  -p, --ppa            PPA name (default: lablup/backend-ai)"
+      echo "  -a, --auto-increment Auto-increment version if exists in PPA"
+      exit 0 ;;
     *)
       TAGS+=("$1"); shift ;;
   esac
@@ -49,8 +59,22 @@ for TAG in "${TAGS[@]}"; do
   # Debian date format
   FORMATTED_DATE=$(date -d "$DATE" "+%a, %d %b %Y %H:%M:%S %z")
 
+  # Determine version suffix
+  if [[ "$AUTO_INCREMENT" == "true" ]]; then
+    # Check if get-next-ppa-version.sh exists and is executable
+    if [[ -x "$(dirname "$0")/get-next-ppa-version.sh" ]]; then
+      FULL_VERSION=$("$(dirname "$0")/get-next-ppa-version.sh" "$VERSION" "$DISTRO" "$PPA")
+      echo "  Using auto-incremented version: $FULL_VERSION"
+    else
+      echo "  Warning: get-next-ppa-version.sh not found, using default version"
+      FULL_VERSION="${VERSION}-1~${DISTRO}1"
+    fi
+  else
+    FULL_VERSION="${VERSION}-1~${DISTRO}1"
+  fi
+
   cat >> debian/changelog.tmp <<EOF
-all-smi (${VERSION}-1~${DISTRO}1) ${DISTRO}; urgency=medium
+all-smi (${FULL_VERSION}) ${DISTRO}; urgency=medium
 
   * ${NAME}
 $(echo "$BODY" | sed 's/^/  /')
