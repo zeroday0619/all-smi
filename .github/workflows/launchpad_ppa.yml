@@ -17,7 +17,7 @@ on:
       distributions:
         description: 'Target distributions (comma-separated: jammy,noble,oracular)'
         required: false
-        default: 'jammy,noble,oracular'
+        default: 'jammy,noble'
 
 # Required permissions
 permissions:
