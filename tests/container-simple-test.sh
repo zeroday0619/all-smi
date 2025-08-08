@@ -33,6 +33,6 @@ docker run --rm -it --name all-smi-test-simple-memory \
         echo 'Memory files (cgroups v1):'
         ls -la /sys/fs/cgroup/memory/ 2>/dev/null | head -10 || echo 'No cgroups v1 memory files'
         echo ''
-        echo 'Running all-smi view to see memory detection:'
-        ./target/release/all-smi view 2>&1 | head -20
+        echo 'Running all-smi local to see memory detection:'
+        ./target/release/all-smi local 2>&1 | head -20
     "

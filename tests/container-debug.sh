@@ -42,6 +42,6 @@ docker run -it --rm \
         echo 'Cgroups v1:'
         ls -la /sys/fs/cgroup/cpu/ 2>/dev/null | head -10
         echo ''
-        echo '=== Running all-smi view ==='
-        /app/all-smi view 2>&1 | head -30 || echo 'Failed to run all-smi view'
+        echo '=== Running all-smi local ==='
+        /app/all-smi local 2>&1 | head -30 || echo 'Failed to run all-smi local'
     "
