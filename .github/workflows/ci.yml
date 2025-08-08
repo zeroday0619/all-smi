@@ -8,7 +8,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  PROTOC_VERSION: "30.2"
+  PROTOC_VERSION: "31.1"  # or "32.0-rc-2" etc.
 
 jobs:
   test:
@@ -18,6 +18,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # protoc: cached install via composite action
       - name: Setup protoc
         uses: ./.github/actions/setup-protoc
         with:
@@ -52,6 +53,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # protoc: cached install via composite action
       - name: Setup protoc
         uses: ./.github/actions/setup-protoc
         with:

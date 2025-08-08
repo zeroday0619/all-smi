@@ -2,13 +2,12 @@ name: "Setup protoc (cache + install)"
 description: "Cache and install protoc, then add bin to PATH"
 inputs:
   version:
-    description: "protoc version (e.g., 30.2)"
+    description: "protoc version (e.g., 31.1 or 32.0-rc-2)"
     required: false
-    default: "30.2"
+    default: "31.1"
   platform:
-    description: "protobuf release archive suffix (e.g., linux-x86_64)"
-    required: false
-    default: "linux-x86_64"
+    description: "protobuf release archive suffix (e.g., linux-x86_64, linux-aarch_64, osx-aarch_64)"
+    required: true
 
 runs:
   using: "composite"
