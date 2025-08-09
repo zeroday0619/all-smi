@@ -755,9 +755,16 @@ impl GpuReader for TenstorrentReader {
     }
 
     fn get_process_info(&self) -> Vec<ProcessInfo> {
-        // Create a new system instance and refresh it
-        let mut system = System::new_all();
-        system.refresh_all();
+        // Create a lightweight system instance and only refresh what we need
+        use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, UpdateKind};
+        let mut system = System::new();
+        // Refresh processes with user information
+        system.refresh_processes_specifics(
+            ProcessesToUpdate::All,
+            true,
+            ProcessRefreshKind::everything().with_user(UpdateKind::Always),
+        );
+        system.refresh_memory();
 
         // Get GPU processes and PIDs
         let (gpu_processes, gpu_pids) = self.collect_process_info();

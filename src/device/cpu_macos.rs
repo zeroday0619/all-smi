@@ -19,8 +19,8 @@ use crate::device::{
 };
 use crate::utils::system::get_hostname;
 use chrono::Local;
-use std::cell::RefCell;
 use std::process::Command;
+use std::sync::Mutex;
 
 type CpuHardwareParseResult = Result<(String, u32, u32, u32, u32, u32), Box<dyn std::error::Error>>;
 type IntelCpuInfo = (String, u32, u32, u32, u32, u32);
@@ -28,14 +28,14 @@ type IntelCpuInfo = (String, u32, u32, u32, u32, u32);
 pub struct MacOsCpuReader {
     is_apple_silicon: bool,
     // Cached hardware info for Apple Silicon
-    cached_cpu_model: RefCell<Option<String>>,
-    cached_p_core_count: RefCell<Option<u32>>,
-    cached_e_core_count: RefCell<Option<u32>>,
-    cached_gpu_core_count: RefCell<Option<u32>>,
-    cached_p_core_l2_cache_mb: RefCell<Option<u32>>,
-    cached_e_core_l2_cache_mb: RefCell<Option<u32>>,
+    cached_cpu_model: Mutex<Option<String>>,
+    cached_p_core_count: Mutex<Option<u32>>,
+    cached_e_core_count: Mutex<Option<u32>>,
+    cached_gpu_core_count: Mutex<Option<u32>>,
+    cached_p_core_l2_cache_mb: Mutex<Option<u32>>,
+    cached_e_core_l2_cache_mb: Mutex<Option<u32>>,
     // Cached hardware info for Intel
-    cached_intel_info: RefCell<Option<IntelCpuInfo>>,
+    cached_intel_info: Mutex<Option<IntelCpuInfo>>,
 }
 
 impl Default for MacOsCpuReader {
@@ -49,13 +49,13 @@ impl MacOsCpuReader {
         let is_apple_silicon = Self::detect_apple_silicon();
         Self {
             is_apple_silicon,
-            cached_cpu_model: RefCell::new(None),
-            cached_p_core_count: RefCell::new(None),
-            cached_e_core_count: RefCell::new(None),
-            cached_gpu_core_count: RefCell::new(None),
-            cached_p_core_l2_cache_mb: RefCell::new(None),
-            cached_e_core_l2_cache_mb: RefCell::new(None),
-            cached_intel_info: RefCell::new(None),
+            cached_cpu_model: Mutex::new(None),
+            cached_p_core_count: Mutex::new(None),
+            cached_e_core_count: Mutex::new(None),
+            cached_gpu_core_count: Mutex::new(None),
+            cached_p_core_l2_cache_mb: Mutex::new(None),
+            cached_e_core_l2_cache_mb: Mutex::new(None),
+            cached_intel_info: Mutex::new(None),
         }
     }
 
@@ -279,10 +279,10 @@ impl MacOsCpuReader {
     ) -> Result<(String, u32, u32, u32), Box<dyn std::error::Error>> {
         // Check if we have cached values
         if let (Some(cpu_model), Some(p_core_count), Some(e_core_count), Some(gpu_core_count)) = (
-            self.cached_cpu_model.borrow().clone(),
-            *self.cached_p_core_count.borrow(),
-            *self.cached_e_core_count.borrow(),
-            *self.cached_gpu_core_count.borrow(),
+            self.cached_cpu_model.lock().unwrap().clone(),
+            *self.cached_p_core_count.lock().unwrap(),
+            *self.cached_e_core_count.lock().unwrap(),
+            *self.cached_gpu_core_count.lock().unwrap(),
         ) {
             return Ok((cpu_model, p_core_count, e_core_count, gpu_core_count));
         }
@@ -298,20 +298,46 @@ impl MacOsCpuReader {
             }
         }
 
-        // Get actual core counts from system calls
-        let p_core_count = self.get_p_core_count()?;
-        let e_core_count = self.get_e_core_count()?;
-        let gpu_core_count = self.get_gpu_core_count()?;
+        // Get both P and E core counts in a single sysctl call for better performance
+        let output = Command::new("sysctl")
+            .args(["hw.perflevel0.physicalcpu", "hw.perflevel1.physicalcpu"])
+            .output()?;
+
+        let output_str = String::from_utf8_lossy(&output.stdout);
+        let mut p_core_count = 0u32;
+        let mut e_core_count = 0u32;
+
+        for line in output_str.lines() {
+            if line.starts_with("hw.perflevel0.physicalcpu:") {
+                if let Some(value) = line.split(':').nth(1) {
+                    p_core_count = value.trim().parse().unwrap_or(0);
+                }
+            } else if line.starts_with("hw.perflevel1.physicalcpu:") {
+                if let Some(value) = line.split(':').nth(1) {
+                    e_core_count = value.trim().parse().unwrap_or(0);
+                }
+            }
+        }
+
+        // Get GPU core count separately (still needed)
+        let gpu_core_count = self.get_gpu_core_count().unwrap_or(0);
+
+        // Validate we got valid counts
+        if p_core_count == 0 || e_core_count == 0 {
+            return Err("Failed to get core counts".into());
+        }
 
         // Cache the values
-        *self.cached_cpu_model.borrow_mut() = Some(cpu_model.clone());
-        *self.cached_p_core_count.borrow_mut() = Some(p_core_count);
-        *self.cached_e_core_count.borrow_mut() = Some(e_core_count);
-        *self.cached_gpu_core_count.borrow_mut() = Some(gpu_core_count);
+        *self.cached_cpu_model.lock().unwrap() = Some(cpu_model.clone());
+        *self.cached_p_core_count.lock().unwrap() = Some(p_core_count);
+        *self.cached_e_core_count.lock().unwrap() = Some(e_core_count);
+        *self.cached_gpu_core_count.lock().unwrap() = Some(gpu_core_count);
 
         Ok((cpu_model, p_core_count, e_core_count, gpu_core_count))
     }
 
+    // These methods are no longer used since we fetch both values in a single sysctl call
+    #[allow(dead_code)]
     fn get_p_core_count(&self) -> Result<u32, Box<dyn std::error::Error>> {
         let output = Command::new("sysctl")
             .arg("hw.perflevel0.physicalcpu")
@@ -326,6 +352,7 @@ impl MacOsCpuReader {
         }
     }
 
+    #[allow(dead_code)]
     fn get_e_core_count(&self) -> Result<u32, Box<dyn std::error::Error>> {
         let output = Command::new("sysctl")
             .arg("hw.perflevel1.physicalcpu")
@@ -372,7 +399,7 @@ impl MacOsCpuReader {
 
     fn get_p_core_l2_cache_size(&self) -> Result<u32, Box<dyn std::error::Error>> {
         // Check if we have cached value
-        if let Some(cached) = *self.cached_p_core_l2_cache_mb.borrow() {
+        if let Some(cached) = *self.cached_p_core_l2_cache_mb.lock().unwrap() {
             return Ok(cached);
         }
 
@@ -386,7 +413,7 @@ impl MacOsCpuReader {
             let cache_mb = (cache_bytes / 1024 / 1024) as u32; // Convert bytes to MB
 
             // Cache the value
-            *self.cached_p_core_l2_cache_mb.borrow_mut() = Some(cache_mb);
+            *self.cached_p_core_l2_cache_mb.lock().unwrap() = Some(cache_mb);
             Ok(cache_mb)
         } else {
             Err("Failed to parse P-core L2 cache size".into())
@@ -395,7 +422,7 @@ impl MacOsCpuReader {
 
     fn get_e_core_l2_cache_size(&self) -> Result<u32, Box<dyn std::error::Error>> {
         // Check if we have cached value
-        if let Some(cached) = *self.cached_e_core_l2_cache_mb.borrow() {
+        if let Some(cached) = *self.cached_e_core_l2_cache_mb.lock().unwrap() {
             return Ok(cached);
         }
 
@@ -409,7 +436,7 @@ impl MacOsCpuReader {
             let cache_mb = (cache_bytes / 1024 / 1024) as u32; // Convert bytes to MB
 
             // Cache the value
-            *self.cached_e_core_l2_cache_mb.borrow_mut() = Some(cache_mb);
+            *self.cached_e_core_l2_cache_mb.lock().unwrap() = Some(cache_mb);
             Ok(cache_mb)
         } else {
             Err("Failed to parse E-core L2 cache size".into())
@@ -418,7 +445,7 @@ impl MacOsCpuReader {
 
     fn parse_intel_mac_hardware_info(&self, hardware_info: &str) -> CpuHardwareParseResult {
         // Check if we have cached values
-        if let Some(cached_info) = self.cached_intel_info.borrow().clone() {
+        if let Some(cached_info) = self.cached_intel_info.lock().unwrap().clone() {
             return Ok(cached_info);
         }
 
@@ -477,7 +504,7 @@ impl MacOsCpuReader {
         );
 
         // Cache the values
-        *self.cached_intel_info.borrow_mut() = Some(result.clone());
+        *self.cached_intel_info.lock().unwrap() = Some(result.clone());
 
         Ok(result)
     }
