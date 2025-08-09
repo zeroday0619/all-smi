@@ -55,20 +55,20 @@ Read the guide below and check the box when you have completed each step.
 - [x] Test: `cargo test --lib parsing`
 
 ### 1.3 Define Base Traits
-- [ ] Create `src/traits/` directory
-- [ ] Create `src/traits/renderer.rs`
-  - [ ] Define `DeviceRenderer` trait
-  - [ ] Define common rendering methods
-- [ ] Create `src/traits/collector.rs`
-  - [ ] Define `DataCollector` trait
-  - [ ] Define local/remote collection interfaces
-- [ ] Create `src/traits/exporter.rs`
-  - [ ] Define `MetricsExporter` trait
-  - [ ] Define Prometheus metrics export interface
-- [ ] Create `src/traits/mock_generator.rs`
-  - [ ] Define `MockGenerator` trait
-  - [ ] Define template generation interface
-- [ ] Validate trait usability with existing code (actual application in Phase 2)
+- [x] Create `src/traits/` directory
+- [x] Create `src/traits/renderer.rs`
+  - [x] Define `DeviceRenderer` trait
+  - [x] Define common rendering methods
+- [x] Create `src/traits/collector.rs`
+  - [x] Define `DataCollector` trait
+  - [x] Define local/remote collection interfaces
+- [x] Create `src/traits/exporter.rs`
+  - [x] Define `MetricsExporter` trait
+  - [x] Define Prometheus metrics export interface
+- [x] Create `src/traits/mock_generator.rs`
+  - [x] Define `MockGenerator` trait
+  - [x] Define template generation interface
+- [x] Validate trait usability with existing code (actual application in Phase 2)
 
 ---
 
