@@ -12,19 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod command_timeout;
-pub mod disk_filter;
-pub mod profiling;
-pub mod runtime_environment;
-pub mod system;
-pub mod test_helpers;
-pub mod units;
+pub mod gauges;
+pub mod tables;
 
-pub use command_timeout::run_command_fast_fail;
-pub use disk_filter::filter_docker_aware_disks;
-pub use profiling::StartupProfiler;
-pub use runtime_environment::{ContainerRuntime, RuntimeEnvironment};
-pub use system::*;
-#[cfg(target_os = "linux")]
-pub use units::khz_to_mhz;
-pub use units::{hz_to_mhz, millicelsius_to_celsius};
+// Re-export commonly used items
+#[allow(unused_imports)]
+pub use gauges::get_utilization_block;
+
+// Re-export for future use
+#[allow(unused_imports)]
+pub use gauges::render_gauge;
+#[allow(unused_imports)]
+pub use tables::{close_bordered_box, render_bordered_box, render_info_table, TableRow};
