@@ -14,7 +14,8 @@
 
 use crate::device::common::{execute_command_default, parse_csv_line};
 use crate::device::process_list::{get_all_processes, merge_gpu_processes};
-use crate::device::{GpuInfo, GpuReader, ProcessInfo};
+use crate::device::types::{GpuInfo, ProcessInfo};
+use crate::device::GpuReader;
 use crate::utils::{get_hostname, hz_to_mhz, millicelsius_to_celsius};
 use chrono::Local;
 use std::collections::{HashMap, HashSet};
@@ -77,7 +78,7 @@ impl GpuReader for NvidiaJetsonGpuReader {
                                 .next()
                                 .unwrap_or("Unknown")
                                 .to_string();
-                            detail.insert("cuda_version".to_string(), cuda_version);
+                            detail.insert("CUDA Version".to_string(), cuda_version);
                         }
                         break;
                     }
@@ -93,18 +94,18 @@ impl GpuReader for NvidiaJetsonGpuReader {
                 .and_then(|line| line.split('=').nth(1))
                 .map(|v| v.trim().to_string())
                 .unwrap_or_else(|| "Unknown".to_string());
-            detail.insert("jetpack_version".to_string(), version);
+            detail.insert("JetPack Version".to_string(), version);
         }
 
         // Get L4T version
         if let Ok(l4t) = fs::read_to_string("/etc/nv_tegra_release") {
             if let Some(version) = l4t.split_whitespace().nth(1) {
-                detail.insert("l4t_version".to_string(), version.to_string());
+                detail.insert("L4T Version".to_string(), version.to_string());
             }
         }
 
-        detail.insert("gpu_type".to_string(), "Integrated".to_string());
-        detail.insert("architecture".to_string(), "Tegra".to_string());
+        detail.insert("GPU Type".to_string(), "Integrated".to_string());
+        detail.insert("Architecture".to_string(), "Tegra".to_string());
 
         let info = GpuInfo {
             uuid: "JetsonGPU".to_string(),
@@ -143,7 +144,7 @@ impl GpuReader for NvidiaJetsonGpuReader {
         system.refresh_memory();
 
         // Get GPU processes and PIDs
-        let (gpu_processes, gpu_pids) = self.get_gpu_processes();
+        let (gpu_processes, gpu_pids) = get_gpu_processes();
 
         // Get all system processes
         let mut all_processes = get_all_processes(&system, &gpu_pids);
@@ -155,109 +156,107 @@ impl GpuReader for NvidiaJetsonGpuReader {
     }
 }
 
-impl NvidiaJetsonGpuReader {
-    /// Get GPU processes for Jetson
-    fn get_gpu_processes(&self) -> (Vec<ProcessInfo>, HashSet<u32>) {
-        let mut gpu_processes = Vec::new();
-        let mut gpu_pids = HashSet::new();
+/// Get GPU processes for Jetson
+fn get_gpu_processes() -> (Vec<ProcessInfo>, HashSet<u32>) {
+    let mut gpu_processes = Vec::new();
+    let mut gpu_pids = HashSet::new();
 
-        // Jetson doesn't have a direct way to query GPU processes
-        // We can try nvidia-smi if available (on newer Jetson models)
-        if let Ok(output) = execute_command_default(
-            "nvidia-smi",
-            &[
-                "--query-compute-apps=pid,used_memory",
-                "--format=csv,noheader,nounits",
-            ],
-        ) {
-            if output.status == 0 {
-                for line in output.stdout.lines() {
-                    let parts = parse_csv_line(line);
-                    if parts.len() >= 2 {
-                        if let Ok(pid) = parts[0].parse::<u32>() {
-                            if let Ok(used_memory_mb) = parts[1].parse::<u64>() {
-                                gpu_pids.insert(pid);
+    // Jetson doesn't have a direct way to query GPU processes
+    // We can try nvidia-smi if available (on newer Jetson models)
+    if let Ok(output) = execute_command_default(
+        "nvidia-smi",
+        &[
+            "--query-compute-apps=pid,used_memory",
+            "--format=csv,noheader,nounits",
+        ],
+    ) {
+        if output.status == 0 {
+            for line in output.stdout.lines() {
+                let parts = parse_csv_line(line);
+                if parts.len() >= 2 {
+                    if let Ok(pid) = parts[0].parse::<u32>() {
+                        if let Ok(used_memory_mb) = parts[1].parse::<u64>() {
+                            gpu_pids.insert(pid);
 
-                                gpu_processes.push(ProcessInfo {
-                                    device_id: 0,
-                                    device_uuid: "JetsonGPU".to_string(),
-                                    pid,
-                                    process_name: String::new(), // Will be filled by sysinfo
-                                    used_memory: used_memory_mb * 1024 * 1024, // Convert MB to bytes
-                                    cpu_percent: 0.0,    // Will be filled by sysinfo
-                                    memory_percent: 0.0, // Will be filled by sysinfo
-                                    memory_rss: 0,       // Will be filled by sysinfo
-                                    memory_vms: 0,       // Will be filled by sysinfo
-                                    user: String::new(), // Will be filled by sysinfo
-                                    state: String::new(), // Will be filled by sysinfo
-                                    start_time: String::new(), // Will be filled by sysinfo
-                                    cpu_time: 0,         // Will be filled by sysinfo
-                                    command: String::new(), // Will be filled by sysinfo
-                                    ppid: 0,             // Will be filled by sysinfo
-                                    threads: 0,          // Will be filled by sysinfo
-                                    uses_gpu: true,
-                                    priority: 0,          // Will be filled by sysinfo
-                                    nice_value: 0,        // Will be filled by sysinfo
-                                    gpu_utilization: 0.0, // nvidia-smi on Jetson doesn't provide per-process GPU utilization
-                                });
-                            }
+                            gpu_processes.push(ProcessInfo {
+                                device_id: 0,
+                                device_uuid: "JetsonGPU".to_string(),
+                                pid,
+                                process_name: String::new(), // Will be filled by sysinfo
+                                used_memory: used_memory_mb * 1024 * 1024, // Convert MB to bytes
+                                cpu_percent: 0.0,            // Will be filled by sysinfo
+                                memory_percent: 0.0,         // Will be filled by sysinfo
+                                memory_rss: 0,               // Will be filled by sysinfo
+                                memory_vms: 0,               // Will be filled by sysinfo
+                                user: String::new(),         // Will be filled by sysinfo
+                                state: String::new(),        // Will be filled by sysinfo
+                                start_time: String::new(),   // Will be filled by sysinfo
+                                cpu_time: 0,                 // Will be filled by sysinfo
+                                command: String::new(),      // Will be filled by sysinfo
+                                ppid: 0,                     // Will be filled by sysinfo
+                                threads: 0,                  // Will be filled by sysinfo
+                                uses_gpu: true,
+                                priority: 0,          // Will be filled by sysinfo
+                                nice_value: 0,        // Will be filled by sysinfo
+                                gpu_utilization: 0.0, // nvidia-smi on Jetson doesn't provide per-process GPU utilization
+                            });
                         }
                     }
                 }
             }
         }
+    }
 
-        // If nvidia-smi is not available or doesn't return processes,
-        // we can look for known GPU-using processes by name
-        if gpu_processes.is_empty() {
-            // Look for common GPU applications on Jetson
-            let gpu_process_names = vec![
-                "nvargus-daemon",
-                "nvgstcapture",
-                "deepstream",
-                "tensorrt",
-                "cuda",
-            ];
+    // If nvidia-smi is not available or doesn't return processes,
+    // we can look for known GPU-using processes by name
+    if gpu_processes.is_empty() {
+        // Look for common GPU applications on Jetson
+        let gpu_process_names = vec![
+            "nvargus-daemon",
+            "nvgstcapture",
+            "deepstream",
+            "tensorrt",
+            "cuda",
+        ];
 
-            let mut system = System::new();
-            system.refresh_memory();
-            for (pid, process) in system.processes() {
-                let process_name = process.name().to_string_lossy().to_lowercase();
-                for gpu_name in &gpu_process_names {
-                    if process_name.contains(gpu_name) {
-                        let pid_u32 = pid.as_u32();
-                        gpu_pids.insert(pid_u32);
+        let mut system = System::new();
+        system.refresh_memory();
+        for (pid, process) in system.processes() {
+            let process_name = process.name().to_string_lossy().to_lowercase();
+            for gpu_name in &gpu_process_names {
+                if process_name.contains(gpu_name) {
+                    let pid_u32 = pid.as_u32();
+                    gpu_pids.insert(pid_u32);
 
-                        gpu_processes.push(ProcessInfo {
-                            device_id: 0,
-                            device_uuid: "JetsonGPU".to_string(),
-                            pid: pid_u32,
-                            process_name: String::new(), // Will be filled by sysinfo
-                            used_memory: 0, // Can't determine GPU memory usage without nvidia-smi
-                            cpu_percent: 0.0, // Will be filled by sysinfo
-                            memory_percent: 0.0, // Will be filled by sysinfo
-                            memory_rss: 0,  // Will be filled by sysinfo
-                            memory_vms: 0,  // Will be filled by sysinfo
-                            user: String::new(), // Will be filled by sysinfo
-                            state: String::new(), // Will be filled by sysinfo
-                            start_time: String::new(), // Will be filled by sysinfo
-                            cpu_time: 0,    // Will be filled by sysinfo
-                            command: String::new(), // Will be filled by sysinfo
-                            ppid: 0,        // Will be filled by sysinfo
-                            threads: 0,     // Will be filled by sysinfo
-                            uses_gpu: true,
-                            priority: 0,          // Will be filled by sysinfo
-                            nice_value: 0,        // Will be filled by sysinfo
-                            gpu_utilization: 0.0, // Can't determine per-process GPU utilization
-                        });
-                        break;
-                    }
+                    gpu_processes.push(ProcessInfo {
+                        device_id: 0,
+                        device_uuid: "JetsonGPU".to_string(),
+                        pid: pid_u32,
+                        process_name: String::new(), // Will be filled by sysinfo
+                        used_memory: 0, // Can't determine GPU memory usage without nvidia-smi
+                        cpu_percent: 0.0, // Will be filled by sysinfo
+                        memory_percent: 0.0, // Will be filled by sysinfo
+                        memory_rss: 0,  // Will be filled by sysinfo
+                        memory_vms: 0,  // Will be filled by sysinfo
+                        user: String::new(), // Will be filled by sysinfo
+                        state: String::new(), // Will be filled by sysinfo
+                        start_time: String::new(), // Will be filled by sysinfo
+                        cpu_time: 0,    // Will be filled by sysinfo
+                        command: String::new(), // Will be filled by sysinfo
+                        ppid: 0,        // Will be filled by sysinfo
+                        threads: 0,     // Will be filled by sysinfo
+                        uses_gpu: true,
+                        priority: 0,          // Will be filled by sysinfo
+                        nice_value: 0,        // Will be filled by sysinfo
+                        gpu_utilization: 0.0, // Can't determine per-process GPU utilization
+                    });
+                    break;
                 }
             }
         }
-
-        (gpu_processes, gpu_pids)
     }
+
+    (gpu_processes, gpu_pids)
 }
 
 fn get_memory_info() -> (u64, u64) {

@@ -13,16 +13,17 @@
 // limitations under the License.
 
 use crate::device::{
-    furiosa, nvidia, nvidia_jetson,
     platform_detection::{
         get_os_type, has_furiosa, has_nvidia, has_rebellions, has_tenstorrent, is_jetson,
     },
-    rebellions, tenstorrent,
+    readers::{furiosa, nvidia, nvidia_jetson, rebellions, tenstorrent},
     traits::{CpuReader, GpuReader, MemoryReader},
 };
 
 #[cfg(target_os = "macos")]
-use crate::device::{apple_silicon, cpu_macos, memory_macos, platform_detection::is_apple_silicon};
+use crate::device::{
+    cpu_macos, memory_macos, platform_detection::is_apple_silicon, readers::apple_silicon,
+};
 
 #[cfg(target_os = "linux")]
 use crate::device::{cpu_linux, memory_linux};
@@ -49,7 +50,7 @@ pub fn get_gpu_readers() -> Vec<Box<dyn GpuReader>> {
 
             // Check for Furiosa NPU support
             if has_furiosa() {
-                readers.push(Box::new(furiosa::FuriosaReader::new()));
+                readers.push(Box::new(furiosa::FuriosaNpuReader::new()));
             }
 
             // Check for Tenstorrent NPU support
@@ -59,7 +60,7 @@ pub fn get_gpu_readers() -> Vec<Box<dyn GpuReader>> {
 
             // Check for Rebellions NPU support
             if has_rebellions() {
-                readers.push(Box::new(rebellions::RebellionsReader::new()));
+                readers.push(Box::new(rebellions::RebellionsNpuReader::new()));
             }
         }
         "macos" =>

@@ -12,17 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Common utilities for device modules: command execution, error handling, and JSON parsing.
+// Module for device readers with reduced code duplication
 
-pub mod command_executor;
-pub mod constants;
-pub mod error_handling;
-pub mod json_parser;
-pub mod parsers;
-pub mod validation;
+#[cfg(target_os = "macos")]
+pub mod apple_silicon;
 
-/* Re-exports for convenience (keep minimal to avoid unused-imports clippy errors) */
-pub use command_executor::execute_command_default;
-pub use error_handling::{DeviceError, DeviceResult};
-pub use json_parser::parse_csv_line;
-pub use validation::{validate_args, validate_command};
+pub mod furiosa;
+pub mod nvidia;
+pub mod nvidia_jetson;
+pub mod rebellions;
+pub mod tenstorrent;

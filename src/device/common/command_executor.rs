@@ -20,7 +20,7 @@
 // - Provide an optional status check
 // - Keep a default helper compatible with existing call sites
 
-use crate::device::common::{DeviceError, DeviceResult};
+use crate::device::common::{validate_args, validate_command, DeviceError, DeviceResult};
 use crate::utils::{command_timeout::run_command_with_timeout, run_command_fast_fail};
 use std::time::Duration;
 
@@ -46,6 +46,7 @@ pub struct CommandOutput {
 
 /// Execute a command with the provided CommandOptions.
 ///
+/// - Validates command and arguments for security
 /// - If options.timeout is Some, uses run_command_with_timeout with that duration
 /// - Otherwise, uses run_command_fast_fail (which adapts to container environments)
 /// - When options.check_status is true and exit code != 0, returns DeviceError::CommandFailed
@@ -54,6 +55,19 @@ pub fn execute_command(
     args: &[&str],
     options: &CommandOptions,
 ) -> DeviceResult<CommandOutput> {
+    // Validate command and arguments for security
+    if !validate_command(command) {
+        return Err(DeviceError::Other(format!(
+            "Invalid command rejected: {command}"
+        )));
+    }
+
+    if !validate_args(args) {
+        return Err(DeviceError::Other(format!(
+            "Invalid arguments rejected for command: {command}"
+        )));
+    }
+
     let output = if let Some(timeout) = options.timeout {
         run_command_with_timeout(command, args, timeout)?
     } else {
@@ -68,8 +82,20 @@ pub fn execute_command(
     };
 
     if options.check_status && status_code != 0 {
+        let full_command = if args.is_empty() {
+            command.to_string()
+        } else {
+            format!("{command} {}", args.join(" "))
+        };
+
+        eprintln!("Command execution failed: '{full_command}' (exit code: {status_code})");
+
+        if !out.stderr.is_empty() {
+            eprintln!("Stderr output: {}", out.stderr);
+        }
+
         return Err(DeviceError::CommandFailed {
-            command: format!("{command} {}", args.join(" ")),
+            command: full_command,
             code: Some(status_code),
             stderr: out.stderr.clone(),
         });
