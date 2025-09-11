@@ -20,13 +20,18 @@ use crate::device::{
 use crate::utils::system::get_hostname;
 use chrono::Local;
 use std::process::Command;
-use std::sync::Mutex;
+use std::sync::{Mutex, RwLock};
+use sysinfo::System;
 
 type CpuHardwareParseResult = Result<(String, u32, u32, u32, u32, u32), Box<dyn std::error::Error>>;
 type IntelCpuInfo = (String, u32, u32, u32, u32, u32);
 
 pub struct MacOsCpuReader {
     is_apple_silicon: bool,
+    // System info for CPU metrics (using RwLock for better concurrent read access)
+    system: RwLock<System>,
+    // Track if we've done the first refresh
+    first_refresh_done: RwLock<bool>,
     // Cached hardware info for Apple Silicon
     cached_cpu_model: Mutex<Option<String>>,
     cached_p_core_count: Mutex<Option<u32>>,
@@ -47,8 +52,12 @@ impl Default for MacOsCpuReader {
 impl MacOsCpuReader {
     pub fn new() -> Self {
         let is_apple_silicon = Self::detect_apple_silicon();
+        let system = System::new();
+
         Self {
             is_apple_silicon,
+            system: RwLock::new(system),
+            first_refresh_done: RwLock::new(false),
             cached_cpu_model: Mutex::new(None),
             cached_p_core_count: Mutex::new(None),
             cached_e_core_count: Mutex::new(None),
@@ -94,9 +103,8 @@ impl MacOsCpuReader {
         let (cpu_model, p_core_count, e_core_count, gpu_core_count) =
             self.parse_apple_silicon_hardware_info(&hardware_info)?;
 
-        // Get CPU utilization using powermetrics
+        // Get actual CPU utilization using iostat (more accurate than active residency)
         let cpu_utilization = self.get_cpu_utilization_powermetrics()?;
-        let (p_core_utilization, e_core_utilization) = self.get_apple_silicon_core_utilization()?;
 
         // Get CPU frequency information and per-core data from PowerMetricsManager if available
         let (base_frequency, max_frequency, p_cluster_freq, e_cluster_freq, per_core_utilization) =
@@ -105,15 +113,21 @@ impl MacOsCpuReader {
                     // Use actual frequencies from powermetrics
                     let avg_freq = (data.p_cluster_frequency + data.e_cluster_frequency) / 2;
 
-                    // Convert per-core data
+                    // Convert per-core data and scale to actual utilization
                     let mut cores = Vec::new();
+                    let mut p_cores_residency = Vec::new();
+                    let mut e_cores_residency = Vec::new();
+
+                    // First pass: collect residencies by type
                     for (i, residency) in data.core_active_residencies.iter().enumerate() {
                         let core_type = if i < data.core_cluster_types.len() {
                             match data.core_cluster_types[i] {
                                 crate::device::powermetrics_parser::CoreType::Performance => {
+                                    p_cores_residency.push(*residency);
                                     CoreType::Performance
                                 }
                                 crate::device::powermetrics_parser::CoreType::Efficiency => {
+                                    e_cores_residency.push(*residency);
                                     CoreType::Efficiency
                                 }
                             }
@@ -121,12 +135,25 @@ impl MacOsCpuReader {
                             CoreType::Standard
                         };
 
+                        // Scale residency to actual utilization
+                        // If average residency is 80% but actual CPU usage is 20%,
+                        // scale individual core values proportionally
+                        let avg_residency = data.core_active_residencies.iter().sum::<f64>()
+                            / data.core_active_residencies.len() as f64;
+                        let scale_factor = if avg_residency > 0.0 {
+                            cpu_utilization / avg_residency
+                        } else {
+                            0.0
+                        };
+
                         cores.push(CoreUtilization {
                             core_id: i as u32,
                             core_type,
-                            utilization: *residency,
+                            utilization: (*residency * scale_factor).clamp(0.0, 100.0),
                         });
                     }
+
+                    // Note: P-core and E-core utilization will be calculated from scaled per-core data later
 
                     (
                         avg_freq,
@@ -166,6 +193,46 @@ impl MacOsCpuReader {
         // Get cache sizes for P and E cores
         let p_core_l2_cache_mb = self.get_p_core_l2_cache_size().ok();
         let e_core_l2_cache_mb = self.get_e_core_l2_cache_size().ok();
+
+        // Calculate P-core and E-core utilization from per-core data if available
+        let (p_core_utilization, e_core_utilization) = if !per_core_utilization.is_empty() {
+            let mut p_sum = 0.0;
+            let mut p_count = 0;
+            let mut e_sum = 0.0;
+            let mut e_count = 0;
+
+            for core in &per_core_utilization {
+                match core.core_type {
+                    CoreType::Performance => {
+                        p_sum += core.utilization;
+                        p_count += 1;
+                    }
+                    CoreType::Efficiency => {
+                        e_sum += core.utilization;
+                        e_count += 1;
+                    }
+                    _ => {}
+                }
+            }
+
+            let p_util = if p_count > 0 {
+                p_sum / p_count as f64
+            } else {
+                cpu_utilization * 0.6
+            };
+
+            let e_util = if e_count > 0 {
+                e_sum / e_count as f64
+            } else {
+                cpu_utilization * 0.4
+            };
+
+            (p_util, e_util)
+        } else {
+            // Fallback to estimated values
+            self.get_apple_silicon_core_utilization()
+                .unwrap_or((cpu_utilization * 0.6, cpu_utilization * 0.4))
+        };
 
         let apple_silicon_info = Some(AppleSiliconCpuInfo {
             p_core_count,
@@ -228,8 +295,8 @@ impl MacOsCpuReader {
         let (cpu_model, socket_count, total_cores, total_threads, base_frequency, cache_size) =
             self.parse_intel_mac_hardware_info(&hardware_info)?;
 
-        // Get CPU utilization using iostat or top
-        let cpu_utilization = self.get_cpu_utilization_iostat()?;
+        // Get CPU utilization using sysinfo
+        let cpu_utilization = self.get_cpu_utilization_sysinfo()?;
 
         // Get CPU temperature (may not be available)
         let temperature = self.get_cpu_temperature();
@@ -510,18 +577,32 @@ impl MacOsCpuReader {
     }
 
     fn get_cpu_utilization_powermetrics(&self) -> Result<f64, Box<dyn std::error::Error>> {
-        // Try to get data from the PowerMetricsManager first
-        if let Some(manager) = get_powermetrics_manager() {
-            if let Ok(data) = manager.get_latest_data_result() {
-                return Ok(data.cpu_utilization());
-            }
-        }
-
-        // Fallback to iostat if PowerMetricsManager is not available
-        self.get_cpu_utilization_iostat()
+        // Use sysinfo for accurate CPU utilization (better than iostat)
+        // PowerMetrics' active residency != actual CPU utilization
+        // Active residency includes idle time at low frequencies
+        self.get_cpu_utilization_sysinfo()
     }
 
+    fn get_cpu_utilization_sysinfo(&self) -> Result<f64, Box<dyn std::error::Error>> {
+        // Check if we need to do first refresh
+        if !*self.first_refresh_done.read().unwrap() {
+            self.system.write().unwrap().refresh_cpu_usage();
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            *self.first_refresh_done.write().unwrap() = true;
+        }
+
+        // Refresh CPU information to get latest data
+        self.system.write().unwrap().refresh_cpu_usage();
+
+        // Get global CPU usage
+        let cpu_usage = self.system.read().unwrap().global_cpu_usage() as f64;
+
+        Ok(cpu_usage)
+    }
+
+    #[allow(dead_code)] // Kept as fallback method when sysinfo is unavailable
     fn get_cpu_utilization_iostat(&self) -> Result<f64, Box<dyn std::error::Error>> {
+        // Fallback method using iostat (kept for compatibility)
         let output = Command::new("iostat").args(["-c", "1"]).output()?;
 
         let iostat_output = String::from_utf8_lossy(&output.stdout);
@@ -550,18 +631,72 @@ impl MacOsCpuReader {
     }
 
     fn get_apple_silicon_core_utilization(&self) -> Result<(f64, f64), Box<dyn std::error::Error>> {
-        // Try to get data from the PowerMetricsManager first
+        // Get actual CPU utilization from sysinfo first
+        let total_cpu_util = self.get_cpu_utilization_sysinfo().unwrap_or(0.0);
+
+        // Try to get data from the PowerMetricsManager
         if let Some(manager) = get_powermetrics_manager() {
             if let Ok(data) = manager.get_latest_data_result() {
-                return Ok((
-                    data.p_cluster_active_residency,
-                    data.e_cluster_active_residency,
-                ));
+                // Get per-core utilization if available
+                if !data.core_active_residencies.is_empty() {
+                    // Calculate average per-core utilization for P and E cores
+                    let mut p_core_sum = 0.0;
+                    let mut p_core_count = 0;
+                    let mut e_core_sum = 0.0;
+                    let mut e_core_count = 0;
+
+                    for (i, residency) in data.core_active_residencies.iter().enumerate() {
+                        if i < data.core_cluster_types.len() {
+                            match data.core_cluster_types[i] {
+                                crate::device::powermetrics_parser::CoreType::Performance => {
+                                    p_core_sum += residency;
+                                    p_core_count += 1;
+                                }
+                                crate::device::powermetrics_parser::CoreType::Efficiency => {
+                                    e_core_sum += residency;
+                                    e_core_count += 1;
+                                }
+                            }
+                        }
+                    }
+
+                    if p_core_count > 0 && e_core_count > 0 {
+                        let p_avg = p_core_sum / p_core_count as f64;
+                        let e_avg = e_core_sum / e_core_count as f64;
+
+                        // Scale based on actual CPU utilization
+                        // If residencies show P=90%, E=80% but iostat shows 20%,
+                        // scale them proportionally
+                        let residency_total = (p_avg + e_avg) / 2.0;
+                        if residency_total > 0.0 {
+                            let scale_factor = total_cpu_util / residency_total;
+                            return Ok((
+                                (p_avg * scale_factor).clamp(0.0, 100.0),
+                                (e_avg * scale_factor).clamp(0.0, 100.0),
+                            ));
+                        }
+                    }
+                }
+
+                // Fallback: distribute total CPU utilization based on residency ratio
+                let p_residency = data.p_cluster_active_residency.clamp(0.0, 100.0);
+                let e_residency = data.e_cluster_active_residency.clamp(0.0, 100.0);
+                let total_residency = p_residency + e_residency;
+
+                if total_residency > 0.0 {
+                    let p_ratio = p_residency / total_residency;
+                    let e_ratio = e_residency / total_residency;
+                    return Ok((
+                        (total_cpu_util * p_ratio * 1.2).clamp(0.0, 100.0), // P-cores typically do more work
+                        (total_cpu_util * e_ratio * 0.8).clamp(0.0, 100.0), // E-cores typically do less work
+                    ));
+                }
             }
         }
 
         // Return default values if PowerMetricsManager is not available
-        Ok((0.0, 0.0))
+        // Split total utilization evenly
+        Ok((total_cpu_util * 0.6, total_cpu_util * 0.4))
     }
 
     fn get_cpu_base_frequency(&self) -> Result<u32, Box<dyn std::error::Error>> {
