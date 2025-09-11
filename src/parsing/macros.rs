@@ -22,6 +22,9 @@
 /// - Parses the remainder into the requested numeric type.
 ///
 /// Returns Option<T> (None if parsing fails).
+///
+/// # Safety
+/// This macro does not panic. Returns None for invalid input.
 #[macro_export]
 macro_rules! parse_metric {
     ($line:expr, $suffix:expr, $ty:ty) => {{
@@ -44,6 +47,9 @@ macro_rules! parse_metric {
 ///
 /// Example regex: r"^all_smi_([^\{]+)\{([^}]+)\} ([\d\.]+)$"
 /// Returns Option<(String, String, f64)>
+///
+/// # Safety
+/// This macro does not panic. Returns None for invalid input or regex mismatches.
 #[macro_export]
 macro_rules! parse_prometheus {
     ($line:expr, $re:expr) => {{
@@ -63,6 +69,219 @@ macro_rules! parse_prometheus {
             None
         }
     }};
+}
+
+/// Extract a label value from a HashMap and insert it into a detail HashMap with a given key.
+/// Useful for processing Prometheus label data.
+///
+/// Example usage:
+/// ```ignore
+/// extract_label_to_detail!(labels, "cuda_version", gpu_info.detail, "cuda_version");
+/// ```
+///
+/// # Safety
+/// This macro does not panic. Silently skips if the label is not found.
+#[macro_export]
+macro_rules! extract_label_to_detail {
+    ($labels:expr, $label_key:expr, $detail_map:expr, $detail_key:expr) => {
+        if let Some(value) = $labels.get($label_key) {
+            $detail_map.insert($detail_key.to_string(), value.clone());
+        }
+    };
+    // Variant that uses the same key for both label and detail
+    ($labels:expr, $key:expr, $detail_map:expr) => {
+        extract_label_to_detail!($labels, $key, $detail_map, $key);
+    };
+}
+
+/// Process multiple label extractions in a batch.
+/// Takes a list of label keys and inserts them into the detail map.
+/// Optimized to perform single HashMap lookup per key.
+///
+/// Example usage:
+/// ```ignore
+/// extract_labels_batch!(
+///     labels, gpu_info.detail,
+///     ["cuda_version", "driver_version", "architecture", "compute_capability"]
+/// );
+/// ```
+#[macro_export]
+macro_rules! extract_labels_batch {
+    ($labels:expr, $detail_map:expr, [$($key:expr),* $(,)?]) => {
+        $(
+            if let Some(value) = $labels.get($key) {
+                $detail_map.insert($key.to_string(), value.clone());
+            }
+        )*
+    };
+}
+
+/// Update a struct field based on a metric name match.
+/// Reduces repetitive match arms to single macro calls.
+/// Uses saturating casts to prevent overflow/underflow.
+///
+/// Example usage:
+/// ```ignore
+/// update_metric_field!(metric_name, value, gpu_info, {
+///     "gpu_utilization" => utilization as f64,
+///     "gpu_memory_used_bytes" => used_memory as u64,
+///     "gpu_temperature_celsius" => temperature as u32
+/// });
+/// ```
+#[macro_export]
+macro_rules! update_metric_field {
+    ($metric_name:expr, $value:expr, $target:expr, {
+        $($name:expr => $field:ident as $type:ty),* $(,)?
+    }) => {
+        match $metric_name {
+            $(
+                $name => {
+                    // Use saturating conversions for integer types to prevent overflow
+                    #[allow(unused_comparisons)]
+                    let safe_value = if $value < 0.0 {
+                        0 as $type
+                    } else if $value > (<$type>::MAX as f64) {
+                        <$type>::MAX
+                    } else {
+                        $value as $type
+                    };
+                    $target.$field = safe_value;
+                },
+            )*
+            _ => {}
+        }
+    };
+}
+
+/// Extract a label value from a HashMap with a default if not present.
+/// Returns the value or a default. Uses efficient borrowing when possible.
+///
+/// Example usage:
+/// ```ignore
+/// let gpu_name = get_label_or_default!(labels, "gpu");
+/// let gpu_index = get_label_or_default!(labels, "index", "0");
+/// ```
+#[macro_export]
+macro_rules! get_label_or_default {
+    ($labels:expr, $key:expr) => {
+        $labels
+            .get($key)
+            .map(|s| s.as_str())
+            .unwrap_or("")
+            .to_string()
+    };
+    ($labels:expr, $key:expr, $default:expr) => {
+        $labels
+            .get($key)
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| $default.to_string())
+    };
+}
+
+/// Update a field within an optional struct field.
+/// Useful for updating fields in optional nested structures like apple_silicon_info.
+///
+/// Example usage:
+/// ```ignore
+/// update_optional_field!(cpu_info, apple_silicon_info, p_core_count, value as u32);
+/// ```
+#[macro_export]
+macro_rules! update_optional_field {
+    ($parent:expr, $optional_field:ident, $field:ident, $value:expr) => {
+        if let Some(ref mut inner) = $parent.$optional_field {
+            inner.$field = $value;
+        }
+    };
+}
+
+/// Extract fields from a struct and insert them into a HashMap.
+/// Useful for populating detail HashMaps from device structs.
+/// Optimized to avoid redundant allocations for static strings.
+///
+/// Example usage:
+/// ```ignore
+/// extract_struct_fields!(detail, device, {
+///     "serial_number" => device_sn,
+///     "firmware_version" => firmware,
+///     "pci_bdf" => pci_bdf
+/// });
+/// ```
+#[macro_export]
+macro_rules! extract_struct_fields {
+    ($detail:expr, $source:expr, {
+        $($key:literal => $field:ident),* $(,)?
+    }) => {
+        $(
+            $detail.insert($key.into(), $source.$field.clone());
+        )*
+    };
+}
+
+/// Insert optional fields from a struct into a HashMap if they exist.
+/// Skips None values automatically.
+/// Optimized to avoid redundant allocations for static strings.
+///
+/// Example usage:
+/// ```ignore
+/// insert_optional_fields!(detail, static_info, {
+///     "PCIe Address" => pcie_address,
+///     "PCIe Vendor ID" => pcie_vendor_id,
+///     "PCIe Device ID" => pcie_device_id
+/// });
+/// ```
+#[macro_export]
+macro_rules! insert_optional_fields {
+    ($detail:expr, $source:expr, {
+        $($key:literal => $field:ident),* $(,)?
+    }) => {
+        $(
+            if let Some(ref value) = $source.$field {
+                $detail.insert($key.into(), value.clone());
+            }
+        )*
+    };
+}
+
+/// Parse a value after a colon with optional type conversion.
+/// Simple utility for "Key: Value" parsing patterns.
+///
+/// Example usage:
+/// ```ignore
+/// let frequency = parse_colon_value!(line, u32);
+/// let temperature = parse_colon_value!(line, f64);
+/// ```
+#[macro_export]
+macro_rules! parse_colon_value {
+    ($line:expr, $type:ty) => {
+        $line
+            .split(':')
+            .nth(1)
+            .and_then(|s| s.split_whitespace().next())
+            .and_then(|s| s.parse::<$type>().ok())
+    };
+}
+
+/// Parse a line starting with a specific prefix and extract the value.
+/// Useful for consistent prefix-based parsing.
+///
+/// Example usage:
+/// ```ignore
+/// if line.starts_with("CPU Temperature:") {
+///     let temp = parse_prefixed_line!(line, "CPU Temperature:", f64);
+/// }
+/// ```
+#[macro_export]
+macro_rules! parse_prefixed_line {
+    ($line:expr, $prefix:expr, $type:ty) => {
+        if $line.starts_with($prefix) {
+            $line
+                .strip_prefix($prefix)
+                .and_then(|s| s.trim().split_whitespace().next())
+                .and_then(|s| s.parse::<$type>().ok())
+        } else {
+            None
+        }
+    };
 }
 
 #[cfg(test)]
@@ -116,5 +335,112 @@ mod tests {
         let line = "bad format";
         let parsed = parse_prometheus!(line, re);
         assert!(parsed.is_none());
+    }
+
+    #[test]
+    fn test_extract_label_to_detail() {
+        use std::collections::HashMap;
+
+        let mut labels = HashMap::new();
+        labels.insert("cuda_version".to_string(), "11.8".to_string());
+        labels.insert("driver_version".to_string(), "525.60.13".to_string());
+
+        let mut detail = HashMap::new();
+
+        extract_label_to_detail!(labels, "cuda_version", detail, "cuda_version");
+        assert_eq!(detail.get("cuda_version"), Some(&"11.8".to_string()));
+
+        extract_label_to_detail!(labels, "driver_version", detail);
+        assert_eq!(detail.get("driver_version"), Some(&"525.60.13".to_string()));
+
+        // Test non-existent label
+        extract_label_to_detail!(labels, "non_existent", detail);
+        assert_eq!(detail.get("non_existent"), None);
+    }
+
+    #[test]
+    fn test_extract_labels_batch() {
+        use std::collections::HashMap;
+
+        let mut labels = HashMap::new();
+        labels.insert("cuda_version".to_string(), "11.8".to_string());
+        labels.insert("driver_version".to_string(), "525.60.13".to_string());
+        labels.insert("architecture".to_string(), "Ampere".to_string());
+
+        let mut detail = HashMap::new();
+
+        extract_labels_batch!(
+            labels,
+            detail,
+            [
+                "cuda_version",
+                "driver_version",
+                "architecture",
+                "non_existent"
+            ]
+        );
+
+        assert_eq!(detail.get("cuda_version"), Some(&"11.8".to_string()));
+        assert_eq!(detail.get("driver_version"), Some(&"525.60.13".to_string()));
+        assert_eq!(detail.get("architecture"), Some(&"Ampere".to_string()));
+        assert_eq!(detail.get("non_existent"), None);
+    }
+
+    #[test]
+    fn test_update_metric_field() {
+        struct TestStruct {
+            utilization: f64,
+            memory: u64,
+            temperature: u32,
+        }
+
+        let mut test = TestStruct {
+            utilization: 0.0,
+            memory: 0,
+            temperature: 0,
+        };
+
+        let metric_name = "gpu_utilization";
+        let value = 75.5;
+
+        update_metric_field!(metric_name, value, test, {
+            "gpu_utilization" => utilization as f64,
+            "gpu_memory_used_bytes" => memory as u64,
+            "gpu_temperature_celsius" => temperature as u32
+        });
+
+        assert_eq!(test.utilization, 75.5);
+
+        let metric_name = "gpu_memory_used_bytes";
+        let value = 1024.0;
+
+        update_metric_field!(metric_name, value, test, {
+            "gpu_utilization" => utilization as f64,
+            "gpu_memory_used_bytes" => memory as u64,
+            "gpu_temperature_celsius" => temperature as u32
+        });
+
+        assert_eq!(test.memory, 1024);
+    }
+
+    #[test]
+    fn test_get_label_or_default() {
+        use std::collections::HashMap;
+
+        let mut labels = HashMap::new();
+        labels.insert("gpu".to_string(), "RTX 4090".to_string());
+        labels.insert("index".to_string(), "2".to_string());
+
+        let gpu_name = get_label_or_default!(labels, "gpu");
+        assert_eq!(gpu_name, "RTX 4090");
+
+        let non_existent = get_label_or_default!(labels, "non_existent");
+        assert_eq!(non_existent, "");
+
+        let custom_default = get_label_or_default!(labels, "non_existent", "N/A");
+        assert_eq!(custom_default, "N/A");
+
+        let index = get_label_or_default!(labels, "index", "0");
+        assert_eq!(index, "2");
     }
 }
