@@ -94,6 +94,7 @@ pub fn get_powermetrics_manager() -> Option<Arc<PowerMetricsManager>> {
 
 /// Shutdown and cleanup the PowerMetrics manager
 pub fn shutdown_powermetrics_manager() {
+    // Drop the manager if it exists
     if let Some(_manager) = get_powermetrics_manager() {
         // Drop all Arc references
         {
@@ -105,8 +106,12 @@ pub fn shutdown_powermetrics_manager() {
         FIRST_DATA_RECEIVED.store(false, Ordering::Relaxed);
 
         // The manager will be dropped when the last Arc reference is dropped
-        // The Drop implementation in DataCollector will handle cleanup
+        // The Drop implementation in DataCollector will handle cleanup of our specific process
     }
+
+    // Note: We no longer call kill_existing_powermetrics_processes() here
+    // to avoid killing powermetrics processes that belong to other applications.
+    // The cleanup of our specific process is handled by the Drop trait.
 }
 
 /// Check if PowerMetrics has received its first data

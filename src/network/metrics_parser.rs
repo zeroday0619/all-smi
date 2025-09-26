@@ -39,10 +39,24 @@ impl MetricsParser {
         Vec<MemoryInfo>,
         Vec<StorageInfo>,
     ) {
-        let mut gpu_info_map: HashMap<String, GpuInfo> = HashMap::new();
-        let mut cpu_info_map: HashMap<String, CpuInfo> = HashMap::new();
-        let mut memory_info_map: HashMap<String, MemoryInfo> = HashMap::new();
-        let mut storage_info_map: HashMap<String, StorageInfo> = HashMap::new();
+        // Limit the maximum size of HashMaps to prevent memory exhaustion
+        const MAX_DEVICES_PER_TYPE: usize = 256;
+        const MAX_TEXT_SIZE: usize = 10_485_760; // 10MB max input
+
+        // Validate input size
+        if text.len() > MAX_TEXT_SIZE {
+            eprintln!(
+                "Warning: Metrics text too large ({}), truncating to 10MB",
+                text.len()
+            );
+            let truncated = &text[..MAX_TEXT_SIZE];
+            return self.parse_metrics(truncated, host, re);
+        }
+
+        let mut gpu_info_map: HashMap<String, GpuInfo> = HashMap::with_capacity(16);
+        let mut cpu_info_map: HashMap<String, CpuInfo> = HashMap::with_capacity(8);
+        let mut memory_info_map: HashMap<String, MemoryInfo> = HashMap::with_capacity(8);
+        let mut storage_info_map: HashMap<String, StorageInfo> = HashMap::with_capacity(32);
         let mut host_instance_name: Option<String> = None;
 
         for line in text.lines() {
@@ -56,23 +70,43 @@ impl MetricsParser {
                     }
                 }
 
-                // Process different metric types
+                // Process different metric types with size limits
                 if metric_name.starts_with("gpu_")
                     || metric_name.starts_with("npu_")
                     || metric_name == "ane_utilization"
                 {
-                    self.process_gpu_metrics(&mut gpu_info_map, &metric_name, &labels, value, host);
+                    if gpu_info_map.len() < MAX_DEVICES_PER_TYPE {
+                        self.process_gpu_metrics(
+                            &mut gpu_info_map,
+                            &metric_name,
+                            &labels,
+                            value,
+                            host,
+                        );
+                    }
                 } else if metric_name.starts_with("cpu_") {
-                    self.process_cpu_metrics(&mut cpu_info_map, &metric_name, &labels, value, host);
+                    if cpu_info_map.len() < MAX_DEVICES_PER_TYPE {
+                        self.process_cpu_metrics(
+                            &mut cpu_info_map,
+                            &metric_name,
+                            &labels,
+                            value,
+                            host,
+                        );
+                    }
                 } else if metric_name.starts_with("memory_") {
-                    self.process_memory_metrics(
-                        &mut memory_info_map,
-                        &metric_name,
-                        &labels,
-                        value,
-                        host,
-                    );
-                } else if metric_name.starts_with("storage_") || metric_name.starts_with("disk_") {
+                    if memory_info_map.len() < MAX_DEVICES_PER_TYPE {
+                        self.process_memory_metrics(
+                            &mut memory_info_map,
+                            &metric_name,
+                            &labels,
+                            value,
+                            host,
+                        );
+                    }
+                } else if (metric_name.starts_with("storage_") || metric_name.starts_with("disk_"))
+                    && storage_info_map.len() < MAX_DEVICES_PER_TYPE
+                {
                     self.process_storage_metrics(
                         &mut storage_info_map,
                         &metric_name,
@@ -106,21 +140,36 @@ impl MetricsParser {
     fn parse_labels(&self, labels_str: &str) -> HashMap<String, String> {
         const MAX_LABELS: usize = 100; // Prevent unbounded growth
         const MAX_LABEL_LENGTH: usize = 1024; // Prevent large string allocations
+        const MAX_INPUT_LENGTH: usize = 32768; // Maximum label string length to process
+
+        // Limit input size to prevent DoS
+        if labels_str.len() > MAX_INPUT_LENGTH {
+            eprintln!("Warning: Label string too long, truncating to {MAX_INPUT_LENGTH} bytes");
+            return HashMap::new();
+        }
 
         let mut labels: HashMap<String, String> = HashMap::with_capacity(16);
-        for (idx, label) in labels_str.split(',').enumerate() {
-            if idx >= MAX_LABELS {
-                break; // Stop processing after reasonable limit
+        let mut label_count = 0;
+
+        // Optimized parsing without intermediate allocations
+        for label in labels_str.split(',') {
+            if label_count >= MAX_LABELS {
+                break;
             }
 
-            let label_parts: Vec<&str> = label.split('=').collect();
-            if label_parts.len() == 2 {
-                let key = sanitize_label_value(label_parts[0]);
-                let value = sanitize_label_value(label_parts[1]);
+            // Find the '=' separator without allocating a vector
+            if let Some(eq_pos) = label.find('=') {
+                let key = &label[..eq_pos];
+                let value = &label[eq_pos + 1..];
 
-                // Prevent excessively long labels that could cause memory issues
-                if key.len() <= MAX_LABEL_LENGTH && value.len() <= MAX_LABEL_LENGTH {
-                    labels.insert(key, value);
+                // Sanitize and validate in one pass
+                let key_clean = sanitize_label_value(key);
+                let value_clean = sanitize_label_value(value);
+
+                // Check lengths and insert
+                if key_clean.len() <= MAX_LABEL_LENGTH && value_clean.len() <= MAX_LABEL_LENGTH {
+                    labels.insert(key_clean, value_clean);
+                    label_count += 1;
                 }
             }
         }
