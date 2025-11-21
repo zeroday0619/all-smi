@@ -55,8 +55,8 @@ pub fn ensure_sudo_permissions() {
 
         request_sudo_with_explanation(SudoPlatform::MacOS, false);
     } else if cfg!(target_os = "linux") {
-        // On Linux, check if we have AMD GPUs that require sudo
-        #[cfg(target_os = "linux")]
+        // On Linux, check if we have AMD GPUs that require sudo (glibc only)
+        #[cfg(all(target_os = "linux", not(target_env = "musl")))]
         {
             use crate::device::platform_detection::has_amd;
 
@@ -98,8 +98,8 @@ pub fn ensure_sudo_permissions_with_fallback() -> bool {
     if cfg!(target_os = "macos") {
         request_sudo_with_explanation(SudoPlatform::MacOS, true)
     } else if cfg!(target_os = "linux") {
-        // On Linux, check if we have AMD GPUs that require sudo
-        #[cfg(target_os = "linux")]
+        // On Linux, check if we have AMD GPUs that require sudo (glibc only)
+        #[cfg(all(target_os = "linux", not(target_env = "musl")))]
         {
             use crate::device::platform_detection::has_amd;
 

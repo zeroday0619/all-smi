@@ -30,9 +30,12 @@ use crate::device::{
 };
 
 #[cfg(target_os = "linux")]
-use crate::device::{cpu_linux, memory_linux, platform_detection::has_amd};
+use crate::device::{cpu_linux, memory_linux};
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(target_env = "musl")))]
+use crate::device::platform_detection::has_amd;
+
+#[cfg(all(target_os = "linux", not(target_env = "musl")))]
 use crate::device::readers::amd;
 
 pub fn get_gpu_readers() -> Vec<Box<dyn GpuReader>> {
@@ -71,8 +74,8 @@ pub fn get_gpu_readers() -> Vec<Box<dyn GpuReader>> {
                 readers.push(Box::new(rebellions::RebellionsNpuReader::new()));
             }
 
-            // Check for AMD GPU support
-            #[cfg(target_os = "linux")]
+            // Check for AMD GPU support (glibc only, not musl)
+            #[cfg(all(target_os = "linux", not(target_env = "musl")))]
             if has_amd() {
                 readers.push(Box::new(amd::AmdGpuReader::new()));
             }

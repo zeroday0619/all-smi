@@ -25,5 +25,5 @@ pub mod rebellions;
 #[cfg(target_os = "linux")]
 pub mod tenstorrent;
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(target_env = "musl")))]
 pub mod amd;
