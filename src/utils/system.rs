@@ -112,15 +112,11 @@ pub fn ensure_sudo_permissions_with_fallback() -> bool {
                 // 1. We were already root (geteuid() == 0)
                 // 2. sudo request succeeded (otherwise process would have exited)
                 // In both cases, we can proceed
-                true
-            } else {
-                true
+                return true;
             }
         }
-        #[cfg(not(target_os = "linux"))]
-        {
-            true
-        }
+        // For musl builds or when AMD GPU is not detected, no sudo needed
+        true
     } else {
         true
     }
