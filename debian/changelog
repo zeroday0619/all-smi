@@ -1,3 +1,15 @@
+all-smi (0.10.0-0) jammy; urgency=medium
+
+  * Add AMD GPU support via ROCm/libamdgpu_top integration
+  * Comprehensive security and performance review with critical fixes
+  * Refactor data collection with Strategy pattern
+  * Enhanced parsing macros to reduce code duplication
+  * Make Tenstorrent NPU support Linux-only
+  * Organize test scripts into tests directory
+  * Add comprehensive developer documentation
+
+ -- Jeongkyu Shin <inureyes@gmail.com>  Thu, 21 Nov 2025 00:00:00 +0000
+
 all-smi (0.6.3-0) jammy; urgency=medium
 
   * Initial release for Ubuntu 22.04 (Jammy)
