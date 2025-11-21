@@ -14,6 +14,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+pub mod amd_gpu;
 pub mod apple_silicon;
 pub mod common;
 pub mod disk;

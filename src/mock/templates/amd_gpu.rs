@@ -1,4 +1,4 @@
-//! NVIDIA GPU mock template generator
+//! AMD GPU mock template generator
 
 // Copyright 2025 Lablup Inc. and Jeongkyu Shin
 //
@@ -19,22 +19,38 @@ use all_smi::traits::mock_generator::{
     MockConfig, MockData, MockGenerator, MockPlatform, MockResult,
 };
 
-/// NVIDIA GPU mock generator
-pub struct NvidiaMockGenerator {
+/// AMD GPU mock generator
+pub struct AmdGpuMockGenerator {
     gpu_name: String,
     instance_name: String,
 }
 
-impl NvidiaMockGenerator {
+impl AmdGpuMockGenerator {
+    /// Create a new AMD GPU mock generator
+    ///
+    /// Supported AMD GPU models (pass via --gpu-name):
+    /// Data Center GPUs (Instinct):
+    /// - "AMD Instinct MI355X 288GB HBM3" (default)
+    /// - "AMD Instinct MI325X 256GB"
+    /// - "AMD Instinct MI300X 192GB"
+    /// - "AMD Instinct MI250X 128GB"
+    ///
+    /// Consumer GPUs:
+    /// - "AMD Radeon RX 7900 XTX 24GB"
+    /// - "AMD Radeon RX 7900 XT 20GB"
+    /// - "AMD Radeon RX 7800 XT 16GB"
+    /// - "AMD Radeon RX 6900 XT 16GB"
+    /// - "AMD Radeon RX 9070 XT 16GB"
     pub fn new(gpu_name: Option<String>, instance_name: String) -> Self {
         Self {
-            gpu_name: gpu_name.unwrap_or_else(|| "NVIDIA H100 80GB HBM3".to_string()),
+            gpu_name: gpu_name
+                .unwrap_or_else(|| crate::mock::constants::DEFAULT_AMD_GPU_NAME.to_string()),
             instance_name,
         }
     }
 
-    /// Build NVIDIA-specific template
-    pub fn build_nvidia_template(
+    /// Build AMD-specific template
+    pub fn build_amd_template(
         &self,
         gpus: &[GpuMetrics],
         cpu: &CpuMetrics,
@@ -45,14 +61,11 @@ impl NvidiaMockGenerator {
         // Basic GPU metrics
         self.add_gpu_metrics(&mut template, gpus);
 
-        // NVIDIA-specific: P-state metrics
-        self.add_pstate_metrics(&mut template, gpus);
+        // AMD-specific: ROCm metrics
+        self.add_rocm_metrics(&mut template);
 
-        // NVIDIA-specific: Process metrics
-        self.add_process_metrics(&mut template, gpus);
-
-        // NVIDIA-specific: Driver metrics
-        self.add_driver_metrics(&mut template);
+        // AMD-specific: Fan metrics
+        self.add_fan_metrics(&mut template, gpus);
 
         // CPU and memory metrics
         self.add_system_metrics(&mut template, cpu, memory);
@@ -104,9 +117,9 @@ impl NvidiaMockGenerator {
         }
     }
 
-    fn add_pstate_metrics(&self, template: &mut String, gpus: &[GpuMetrics]) {
-        template.push_str("# HELP all_smi_gpu_pstate GPU performance state\n");
-        template.push_str("# TYPE all_smi_gpu_pstate gauge\n");
+    fn add_fan_metrics(&self, template: &mut String, gpus: &[GpuMetrics]) {
+        template.push_str("# HELP all_smi_gpu_fan_speed_rpm GPU fan speed in RPM\n");
+        template.push_str("# TYPE all_smi_gpu_fan_speed_rpm gauge\n");
 
         for (i, gpu) in gpus.iter().enumerate() {
             let labels = format!(
@@ -114,33 +127,17 @@ impl NvidiaMockGenerator {
                 self.gpu_name, self.instance_name, gpu.uuid
             );
             template.push_str(&format!(
-                "all_smi_gpu_pstate{{{labels}}} {{{{PSTATE_{i}}}}}\n"
+                "all_smi_gpu_fan_speed_rpm{{{labels}}} {{{{FAN_{i}}}}}\n"
             ));
         }
     }
 
-    fn add_process_metrics(&self, template: &mut String, gpus: &[GpuMetrics]) {
-        // Process count
-        template.push_str("# HELP all_smi_gpu_process_count Number of processes running on GPU\n");
-        template.push_str("# TYPE all_smi_gpu_process_count gauge\n");
-
-        for (i, gpu) in gpus.iter().enumerate() {
-            let labels = format!(
-                "gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{i}\"",
-                self.gpu_name, self.instance_name, gpu.uuid
-            );
-            template.push_str(&format!(
-                "all_smi_gpu_process_count{{{labels}}} {{{{PROC_COUNT_{i}}}}}\n"
-            ));
-        }
-    }
-
-    fn add_driver_metrics(&self, template: &mut String) {
-        // NVIDIA driver version
-        template.push_str("# HELP all_smi_nvidia_driver_version NVIDIA driver version\n");
-        template.push_str("# TYPE all_smi_nvidia_driver_version gauge\n");
+    fn add_rocm_metrics(&self, template: &mut String) {
+        // AMD ROCm version
+        template.push_str("# HELP all_smi_amd_rocm_version AMD ROCm version\n");
+        template.push_str("# TYPE all_smi_amd_rocm_version gauge\n");
         template.push_str(&format!(
-            "all_smi_nvidia_driver_version{{instance=\"{}\"}} 1\n",
+            "all_smi_amd_rocm_version{{instance=\"{}\"}} 1\n",
             self.instance_name
         ));
     }
@@ -200,8 +197,8 @@ impl NvidiaMockGenerator {
         ));
     }
 
-    /// Render dynamic values for NVIDIA GPUs
-    pub fn render_nvidia_response(
+    /// Render dynamic values for AMD GPUs
+    pub fn render_amd_response(
         &self,
         template: &str,
         gpus: &[GpuMetrics],
@@ -235,22 +232,21 @@ impl NvidiaMockGenerator {
                 )
                 .replace(&format!("{{{{FREQ_{i}}}}}"), &gpu.frequency_mhz.to_string());
 
-            // Replace P-state based on utilization
-            let pstate = if gpu.utilization > 80.0 {
-                0 // P0 - Maximum performance
-            } else if gpu.utilization > 50.0 {
-                2 // P2 - Balanced
-            } else if gpu.utilization > 20.0 {
-                5 // P5 - Auto
-            } else if gpu.utilization > 0.0 {
-                8 // P8 - Adaptive
+            // AMD GPUs - fan speed based on temperature
+            let fan_rpm = if gpu.temperature_celsius > 70 {
+                use rand::{rng, Rng};
+                let mut rng = rng();
+                rng.random_range(2000..3000)
+            } else if gpu.temperature_celsius > 50 {
+                use rand::{rng, Rng};
+                let mut rng = rng();
+                rng.random_range(1200..2000)
             } else {
-                12 // P12 - Idle
+                use rand::{rng, Rng};
+                let mut rng = rng();
+                rng.random_range(800..1200)
             };
-            response = response.replace(&format!("{{{{PSTATE_{i}}}}}"), &pstate.to_string());
-
-            // Process metrics (simplified for now - no actual processes)
-            response = response.replace(&format!("{{{{PROC_COUNT_{i}}}}}"), "0");
+            response = response.replace(&format!("{{{{FAN_{i}}}}}"), &fan_rpm.to_string());
         }
 
         // Replace CPU and memory metrics
@@ -262,7 +258,7 @@ impl NvidiaMockGenerator {
     }
 }
 
-impl MockGenerator for NvidiaMockGenerator {
+impl MockGenerator for AmdGpuMockGenerator {
     fn generate(&self, config: &MockConfig) -> MockResult<MockData> {
         self.validate_config(config)?;
 
@@ -275,11 +271,11 @@ impl MockGenerator for NvidiaMockGenerator {
                 GpuMetrics {
                     uuid: crate::mock::metrics::gpu::generate_uuid(),
                     utilization: rng.random_range(0.0..100.0),
-                    memory_used_bytes: rng.random_range(1_000_000_000..80_000_000_000),
-                    memory_total_bytes: 85_899_345_920, // 80GB
+                    memory_used_bytes: rng.random_range(1_000_000_000..20_000_000_000),
+                    memory_total_bytes: 25_769_803_776, // 24GB
                     temperature_celsius: rng.random_range(35..75),
-                    power_consumption_watts: rng.random_range(100.0..450.0),
-                    frequency_mhz: rng.random_range(1200..1980),
+                    power_consumption_watts: rng.random_range(100.0..350.0),
+                    frequency_mhz: rng.random_range(1500..2500),
                     ane_utilization_watts: 0.0,
                     thermal_pressure_level: None,
                 }
@@ -290,14 +286,14 @@ impl MockGenerator for NvidiaMockGenerator {
         use rand::{rng, Rng};
         let mut rng = rng();
         let cpu = CpuMetrics {
-            model: "Intel Xeon Platinum".to_string(),
+            model: "AMD EPYC 7763".to_string(),
             utilization: rng.random_range(10.0..90.0),
             socket_count: 2,
             core_count: 128,
             thread_count: 256,
-            frequency_mhz: 2400,
+            frequency_mhz: 2450,
             temperature_celsius: Some(65),
-            power_consumption_watts: Some(250.0),
+            power_consumption_watts: Some(280.0),
             socket_utilizations: vec![rng.random_range(10.0..90.0), rng.random_range(10.0..90.0)],
             p_core_count: None,
             e_core_count: None,
@@ -323,14 +319,14 @@ impl MockGenerator for NvidiaMockGenerator {
         };
 
         // Build and render template
-        let template = self.build_nvidia_template(&gpus, &cpu, &memory);
-        let response = self.render_nvidia_response(&template, &gpus, &cpu, &memory);
+        let template = self.build_amd_template(&gpus, &cpu, &memory);
+        let response = self.render_amd_response(&template, &gpus, &cpu, &memory);
 
         Ok(MockData {
             response,
             content_type: "text/plain; version=0.0.4".to_string(),
             timestamp: chrono::Utc::now(),
-            platform: MockPlatform::Nvidia,
+            platform: MockPlatform::AmdGpu,
         })
     }
 
@@ -343,7 +339,7 @@ impl MockGenerator for NvidiaMockGenerator {
                 uuid: format!("GPU-{:08x}", i as u32),
                 utilization: 0.0,
                 memory_used_bytes: 0,
-                memory_total_bytes: 85_899_345_920,
+                memory_total_bytes: 25_769_803_776,
                 temperature_celsius: 0,
                 power_consumption_watts: 0.0,
                 frequency_mhz: 0,
@@ -353,14 +349,14 @@ impl MockGenerator for NvidiaMockGenerator {
             .collect();
 
         let cpu = CpuMetrics {
-            model: "Intel Xeon Platinum".to_string(),
+            model: "AMD EPYC 7763".to_string(),
             utilization: 0.0,
             socket_count: 2,
             core_count: 128,
             thread_count: 256,
-            frequency_mhz: 2400,
+            frequency_mhz: 2450,
             temperature_celsius: Some(65),
-            power_consumption_watts: Some(250.0),
+            power_consumption_watts: Some(280.0),
             socket_utilizations: vec![0.0, 0.0],
             p_core_count: None,
             e_core_count: None,
@@ -385,7 +381,7 @@ impl MockGenerator for NvidiaMockGenerator {
             utilization: 0.0,
         };
 
-        Ok(self.build_nvidia_template(&gpus, &cpu, &memory))
+        Ok(self.build_amd_template(&gpus, &cpu, &memory))
     }
 
     fn render(&self, template: &str, config: &MockConfig) -> MockResult<String> {
@@ -396,6 +392,6 @@ impl MockGenerator for NvidiaMockGenerator {
     }
 
     fn platform(&self) -> MockPlatform {
-        MockPlatform::Nvidia
+        MockPlatform::AmdGpu
     }
 }
