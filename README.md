@@ -6,7 +6,7 @@
 [![dependency status](https://deps.rs/repo/github/inureyes/all-smi/status.svg)](https://deps.rs/repo/github/inureyes/all-smi)
 
 
-`all-smi` is a command-line utility for monitoring GPU and NPU hardware across multiple systems. It provides a real-time view of accelerator utilization, memory usage, temperature, power consumption, and other metrics. The tool is designed to be a cross-platform alternative to `nvidia-smi`, with support for NVIDIA GPUs, NVIDIA Jetson platforms, Apple Silicon GPUs, Tenstorrent NPUs, Rebellions NPUs, and Furiosa NPUs.
+`all-smi` is a command-line utility for monitoring GPU and NPU hardware across multiple systems. It provides a real-time view of accelerator utilization, memory usage, temperature, power consumption, and other metrics. The tool is designed to be a cross-platform alternative to `nvidia-smi`, with support for NVIDIA GPUs, AMD GPUs, NVIDIA Jetson platforms, Apple Silicon GPUs, Tenstorrent NPUs, Rebellions NPUs, and Furiosa NPUs.
 
 The application presents a terminal-based user interface with cluster overview, interactive sorting, and both local and remote monitoring capabilities. It also provides an API mode for Prometheus metrics integration.
 
@@ -136,6 +136,29 @@ http://gpu-node2:9090
 http://gpu-node3:9090
 ```
 
+## Platform-Specific Requirements
+
+### macOS (Apple Silicon)
+- **Sudo Access Required:** Apple Silicon GPU monitoring requires `sudo` privileges to run `powermetrics`
+- Run with: `sudo all-smi local`
+
+### Linux with AMD GPUs
+- **Sudo Access Required:** AMD GPU monitoring requires `sudo` to access `/dev/dri` devices
+- **ROCm Installation:** AMD GPU support requires ROCm drivers and libraries
+- **Build Requirements:**
+  - AMD GPU support is available in **glibc builds only** (`x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`)
+  - **Not available in musl builds** (`x86_64-unknown-linux-musl`, `aarch64-unknown-linux-musl`) due to library compatibility
+  - For static binaries with AMD GPU support, use the glibc builds
+- **Permissions:** Add user to `video` and `render` groups as an alternative to sudo:
+  ```bash
+  sudo usermod -a -G video,render $USER
+  # Log out and back in for changes to take effect
+  ```
+
+### Linux with NVIDIA GPUs
+- **No Sudo Required:** NVIDIA GPU monitoring works without sudo privileges
+- **Driver Required:** NVIDIA proprietary drivers must be installed
+
 ## Features
 
 ### GPU Monitoring
@@ -150,6 +173,7 @@ http://gpu-node3:9090
 - **Interactive Sorting:** Sort GPUs by utilization, memory usage, or default (hostname+index) order
 - **Platform-Specific Features:**
   - NVIDIA: PCIe info, performance states, power limits
+  - AMD: VRAM/GTT memory tracking, fan speed monitoring, GPU process detection with fdinfo
   - NVIDIA Jetson: DLA utilization monitoring
   - Apple Silicon: ANE power monitoring, thermal pressure levels
   - Tenstorrent NPUs: Real-time telemetry via luwen library, board-specific TDP calculations
@@ -204,8 +228,13 @@ http://gpu-node3:9090
   - 101+ nodes: 6 seconds
 
 ### Cross-Platform Support
-- **Linux:** 
+- **Linux:**
   - NVIDIA GPUs via NVML and nvidia-smi (fallback)
+  - AMD GPUs (Radeon and Instinct) via ROCm and libamdgpu_top library
+    - Real-time VRAM and GTT memory monitoring
+    - GPU process detection with memory usage tracking
+    - Temperature, power consumption, frequency, and fan speed metrics
+    - Requires sudo access to /dev/dri devices (glibc builds only)
   - CPU monitoring via /proc filesystem
   - Memory monitoring with detailed statistics
   - Tenstorrent NPUs (Grayskull, Wormhole, Blackhole) via luwen library
