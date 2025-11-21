@@ -16,6 +16,8 @@
 
 // General configuration constants
 pub const DEFAULT_NVIDIA_GPU_NAME: &str = "NVIDIA B200 192GB HBM3";
+pub const DEFAULT_NVIDIA_DRIVER_VERSION: &str = "580.82.07";
+pub const DEFAULT_CUDA_VERSION: &str = "13.0";
 pub const DEFAULT_AMD_GPU_NAME: &str = "AMD Instinct MI355X 288GB HBM3";
 #[allow(dead_code)]
 pub const DEFAULT_AMD_INSTINCT_NAME: &str = "AMD Instinct MI300X 192GB";

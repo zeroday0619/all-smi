@@ -102,6 +102,29 @@ impl NvidiaMockGenerator {
                 template.push_str(&format!("{metric_name}{{{labels}}} {placeholder}\n"));
             }
         }
+
+        // Add GPU info metric with driver and CUDA version
+        self.add_gpu_info_metric(template, gpus);
+    }
+
+    fn add_gpu_info_metric(&self, template: &mut String, gpus: &[GpuMetrics]) {
+        use crate::mock::constants::{DEFAULT_CUDA_VERSION, DEFAULT_NVIDIA_DRIVER_VERSION};
+
+        template.push_str("# HELP all_smi_gpu_info GPU device information\n");
+        template.push_str("# TYPE all_smi_gpu_info gauge\n");
+
+        for (i, gpu) in gpus.iter().enumerate() {
+            let labels = format!(
+                "gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{i}\", \
+                 driver_version=\"{}\", cuda_version=\"{}\"",
+                self.gpu_name,
+                self.instance_name,
+                gpu.uuid,
+                DEFAULT_NVIDIA_DRIVER_VERSION,
+                DEFAULT_CUDA_VERSION
+            );
+            template.push_str(&format!("all_smi_gpu_info{{{labels}}} 1\n"));
+        }
     }
 
     fn add_pstate_metrics(&self, template: &mut String, gpus: &[GpuMetrics]) {
