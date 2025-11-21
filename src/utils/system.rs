@@ -53,9 +53,23 @@ pub fn ensure_sudo_permissions() {
         let _ = io::stdout().flush();
         let _ = io::stderr().flush();
 
-        request_sudo_with_explanation(false);
+        request_sudo_with_explanation(SudoPlatform::MacOS, false);
+    } else if cfg!(target_os = "linux") {
+        // On Linux, check if we have AMD GPUs that require sudo
+        #[cfg(target_os = "linux")]
+        {
+            use crate::device::platform_detection::has_amd;
+
+            if has_amd() {
+                // AMD GPUs require sudo to access /dev/dri devices
+                // Check if running as root
+                if unsafe { libc::geteuid() } != 0 {
+                    request_sudo_with_explanation(SudoPlatform::Linux, false);
+                }
+            }
+        }
     } else {
-        // For non-macOS systems, we might need different handling
+        // For other systems, we might need different handling
         eprintln!("Note: This platform may not require sudo for hardware monitoring.");
     }
 }
@@ -82,27 +96,115 @@ pub fn ensure_sudo_permissions_for_api() -> bool {
 
 pub fn ensure_sudo_permissions_with_fallback() -> bool {
     if cfg!(target_os = "macos") {
-        request_sudo_with_explanation(true)
+        request_sudo_with_explanation(SudoPlatform::MacOS, true)
+    } else if cfg!(target_os = "linux") {
+        // On Linux, check if we have AMD GPUs that require sudo
+        #[cfg(target_os = "linux")]
+        {
+            use crate::device::platform_detection::has_amd;
+
+            if has_amd() {
+                // AMD GPUs require sudo - check if running as root
+                if unsafe { libc::geteuid() } != 0 {
+                    request_sudo_with_explanation(SudoPlatform::Linux, false);
+                }
+                // If we're here, either:
+                // 1. We were already root (geteuid() == 0)
+                // 2. sudo request succeeded (otherwise process would have exited)
+                // In both cases, we can proceed
+                true
+            } else {
+                true
+            }
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            true
+        }
     } else {
         true
     }
 }
 
-fn request_sudo_with_explanation(return_bool: bool) -> bool {
+/// Platform-specific sudo messages
+#[derive(Copy, Clone)]
+#[allow(dead_code)] // Variants used conditionally based on platform
+enum SudoPlatform {
+    MacOS,
+    Linux,
+}
+
+/// Get platform-specific sudo explanation messages
+fn get_sudo_messages(
+    platform: SudoPlatform,
+) -> (
+    &'static str,
+    &'static str,
+    &'static str,
+    Option<&'static str>,
+    Option<&'static str>,
+) {
+    match platform {
+        SudoPlatform::MacOS => (
+            // Required reasons
+            "   • Access to hardware metrics requires the 'powermetrics' command\n   • powermetrics needs elevated privileges to read low-level system data\n   • This includes GPU utilization, power consumption, and thermal information",
+            // Security info
+            "   • all-smi only reads system metrics - it does not modify your system\n   • The sudo access is used exclusively for running 'powermetrics'\n   • No data is transmitted externally without your explicit configuration",
+            // Monitored items
+            "   • GPU: Utilization, memory usage, temperature, power consumption\n   • CPU: Core utilization and performance metrics\n   • Memory: System RAM usage and allocation\n   • Storage: Disk usage and performance",
+            // Alternative (None for macOS)
+            None,
+            // Additional troubleshooting (None for macOS)
+            None,
+        ),
+        SudoPlatform::Linux => (
+            // Required reasons
+            "   • Access to AMD GPU devices requires read/write permissions on /dev/dri\n   • These devices are typically only accessible by root or video/render group\n   • This includes GPU utilization, memory usage, temperature, and power data",
+            // Security info
+            "   • all-smi only reads GPU metrics - it does not modify your system\n   • The sudo access is used exclusively for accessing AMD GPU devices\n   • No data is transmitted externally without your explicit configuration",
+            // Monitored items
+            "   • AMD GPU: Utilization, VRAM usage, temperature, power, clock speeds\n   • CPU: Core utilization and performance metrics\n   • Memory: System RAM usage and allocation\n   • Storage: Disk usage and performance",
+            // Alternative
+            Some("💡 Alternative: Add your user to the 'video' and 'render' groups:\n   sudo usermod -a -G video,render $USER\n   (requires logout/login to take effect)"),
+            // Additional troubleshooting
+            Some("   Alternative: Add your user to video/render groups:\n   → sudo usermod -a -G video,render $USER"),
+        ),
+    }
+}
+
+/// Unified function to request sudo with platform-specific explanations
+fn request_sudo_with_explanation(platform: SudoPlatform, return_bool: bool) -> bool {
     // Check if we already have sudo privileges
     if has_sudo_privileges() {
+        // On Linux, having sudo timestamp is not enough - process must run as root
+        #[cfg(target_os = "linux")]
+        {
+            if matches!(platform, SudoPlatform::Linux) && unsafe { libc::geteuid() } != 0 {
+                println!();
+                println!("⚠️  Sudo timestamp is valid, but the process is not running as root.");
+                println!();
+                println!("AMD GPU monitoring requires the program itself to run with sudo:");
+                println!("   → sudo all-smi");
+                println!();
+                println!("(Unlike macOS, Linux requires root privileges for /dev/dri access)");
+                println!();
+                std::process::exit(1);
+            }
+        }
+
         println!();
         println!("✅ Administrator privileges already available.");
         println!("   Starting system monitoring...");
         println!();
-        if return_bool {
-            return true;
-        } else {
-            // Add a small delay so user can see the message before terminal is cleared
+        // Add a small delay for non-fallback mode so user can see the message
+        if !return_bool {
             std::thread::sleep(std::time::Duration::from_millis(300));
-            return false; // This return value won't be used when return_bool is false
         }
+        return true; // Always return true if sudo is available
     }
+
+    let (required_reasons, security_info, monitored_items, alternative, additional_troubleshooting) =
+        get_sudo_messages(platform);
 
     // Always show the explanation first, regardless of sudo status
     println!();
@@ -112,21 +214,20 @@ fn request_sudo_with_explanation(return_bool: bool) -> bool {
     println!("This application monitors GPU, CPU, and memory usage on your system.");
     println!();
     println!("🔒 Administrator privileges are required because:");
-    println!("   • Access to hardware metrics requires the 'powermetrics' command");
-    println!("   • powermetrics needs elevated privileges to read low-level system data");
-    println!("   • This includes GPU utilization, power consumption, and thermal information");
+    println!("{required_reasons}");
     println!();
     println!("🛡️  Security Information:");
-    println!("   • all-smi only reads system metrics - it does not modify your system");
-    println!("   • The sudo access is used exclusively for running 'powermetrics'");
-    println!("   • No data is transmitted externally without your explicit configuration");
+    println!("{security_info}");
     println!();
     println!("📋 What will be monitored:");
-    println!("   • GPU: Utilization, memory usage, temperature, power consumption");
-    println!("   • CPU: Core utilization and performance metrics");
-    println!("   • Memory: System RAM usage and allocation");
-    println!("   • Storage: Disk usage and performance");
+    println!("{monitored_items}");
     println!();
+
+    // Show alternative if available (Linux only)
+    if let Some(alt) = alternative {
+        println!("{alt}");
+        println!();
+    }
 
     // Give user a choice to continue
     print!("To proceed, you need to enter your sudo password.");
@@ -149,9 +250,23 @@ fn request_sudo_with_explanation(return_bool: bool) -> bool {
         println!();
         println!("💡 Troubleshooting:");
         println!("   • Make sure you entered the correct password");
-        println!("   • Ensure your user account has administrator privileges");
+        println!(
+            "   • Ensure your user account has {}",
+            if matches!(platform, SudoPlatform::MacOS) {
+                "administrator privileges"
+            } else {
+                "sudo privileges"
+            }
+        );
         println!("   • Try running 'sudo -v' manually to test sudo access");
         println!();
+
+        // Show additional troubleshooting if available (Linux only)
+        if let Some(additional) = additional_troubleshooting {
+            println!("{additional}");
+            println!();
+        }
+
         println!("   For remote monitoring without sudo, use:");
         println!("   → all-smi view --hosts <url1> <url2>");
         println!();
