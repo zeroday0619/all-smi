@@ -110,6 +110,13 @@ jobs:
           sudo apt update
           sudo apt install -y musl-tools
 
+      # 5.5) Install AMD GPU dependencies for Linux builds
+      - name: Install AMD GPU dependencies (Linux only)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt update
+          sudo apt install -y libdrm-dev libdrm-amdgpu1
+
       # 6) Setup protoc (cached)
       - name: Setup protoc
         uses: ./.github/actions/setup-protoc
