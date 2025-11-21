@@ -49,6 +49,34 @@ Metrics are available at `http://localhost:9090/metrics`
 |---------------------------|---------------------------------------------|---------|-------------------------|
 | `all_smi_dla_utilization` | DLA (Deep Learning Accelerator) utilization | percent | `gpu_index`, `gpu_name` |
 
+### AMD GPU Specific Metrics
+
+AMD GPUs (Radeon and Instinct series) provide comprehensive monitoring through ROCm and the DRM subsystem:
+
+| Metric                        | Description                              | Unit    | Labels                                      |
+|-------------------------------|------------------------------------------|---------|---------------------------------------------|
+| `all_smi_gpu_fan_speed_rpm`   | GPU fan speed                            | RPM     | `gpu_index`, `gpu_name`                     |
+| `all_smi_amd_rocm_version`    | AMD ROCm version installed               | info    | `instance`, `version`                       |
+| `all_smi_gpu_memory_gtt_bytes`| GTT (GPU Translation Table) memory usage | bytes   | `gpu_index`, `gpu_name`                     |
+| `all_smi_gpu_memory_vram_bytes`| VRAM (Video RAM) usage                  | bytes   | `gpu_index`, `gpu_name`                     |
+
+**Additional Details Available** (in `all_smi_gpu_info` labels):
+- **PCIe Information**: Current link generation and width, max GPU/system link capabilities
+- **VBIOS**: Version and date information
+- **Power Management**: Current, minimum, and maximum power cap values
+- **ASIC Information**: Device ID, revision ID, ASIC name
+- **Memory Clock**: Current memory clock frequency
+
+**Process Tracking**:
+- AMD GPU process detection uses `fdinfo` from `/proc/<pid>/fdinfo/` for accurate memory tracking
+- Tracks both VRAM and GTT memory usage per process
+- Available with `--processes` flag in API mode
+
+**Platform Requirements**:
+- Requires ROCm drivers and `libamdgpu_top` library
+- Requires sudo access to `/dev/dri` devices or user in `video`/`render` groups
+- Only available in glibc builds (not musl static builds)
+
 ### Apple Silicon GPU Specific Metrics
 
 | Metric                          | Description            | Unit  | Labels                           |
@@ -298,6 +326,24 @@ sum(all_smi_gpu_power_consumption_watts)
 
 # Power efficiency (utilization per watt)
 all_smi_gpu_utilization / all_smi_gpu_power_consumption_watts
+```
+
+### AMD GPU Specific
+```promql
+# AMD GPUs with high fan speed (potential cooling issues)
+all_smi_gpu_fan_speed_rpm > 3000
+
+# VRAM utilization percentage
+(all_smi_gpu_memory_vram_bytes / all_smi_gpu_memory_total_bytes) * 100
+
+# AMD GPUs approaching power cap
+all_smi_gpu_power_consumption_watts / all_smi_amd_power_cap_watts > 0.9
+
+# Memory bandwidth usage (VRAM + GTT)
+all_smi_gpu_memory_vram_bytes + all_smi_gpu_memory_gtt_bytes
+
+# AMD GPU thermal efficiency (utilization per degree)
+all_smi_gpu_utilization / all_smi_gpu_temperature_celsius
 ```
 
 ### Apple Silicon Specific

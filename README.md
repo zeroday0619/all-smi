@@ -278,7 +278,7 @@ http://gpu-node3:9090
   - Simulates realistic GPU clusters with 8 GPUs per node
   - Configurable port ranges for multiple instances
   - Failure simulation for resilience testing
-  - Platform-specific metric generation (NVIDIA, Apple Silicon, Jetson, Tenstorrent, Rebellions, Furiosa)
+  - Platform-specific metric generation (NVIDIA, AMD, Apple Silicon, Jetson, Tenstorrent, Rebellions, Furiosa)
   - Background metric updates with realistic variations
 - **Performance Optimized:**
   - Template-based response generation
@@ -301,11 +301,11 @@ all-smi api --port 9090 --processes
 ```
 
 Metrics are available at `http://localhost:9090/metrics` and include comprehensive hardware monitoring for:
-- **GPUs:** Utilization, memory, temperature, power, frequency (NVIDIA, Apple Silicon, Tenstorrent)
+- **GPUs:** Utilization, memory, temperature, power, frequency (NVIDIA, AMD, Apple Silicon, Tenstorrent)
 - **CPUs:** Utilization, frequency, temperature, power (with P/E core metrics for Apple Silicon)
 - **Memory:** System and swap memory statistics
 - **Storage:** Disk usage information
-- **Processes:** GPU process metrics (with --processes flag)
+- **Processes:** GPU process metrics including AMD fdinfo-based tracking (with --processes flag)
 
 For a complete list of all available metrics, see [API.md](API.md).
 
