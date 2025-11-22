@@ -116,12 +116,10 @@ impl NvidiaMockGenerator {
         for (i, gpu) in gpus.iter().enumerate() {
             let labels = format!(
                 "gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{i}\", \
-                 driver_version=\"{}\", cuda_version=\"{}\"",
+                 driver_version=\"{DEFAULT_NVIDIA_DRIVER_VERSION}\", cuda_version=\"{DEFAULT_CUDA_VERSION}\"",
                 self.gpu_name,
                 self.instance_name,
-                gpu.uuid,
-                DEFAULT_NVIDIA_DRIVER_VERSION,
-                DEFAULT_CUDA_VERSION
+                gpu.uuid
             );
             template.push_str(&format!("all_smi_gpu_info{{{labels}}} 1\n"));
         }
@@ -290,13 +288,14 @@ impl MockGenerator for NvidiaMockGenerator {
         self.validate_config(config)?;
 
         // Generate initial GPU metrics
+        // Create a single RNG instance outside the loop for better performance
+        use rand::{rng, Rng};
+        let mut rng = rng();
+
         let gpus: Vec<GpuMetrics> = (0..config.device_count)
             .map(|_| {
-                use rand::{rng, Rng};
-                let mut rng = rng();
-
                 GpuMetrics {
-                    uuid: crate::mock::metrics::gpu::generate_uuid(),
+                    uuid: crate::mock::metrics::gpu::generate_uuid_with_rng(&mut rng),
                     utilization: rng.random_range(0.0..100.0),
                     memory_used_bytes: rng.random_range(1_000_000_000..80_000_000_000),
                     memory_total_bytes: 85_899_345_920, // 80GB
@@ -310,8 +309,7 @@ impl MockGenerator for NvidiaMockGenerator {
             .collect();
 
         // Generate CPU and memory metrics
-        use rand::{rng, Rng};
-        let mut rng = rng();
+        // Reuse the existing RNG instance
         let cpu = CpuMetrics {
             model: "Intel Xeon Platinum".to_string(),
             utilization: rng.random_range(10.0..90.0),

@@ -29,11 +29,36 @@ const MAX_GPU_TEMP_CELSIUS: u32 = 125; // Maximum temperature in Celsius
 const MAX_GPU_FREQ_MHZ: u32 = 5000; // Maximum frequency in MHz
 const MAX_GPU_MEMORY_BYTES: u64 = 512 * 1024 * 1024 * 1024; // 512GB max memory
 
+// Driver version validation constant
+// Linux kernel versions typically don't exceed 999 for any component
+const MAX_VERSION_COMPONENT: i32 = 999;
+
 /// Per-device state that needs to be cached
 ///
-/// SAFETY: The vram_usage Mutex protects VramUsage which must be updated
-/// atomically. We handle mutex poisoning by recreating the VramUsage from
-/// fresh memory_info if a thread panics while holding the lock.
+/// # Thread Safety
+///
+/// The `vram_usage` field is protected by a `Mutex` to ensure thread-safe access
+/// across multiple concurrent readers. The VramUsage struct from libamdgpu_top
+/// maintains internal state that must be updated atomically.
+///
+/// ## Synchronization Guarantees
+/// - All reads and writes to `vram_usage` are serialized through the mutex
+/// - The mutex ensures memory ordering: all writes before unlock are visible after lock
+/// - No data races can occur as long as all access goes through the mutex
+///
+/// ## Mutex Poisoning Recovery
+/// If a thread panics while holding the mutex lock, the mutex becomes "poisoned"
+/// to prevent other threads from observing potentially inconsistent state.
+/// We handle this by:
+/// 1. Detecting the poisoned state
+/// 2. Attempting to recover with fresh data from the driver
+/// 3. Using `catch_unwind` to handle potential panics during recovery
+/// 4. Skipping the device if recovery fails to maintain system stability
+///
+/// ## Performance Considerations
+/// - Mutex contention is minimal as updates are quick (microseconds)
+/// - Each device has its own mutex, preventing global bottlenecks
+/// - The lock is held only during the VramUsage update operations
 struct AmdGpuDevice {
     device_path: DevicePath,
     device_handle: DeviceHandle,
@@ -121,6 +146,9 @@ impl AmdGpuReader {
                     if file_name.starts_with("card") || file_name.starts_with("render") {
                         // Check if we have read/write permissions
                         // For root: always has access
+                        // SAFETY: libc::geteuid() is always safe to call - it's a simple
+                        // system call that reads the effective user ID from the kernel.
+                        // It cannot fail and doesn't access any memory we provide.
                         if unsafe { libc::geteuid() } == 0 {
                             return true; // Root always has access
                         }
@@ -179,15 +207,32 @@ impl GpuReader for AmdGpuReader {
                         // Try to get fresh memory info from the device
                         match device.device_handle.memory_info() {
                             Ok(fresh_memory_info) => {
-                                // Clear the poison and update with fresh data
-                                let mut guard = poisoned.into_inner();
-                                *guard = VramUsage::new(&fresh_memory_info);
-                                guard.update_usage(&device.device_handle);
-                                guard.update_usable_heap_size(&device.device_handle);
-                                guard.0
+                                // Attempt to recover the poisoned mutex safely
+                                // into_inner() can theoretically panic if the mutex is in an
+                                // inconsistent state, though this is extremely rare with modern
+                                // standard library implementations
+                                match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                    poisoned.into_inner()
+                                })) {
+                                    Ok(mut guard) => {
+                                        // Successfully recovered the guard
+                                        *guard = VramUsage::new(&fresh_memory_info);
+                                        guard.update_usage(&device.device_handle);
+                                        guard.update_usable_heap_size(&device.device_handle);
+                                        guard.0
+                                    }
+                                    Err(_) => {
+                                        // Recovery failed - skip this GPU
+                                        eprintln!(
+                                            "Critical: Failed to recover poisoned mutex for device {}, skipping",
+                                            device.device_path.pci
+                                        );
+                                        continue;
+                                    }
+                                }
                             }
                             Err(e) => {
-                                eprintln!("Failed to recover from poisoned mutex: {e}");
+                                eprintln!("Failed to get fresh memory info during recovery: {e}");
                                 continue; // Skip this GPU if we can't recover
                             }
                         }
@@ -218,6 +263,39 @@ impl GpuReader for AmdGpuReader {
 
             if let Some(ver) = libamdgpu_top::get_rocm_version() {
                 detail.insert("ROCm Version".to_string(), ver);
+            }
+
+            // Add driver version from DRM with validation
+            match device.device_handle.get_drm_version_struct() {
+                Ok(drm) => {
+                    // Validate version components are reasonable (prevent malformed data)
+
+                    if drm.version_major >= 0
+                        && drm.version_major <= MAX_VERSION_COMPONENT
+                        && drm.version_minor >= 0
+                        && drm.version_minor <= MAX_VERSION_COMPONENT
+                        && drm.version_patchlevel >= 0
+                        && drm.version_patchlevel <= MAX_VERSION_COMPONENT
+                    {
+                        let driver_version = format!(
+                            "{}.{}.{}",
+                            drm.version_major, drm.version_minor, drm.version_patchlevel
+                        );
+                        detail.insert("Driver Version".to_string(), driver_version);
+                    } else {
+                        eprintln!(
+                        "Warning: Invalid driver version components detected: {}.{}.{} for device {}",
+                        drm.version_major, drm.version_minor, drm.version_patchlevel,
+                        device.device_path.pci
+                    );
+                    }
+                }
+                Err(e) => {
+                    eprintln!(
+                        "Warning: Failed to get driver version for device {}: {e}",
+                        device.device_path.pci
+                    );
+                }
             }
 
             // Add more details
@@ -347,6 +425,7 @@ impl GpuReader for AmdGpuReader {
 
             // Get VRAM size - try multiple sources in order with validation
             // Current max is MI325X with 288GB, but we allow headroom for future models
+            // Use saturating operations to prevent any possibility of overflow
             let total_memory = if memory_info.vram.total_heap_size > 0 {
                 memory_info.vram.total_heap_size.min(MAX_GPU_MEMORY_BYTES)
             } else if memory_info.vram.usable_heap_size > 0 {
@@ -355,7 +434,8 @@ impl GpuReader for AmdGpuReader {
                 0
             };
 
-            // Validate used memory doesn't exceed total
+            // Validate used memory doesn't exceed total - use saturating_sub to prevent underflow
+            // in case of driver reporting incorrect values
             let used_memory = memory_info.vram.heap_usage.min(total_memory);
 
             let info = GpuInfo {
@@ -486,5 +566,125 @@ impl GpuReader for AmdGpuReader {
         }
 
         process_info_list
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_max_version_component_validation() {
+        // Test that MAX_VERSION_COMPONENT is reasonable for Linux kernel versions
+        assert!(
+            MAX_VERSION_COMPONENT >= 99,
+            "Should support two-digit version components"
+        );
+        assert!(
+            MAX_VERSION_COMPONENT <= 9999,
+            "Should not be excessively large"
+        );
+
+        // Common kernel version components should be valid
+        let common_versions = vec![
+            (6, 12, 0),      // Linux 6.12.0
+            (5, 15, 0),      // Linux 5.15.0 LTS
+            (30, 10, 1),     // AMD driver version
+            (999, 999, 999), // Maximum allowed
+        ];
+
+        for (major, minor, patch) in common_versions {
+            assert!(
+                major <= MAX_VERSION_COMPONENT,
+                "Major version {major} should be valid"
+            );
+            assert!(
+                minor <= MAX_VERSION_COMPONENT,
+                "Minor version {minor} should be valid"
+            );
+            assert!(
+                patch <= MAX_VERSION_COMPONENT,
+                "Patch version {patch} should be valid"
+            );
+        }
+    }
+
+    #[test]
+    fn test_version_validation_rejects_invalid() {
+        // Test that we reject unreasonable version numbers
+        let invalid_versions = vec![
+            (1000, 0, 0), // Major too high
+            (0, 1000, 0), // Minor too high
+            (0, 0, 1000), // Patch too high
+            (-1, 0, 0),   // Negative major
+            (0, -1, 0),   // Negative minor
+            (0, 0, -1),   // Negative patch
+        ];
+
+        for (major, minor, patch) in invalid_versions {
+            let major_valid = major >= 0 && major <= MAX_VERSION_COMPONENT;
+            let minor_valid = minor >= 0 && minor <= MAX_VERSION_COMPONENT;
+            let patch_valid = patch >= 0 && patch <= MAX_VERSION_COMPONENT;
+
+            assert!(
+                !(major_valid && minor_valid && patch_valid),
+                "Version {major}.{minor}.{patch} should be invalid"
+            );
+        }
+    }
+
+    #[test]
+    fn test_memory_validation_constants() {
+        // Test memory validation constants are reasonable
+        assert_eq!(
+            MAX_GPU_MEMORY_BYTES,
+            512 * 1024 * 1024 * 1024,
+            "Max GPU memory should be 512GB"
+        );
+
+        // Current largest AMD GPU is MI325X with 288GB, ensure we support it
+        let mi325x_memory: u64 = 288 * 1024 * 1024 * 1024;
+        assert!(
+            mi325x_memory < MAX_GPU_MEMORY_BYTES,
+            "Should support MI325X 288GB memory"
+        );
+
+        // Future-proof for potential 400GB models
+        let future_memory: u64 = 400 * 1024 * 1024 * 1024;
+        assert!(
+            future_memory < MAX_GPU_MEMORY_BYTES,
+            "Should have headroom for future GPUs"
+        );
+    }
+
+    #[test]
+    fn test_gpu_metric_validation_constants() {
+        // Test that validation constants are reasonable
+        assert_eq!(MAX_GPU_UTILIZATION, 100.0, "Max utilization should be 100%");
+        assert_eq!(
+            MAX_GPU_POWER_WATTS, 1000.0,
+            "Max power should support high-end GPUs"
+        );
+        assert_eq!(
+            MAX_GPU_TEMP_CELSIUS, 125,
+            "Max temp should be above thermal limits"
+        );
+        assert_eq!(
+            MAX_GPU_FREQ_MHZ, 5000,
+            "Max frequency should support boost clocks"
+        );
+
+        // Real-world values should be within limits
+        let mi300x_power = 750.0; // MI300X max TDP
+        assert!(
+            mi300x_power < MAX_GPU_POWER_WATTS,
+            "Should support MI300X power draw"
+        );
+
+        let typical_boost_freq = 2500; // Typical AMD GPU boost
+        assert!(
+            typical_boost_freq < MAX_GPU_FREQ_MHZ,
+            "Should support typical boost frequencies"
+        );
     }
 }

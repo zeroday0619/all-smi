@@ -30,6 +30,17 @@ const FAN_RPM_MID_MAX: u32 = 2000; // Max RPM for medium temperature
 const FAN_RPM_LOW_MIN: u32 = 800; // Min RPM for low temperature
 const FAN_RPM_LOW_MAX: u32 = 1200; // Max RPM for low temperature
 
+/// Calculate fan RPM based on temperature thresholds
+fn calculate_fan_rpm<R: rand::Rng>(temperature: u32, rng: &mut R) -> u32 {
+    if temperature > FAN_SPEED_HIGH_TEMP {
+        rng.random_range(FAN_RPM_HIGH_MIN..FAN_RPM_HIGH_MAX)
+    } else if temperature > FAN_SPEED_MID_TEMP {
+        rng.random_range(FAN_RPM_MID_MIN..FAN_RPM_MID_MAX)
+    } else {
+        rng.random_range(FAN_RPM_LOW_MIN..FAN_RPM_LOW_MAX)
+    }
+}
+
 /// AMD GPU mock generator
 pub struct AmdGpuMockGenerator {
     gpu_name: String,
@@ -171,6 +182,27 @@ impl AmdGpuMockGenerator {
                 template.push_str(&format!("{metric_name}{{{labels}}} {placeholder}\n"));
             }
         }
+
+        // Add GPU info metric with driver and ROCm version
+        self.add_gpu_info_metric(template, gpus);
+    }
+
+    fn add_gpu_info_metric(&self, template: &mut String, gpus: &[GpuMetrics]) {
+        use crate::mock::constants::{DEFAULT_AMD_DRIVER_VERSION, DEFAULT_AMD_ROCM_VERSION};
+
+        template.push_str("# HELP all_smi_gpu_info GPU device information\n");
+        template.push_str("# TYPE all_smi_gpu_info gauge\n");
+
+        for (i, gpu) in gpus.iter().enumerate() {
+            let labels = format!(
+                "gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{i}\", type=\"GPU\", \
+                 driver_version=\"{DEFAULT_AMD_DRIVER_VERSION}\", rocm_version=\"{DEFAULT_AMD_ROCM_VERSION}\"",
+                self.gpu_name,
+                self.instance_name,
+                gpu.uuid
+            );
+            template.push_str(&format!("all_smi_gpu_info{{{labels}}} 1\n"));
+        }
     }
 
     fn add_fan_metrics(&self, template: &mut String, gpus: &[GpuMetrics]) {
@@ -263,6 +295,9 @@ impl AmdGpuMockGenerator {
     ) -> String {
         let mut response = template.to_string();
 
+        // Create a single RNG instance outside the loop for better performance
+        let mut rng = rng();
+
         // Replace GPU metrics
         for (i, gpu) in gpus.iter().enumerate() {
             response = response
@@ -289,15 +324,7 @@ impl AmdGpuMockGenerator {
                 .replace(&format!("{{{{FREQ_{i}}}}}"), &gpu.frequency_mhz.to_string());
 
             // AMD GPUs - fan speed based on temperature thresholds
-            // Use a single RNG instance for efficiency
-            let mut rng = rng();
-            let fan_rpm = if gpu.temperature_celsius > FAN_SPEED_HIGH_TEMP {
-                rng.random_range(FAN_RPM_HIGH_MIN..FAN_RPM_HIGH_MAX)
-            } else if gpu.temperature_celsius > FAN_SPEED_MID_TEMP {
-                rng.random_range(FAN_RPM_MID_MIN..FAN_RPM_MID_MAX)
-            } else {
-                rng.random_range(FAN_RPM_LOW_MIN..FAN_RPM_LOW_MAX)
-            };
+            let fan_rpm = calculate_fan_rpm(gpu.temperature_celsius, &mut rng);
             response = response.replace(&format!("{{{{FAN_{i}}}}}"), &fan_rpm.to_string());
         }
 
@@ -318,11 +345,14 @@ impl MockGenerator for AmdGpuMockGenerator {
         // Use a single RNG instance for better performance
         let mut rng = rng();
         let memory_total_bytes = self.get_gpu_memory_bytes();
-        let memory_used_max = (memory_total_bytes as f64 * 0.8) as u64; // Max 80% usage
+        // Prevent integer overflow by using saturating multiplication
+        // Max 80% usage, safely calculated to avoid overflow
+        // Calculate 80% of total memory safely - divide first to prevent overflow
+        let memory_used_max = (memory_total_bytes / 10).saturating_mul(8);
 
         let gpus: Vec<GpuMetrics> = (0..config.device_count)
             .map(|_| GpuMetrics {
-                uuid: crate::mock::metrics::gpu::generate_uuid(),
+                uuid: crate::mock::metrics::gpu::generate_uuid_with_rng(&mut rng),
                 utilization: rng.random_range(0.0..100.0),
                 memory_used_bytes: rng
                     .random_range(1_000_000_000..memory_used_max.max(2_000_000_000)),
