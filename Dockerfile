@@ -6,6 +6,8 @@ RUN apt-get update && apt-get install -y \
     pkg-config \
     libssl-dev \
     protobuf-compiler \
+    libdrm-dev \
+    libdrm-amdgpu1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Set the working directory
