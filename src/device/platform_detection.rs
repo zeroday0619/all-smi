@@ -236,6 +236,70 @@ pub fn has_rebellions() -> bool {
     false
 }
 
+pub fn has_gaudi() -> bool {
+    // First check if device files exist (typical Gaudi device paths)
+    // Intel Gaudi uses /dev/accel/accel* device files
+    if std::path::Path::new("/dev/accel/accel0").exists() {
+        return true;
+    }
+
+    // Also check /dev/hl* device files (older naming convention)
+    if std::path::Path::new("/dev/hl0").exists() {
+        return true;
+    }
+
+    // Check for hl-smi command availability
+    const PATHS: &[&str] = &[
+        "/usr/bin/hl-smi",
+        "/usr/local/bin/hl-smi",
+        "/opt/habanalabs/bin/hl-smi",
+    ];
+
+    for path in PATHS {
+        if std::path::Path::new(path).exists() {
+            return true;
+        }
+    }
+
+    // On Linux, try lspci to check for Habana devices
+    if std::env::consts::OS == "linux" {
+        // Check with numeric vendor ID format (lspci -n)
+        // Habana Labs vendor ID: 1da3
+        if let Ok(output) = execute_command_default("lspci", &["-n"]) {
+            if output.status == 0 {
+                // Look for Habana Labs vendor ID (1da3)
+                for line in output.stdout.lines() {
+                    if line.contains("1da3:") {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        // Also check regular lspci output for text matches
+        if let Ok(output) = execute_command_default("lspci", &[]) {
+            if output.status == 0 {
+                // Look for Habana Labs / Intel Gaudi devices
+                // May show as "Processing accelerators" with Habana in the name
+                let stdout_lower = output.stdout.to_lowercase();
+                if stdout_lower.contains("habana") || stdout_lower.contains("gaudi") {
+                    return true;
+                }
+            }
+        }
+    }
+
+    // Last resort: check if hl-smi can actually list devices
+    if let Ok(output) = execute_command_default("hl-smi", &["-L"]) {
+        if output.status == 0 {
+            // Check if output contains device listing
+            return !output.stdout.is_empty();
+        }
+    }
+
+    false
+}
+
 pub fn get_os_type() -> &'static str {
     std::env::consts::OS
 }
