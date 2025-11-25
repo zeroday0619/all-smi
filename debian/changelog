@@ -1,3 +1,17 @@
+all-smi (0.11.0-0) jammy; urgency=medium
+
+  * Add Intel Gaudi 3 AI accelerator support
+  * Add unified AI acceleration library naming for cross-platform consistency
+  * Optimize GPU/NPU readers by caching static values
+  * Unify AI accelerator reader caching patterns
+  * Add AMD GPU driver version extraction and expose in API/mock
+  * Add NVIDIA driver and CUDA version to mock server metrics
+  * Fix type mismatch in ensure_sudo_permissions_with_fallback for musl
+  * Disable AMD GPU support for musl builds to resolve linking errors
+  * Add AMD GPU development dependencies to Linux release builds
+
+ -- Jeongkyu Shin <inureyes@gmail.com>  Tue, 25 Nov 2025 00:00:00 +0000
+
 all-smi (0.10.0-0) jammy; urgency=medium
 
   * Add AMD GPU support via ROCm/libamdgpu_top integration
