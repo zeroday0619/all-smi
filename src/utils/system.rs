@@ -75,23 +75,40 @@ pub fn ensure_sudo_permissions() {
 }
 
 pub fn ensure_sudo_permissions_for_api() -> bool {
-    // Check if we're already running as root
-    if std::env::var("USER").unwrap_or_default() == "root" || unsafe { libc::geteuid() } == 0 {
-        println!("✅ Running as root, no sudo required.");
-        return true;
+    #[cfg(target_os = "windows")]
+    {
+        // Windows does not use sudo/root model
+        println!("✅ Running on Windows, no sudo required.");
+        true
     }
 
-    // Check if we already have sudo privileges cached
-    if has_sudo_privileges() {
-        println!("✅ Sudo privileges already available.");
-        return true;
+    #[cfg(unix)]
+    {
+        // Check if we are already running as root
+        if std::env::var("USER").unwrap_or_default() == "root" || unsafe { libc::geteuid() } == 0 {
+            println!("✅ Running as root, no sudo required.");
+            return true;
+        }
+
+        // Check if we already have sudo privileges cached
+        if has_sudo_privileges() {
+            println!("✅ Sudo privileges already available.");
+            return true;
+        }
+
+        // Sudo not available - warn but continue (for API mode)
+        println!("⚠️  Warning: Running without sudo privileges.");
+        println!("   Some hardware metrics may not be available.");
+        println!("   For full functionality, run with: sudo all-smi api --port <port>");
+        false
     }
 
-    // Try to get sudo, but don't exit if it fails (for API mode)
-    println!("⚠️  Warning: Running without sudo privileges.");
-    println!("   Some hardware metrics may not be available.");
-    println!("   For full functionality, run with: sudo all-smi api --port <port>");
-    false
+    #[cfg(not(any(target_os = "windows", unix)))]
+    {
+        // For other platforms, assume no sudo required
+        println!("✅ Running on unsupported platform, no sudo required.");
+        true
+    }
 }
 
 pub fn ensure_sudo_permissions_with_fallback() -> bool {
