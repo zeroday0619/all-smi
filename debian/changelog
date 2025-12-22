@@ -1,3 +1,16 @@
+all-smi (0.13.0-0) jammy; urgency=medium
+
+  * Add comprehensive Google Cloud TPU monitoring support (v2-v7/Ironwood)
+  * Reduce CPU utilization with optimized polling and rendering
+  * Add gRPC client for TPU runtime metrics with adaptive polling
+  * Add TensorCore utilization and HLO metrics display
+  * Support multiple TPU detection methods: sysfs, PCI, PJRT C API, tpu-info CLI
+  * Add content hash-based skip rendering using FNV-1a hashing
+  * Optimize memory management with reduced buffer allocations
+  * Improve scroll speed and tab tracking for immediate re-renders
+
+ -- Jeongkyu Shin <inureyes@gmail.com>  Mon, 23 Dec 2025 00:00:00 +0000
+
 all-smi (0.12.0-0) jammy; urgency=medium
 
   * Add Windows build support
