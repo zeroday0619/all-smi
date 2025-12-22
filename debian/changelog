@@ -1,3 +1,10 @@
+all-smi (0.13.1-0) jammy; urgency=medium
+
+  * Upgrade tonic to 0.14, prost to 0.14, wmi to 0.18, libloading to 0.9
+  * Upgrade tonic-build to 0.14 and optimize build dependencies
+
+ -- Jeongkyu Shin <inureyes@gmail.com>  Mon, 23 Dec 2025 00:00:00 +0000
+
 all-smi (0.13.0-0) jammy; urgency=medium
 
   * Add comprehensive Google Cloud TPU monitoring support (v2-v7/Ironwood)
