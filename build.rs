@@ -20,7 +20,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // Check if proto file exists before trying to compile
         if std::path::Path::new(proto_file).exists() {
-            tonic_build::configure()
+            tonic_prost_build::configure()
                 .build_server(false) // We only need the client
                 .protoc_arg("--experimental_allow_proto3_optional")
                 // Suppress clippy warnings on generated protobuf code
