@@ -22,9 +22,19 @@ pub mod apple_silicon;
 
 pub mod furiosa;
 pub mod gaudi;
+#[cfg(target_os = "linux")]
+pub mod google_tpu;
 pub mod nvidia;
 pub mod nvidia_jetson;
 pub mod rebellions;
+#[cfg(target_os = "linux")]
+pub mod tpu_grpc;
+#[cfg(target_os = "linux")]
+pub mod tpu_info_runner;
+#[cfg(target_os = "linux")]
+pub mod tpu_pjrt;
+#[cfg(target_os = "linux")]
+pub mod tpu_sysfs;
 
 #[cfg(target_os = "linux")]
 pub mod tenstorrent;

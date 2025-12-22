@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(target_os = "linux")]
+use crate::device::common::constants::google_tpu::is_libtpu_available;
 use crate::device::common::execute_command_default;
 
 pub fn has_nvidia() -> bool {
@@ -257,11 +259,78 @@ pub fn has_rebellions() -> bool {
     false
 }
 
+/// Check if Google TPU devices are present
+/// Uses only file system and environment variable checks to avoid process spawning.
+/// IMPORTANT: No external commands are executed to prevent process accumulation.
+#[cfg(target_os = "linux")]
+pub fn has_google_tpu() -> bool {
+    // Method 1: Check if /dev/accel* devices exist with Google vendor ID
+    // This works for on-premise TPU nodes and some TPU versions
+    if let Ok(entries) = std::fs::read_dir("/dev") {
+        for entry in entries.flatten() {
+            if let Some(name) = entry.file_name().to_str() {
+                if name.starts_with("accel") {
+                    // Check sysfs for Google vendor ID (0x1ae0)
+                    let sysfs_path = format!("/sys/class/accel/{name}/device/vendor");
+                    if let Ok(vendor) = std::fs::read_to_string(&sysfs_path) {
+                        if vendor.trim() == "0x1ae0" {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Method 2: Check for TPU VM environment variables
+    // TPU VMs (like v6e) set these environment variables
+    if std::env::var("TPU_NAME").is_ok()
+        || std::env::var("TPU_CHIPS_PER_HOST_BOUNDS").is_ok()
+        || std::env::var("CLOUD_TPU_TASK_ID").is_ok()
+        || std::env::var("TPU_ACCELERATOR_TYPE").is_ok()
+        || std::env::var("TPU_WORKER_ID").is_ok()
+        || std::env::var("TPU_WORKER_HOSTNAMES").is_ok()
+    {
+        return true;
+    }
+
+    // Method 3: Check libtpu availability combined with TPU indicators
+    if is_libtpu_available() {
+        // Check for PJRT TPU plugin indicators
+        if let Ok(pjrt_names) = std::env::var("PJRT_DEVICE") {
+            if pjrt_names.to_lowercase().contains("tpu") {
+                return true;
+            }
+        }
+
+        // If on GCE (Google Compute Engine), libtpu likely means TPU
+        if let Ok(product) = std::fs::read_to_string("/sys/class/dmi/id/product_name") {
+            if product.to_lowercase().contains("google") {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
 pub fn has_gaudi() -> bool {
     // First check if device files exist (typical Gaudi device paths)
     // Intel Gaudi uses /dev/accel/accel* device files
     if std::path::Path::new("/dev/accel/accel0").exists() {
-        return true;
+        // Make sure it's not a Google TPU by checking vendor ID
+        let sysfs_path = "/sys/class/accel/accel0/device/vendor";
+        if let Ok(vendor) = std::fs::read_to_string(sysfs_path) {
+            // Google vendor ID is 0x1ae0, Habana is 0x1da3
+            if vendor.trim() == "0x1ae0" {
+                // This is a Google TPU, not Gaudi
+                // Fall through to check for hl-smi
+            } else {
+                return true;
+            }
+        } else {
+            return true;
+        }
     }
 
     // Also check /dev/hl* device files (older naming convention)
