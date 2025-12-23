@@ -95,6 +95,66 @@ This will fetch all releases from GitHub and format them for the Debian changelo
 - **Multi-Architecture**: Supports amd64 and arm64
 - **Multi-Distribution**: Builds for Ubuntu 22.04, 24.04, and 24.10
 
+## Rust Toolchain and Cargo.lock Compatibility
+
+### Why rust-1.85-all is Required
+
+The PPA build process uses Ubuntu's **rust-1.85-all** package instead of the default `rustc` package. This is necessary due to Cargo.lock format compatibility:
+
+- **Ubuntu 24.04 (Noble)** default `rustc` package is **Rust 1.75.0**
+- **Cargo.lock version 4** requires **Rust 1.78+** to parse
+- The repository uses lockfile v4 (generated with newer Rust versions)
+- Rust 1.75's cargo cannot parse v4 lockfiles at all
+
+### How It Works
+
+The build process has two phases:
+
+#### 1. Prepare Source Package (before upload)
+
+Run `prepare-source-package.sh` to vendor all Rust dependencies:
+
+```bash
+./debian/prepare-source-package.sh
+```
+
+This script:
+- Runs `cargo vendor debian/vendor` to download all crates
+- Creates `.cargo/config.toml` to use vendored sources
+- Copies source-based packaging files (`control.source`, `rules.source`)
+
+#### 2. Build on Launchpad (offline)
+
+The `debian/rules` file specifies:
+
+```makefile
+# Build-Depends in debian/control
+Build-Depends: ..., rust-1.85-all, ...
+
+# Build command uses --frozen for offline builds
+cargo-1.85 build --release --frozen
+```
+
+Ubuntu's versioned Rust packages provide version-suffixed binaries
+(`rustc-1.85`, `cargo-1.85`) to allow multiple Rust versions to coexist.
+
+### Benefits
+
+- **Full Cargo.lock v4 Support**: Rust 1.85 can parse modern lockfile formats
+- **Reproducible Builds**: Using `--frozen` ensures exact dependency versions
+- **Offline Builds**: Vendored crates work without network access
+- **No External Dependencies**: All build tools come from Ubuntu repositories
+
+### Why Not rustup?
+
+Launchpad PPA build environments have **no network access** for security reasons.
+This means:
+- rustup cannot download toolchains during the build
+- cargo cannot download crates from crates.io
+
+Using Ubuntu's official versioned Rust packages + vendored dependencies is the
+correct approach for PPA builds.
+
 ## Troubleshooting
 
 ### GPG Key Issues
