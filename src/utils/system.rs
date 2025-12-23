@@ -12,12 +12,45 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use once_cell::sync::Lazy;
 use std::io::{self, Write};
 use std::process::Command;
-use sysinfo::System;
+use std::sync::Mutex;
+use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
+
+/// Global System instance for process collection
+/// This avoids creating new System instances on every collection cycle
+static GLOBAL_SYSTEM: Lazy<Mutex<System>> = Lazy::new(|| {
+    let system = System::new();
+    Mutex::new(system)
+});
 
 pub fn get_hostname() -> String {
     System::host_name().unwrap_or_else(|| "unknown".to_string())
+}
+
+/// Get global system instance for process collection
+/// Returns a reference to the global System wrapped in a MutexGuard
+/// This is more efficient than creating a new System instance every time
+pub fn with_global_system<F, R>(f: F) -> R
+where
+    F: FnOnce(&mut System) -> R,
+{
+    let mut system = GLOBAL_SYSTEM.lock().unwrap();
+    f(&mut system)
+}
+
+/// Refresh processes using the global System instance
+/// This is the primary use case - collecting process information
+#[allow(dead_code)]
+pub fn refresh_global_processes() {
+    let mut system = GLOBAL_SYSTEM.lock().unwrap();
+    system.refresh_processes_specifics(
+        ProcessesToUpdate::All,
+        true,
+        ProcessRefreshKind::everything().with_user(UpdateKind::Always),
+    );
+    system.refresh_memory();
 }
 
 /// Check if the current process already has sudo privileges
@@ -47,6 +80,7 @@ pub fn calculate_adaptive_interval(node_count: usize) -> u64 {
     }
 }
 
+#[allow(dead_code)] // Used conditionally based on platform and feature flags
 pub fn ensure_sudo_permissions() {
     if cfg!(target_os = "macos") {
         // Force flush any pending output before showing our messages
@@ -84,23 +118,35 @@ pub fn ensure_sudo_permissions_for_api() -> bool {
 
     #[cfg(unix)]
     {
-        // Check if we are already running as root
-        if std::env::var("USER").unwrap_or_default() == "root" || unsafe { libc::geteuid() } == 0 {
-            println!("✅ Running as root, no sudo required.");
-            return true;
+        // When using native macOS APIs, no sudo is required
+        #[cfg(all(target_os = "macos", not(feature = "powermetrics")))]
+        {
+            // Native macOS APIs (IOReport, SMC) don't require sudo
+            true
         }
 
-        // Check if we already have sudo privileges cached
-        if has_sudo_privileges() {
-            println!("✅ Sudo privileges already available.");
-            return true;
-        }
+        #[cfg(not(all(target_os = "macos", not(feature = "powermetrics"))))]
+        {
+            // Check if we are already running as root
+            if std::env::var("USER").unwrap_or_default() == "root"
+                || unsafe { libc::geteuid() } == 0
+            {
+                println!("✅ Running as root, no sudo required.");
+                return true;
+            }
 
-        // Sudo not available - warn but continue (for API mode)
-        println!("⚠️  Warning: Running without sudo privileges.");
-        println!("   Some hardware metrics may not be available.");
-        println!("   For full functionality, run with: sudo all-smi api --port <port>");
-        false
+            // Check if we already have sudo privileges cached
+            if has_sudo_privileges() {
+                println!("✅ Sudo privileges already available.");
+                return true;
+            }
+
+            // Sudo not available - warn but continue (for API mode)
+            println!("⚠️  Warning: Running without sudo privileges.");
+            println!("   Some hardware metrics may not be available.");
+            println!("   For full functionality, run with: sudo all-smi api --port <port>");
+            false
+        }
     }
 
     #[cfg(not(any(target_os = "windows", unix)))]
@@ -111,6 +157,7 @@ pub fn ensure_sudo_permissions_for_api() -> bool {
     }
 }
 
+#[allow(dead_code)] // Used conditionally based on platform and feature flags
 pub fn ensure_sudo_permissions_with_fallback() -> bool {
     if cfg!(target_os = "macos") {
         request_sudo_with_explanation(SudoPlatform::MacOS, true)
@@ -148,6 +195,7 @@ enum SudoPlatform {
 }
 
 /// Get platform-specific sudo explanation messages
+#[allow(dead_code)] // Used conditionally based on platform and feature flags
 fn get_sudo_messages(
     platform: SudoPlatform,
 ) -> (
@@ -186,6 +234,7 @@ fn get_sudo_messages(
 }
 
 /// Unified function to request sudo with platform-specific explanations
+#[allow(dead_code)] // Used conditionally based on platform and feature flags
 fn request_sudo_with_explanation(platform: SudoPlatform, return_bool: bool) -> bool {
     // Check if we already have sudo privileges
     if has_sudo_privileges() {
