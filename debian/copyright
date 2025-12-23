@@ -1,7 +1,7 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: all-smi
 Upstream-Contact: Jeongkyu Shin <inureyes@gmail.com>
-Source: https://github.com/inureyes/all-smi
+Source: https://github.com/lablup/all-smi
 
 Files: *
 Copyright: 2024-2025 Jeongkyu Shin <inureyes@gmail.com>
