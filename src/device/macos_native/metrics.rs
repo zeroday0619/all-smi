@@ -14,15 +14,14 @@
 
 //! Unified metrics data structure for native macOS APIs
 //!
-//! This module provides a unified data structure that matches the
-//! PowerMetricsData format for backward compatibility, but is populated
-//! using native macOS APIs instead of the powermetrics command.
+//! This module provides a unified data structure for Apple Silicon metrics
+//! populated using native macOS APIs (IOReport, SMC, NSProcessInfo).
 
 use super::ioreport::IOReportMetrics;
 use super::smc::SMCMetrics;
 use super::thermal::ThermalState;
 
-/// Core types matching PowerMetricsData for compatibility
+/// Core types for Apple Silicon cluster identification
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum CoreType {
     Efficiency,
@@ -31,8 +30,8 @@ pub enum CoreType {
 
 /// Unified metrics data from native macOS APIs
 ///
-/// This structure is designed to be compatible with PowerMetricsData
-/// to allow seamless switching between implementations.
+/// This structure provides comprehensive Apple Silicon metrics
+/// collected from IOReport, SMC, and NSProcessInfo APIs.
 #[derive(Debug, Default, Clone)]
 pub struct NativeMetricsData {
     // CPU cluster metrics
@@ -43,7 +42,6 @@ pub struct NativeMetricsData {
     pub cpu_power_mw: f64,
 
     // Per-core metrics (optional, for detailed reporting)
-    // These are used for compatibility with powermetrics data format
     #[allow(dead_code)]
     pub core_active_residencies: Vec<f64>,
     #[allow(dead_code)]
@@ -65,7 +63,7 @@ pub struct NativeMetricsData {
     // Thermal
     pub thermal_pressure_level: Option<String>,
 
-    // Additional metrics from SMC (not in original PowerMetricsData)
+    // Additional metrics from SMC sensors
     pub cpu_temperature: Option<f64>,
     pub gpu_temperature: Option<f64>,
     #[allow(dead_code)]
@@ -186,41 +184,6 @@ impl NativeMetricsData {
     pub fn is_valid(&self) -> bool {
         // Check that we got some meaningful power data
         self.combined_power_mw > 0.0 || self.cpu_power_mw > 0.0 || self.gpu_power_mw > 0.0
-    }
-}
-
-/// Convert NativeMetricsData to the format expected by existing code
-/// This is only needed when native-macos feature is NOT enabled (for compatibility)
-#[cfg(feature = "powermetrics")]
-impl From<NativeMetricsData> for crate::device::powermetrics_parser::PowerMetricsData {
-    fn from(native: NativeMetricsData) -> Self {
-        Self {
-            e_cluster_active_residency: native.e_cluster_active_residency,
-            p_cluster_active_residency: native.p_cluster_active_residency,
-            e_cluster_frequency: native.e_cluster_frequency,
-            p_cluster_frequency: native.p_cluster_frequency,
-            cpu_power_mw: native.cpu_power_mw,
-            core_active_residencies: native.core_active_residencies,
-            core_frequencies: native.core_frequencies,
-            core_cluster_types: native
-                .core_cluster_types
-                .into_iter()
-                .map(|t| match t {
-                    CoreType::Efficiency => {
-                        crate::device::powermetrics_parser::CoreType::Efficiency
-                    }
-                    CoreType::Performance => {
-                        crate::device::powermetrics_parser::CoreType::Performance
-                    }
-                })
-                .collect(),
-            gpu_active_residency: native.gpu_active_residency,
-            gpu_frequency: native.gpu_frequency,
-            gpu_power_mw: native.gpu_power_mw,
-            ane_power_mw: native.ane_power_mw,
-            combined_power_mw: native.combined_power_mw,
-            thermal_pressure_level: native.thermal_pressure_level,
-        }
     }
 }
 

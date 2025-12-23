@@ -83,11 +83,7 @@ pub fn calculate_adaptive_interval(node_count: usize) -> u64 {
 #[allow(dead_code)] // Used conditionally based on platform and feature flags
 pub fn ensure_sudo_permissions() {
     if cfg!(target_os = "macos") {
-        // Force flush any pending output before showing our messages
-        let _ = io::stdout().flush();
-        let _ = io::stderr().flush();
-
-        request_sudo_with_explanation(SudoPlatform::MacOS, false);
+        // macOS uses native APIs (IOReport, SMC) that don't require sudo
     } else if cfg!(target_os = "linux") {
         // On Linux, check if we have AMD GPUs that require sudo (glibc only)
         #[cfg(all(target_os = "linux", not(target_env = "musl")))]
@@ -118,14 +114,13 @@ pub fn ensure_sudo_permissions_for_api() -> bool {
 
     #[cfg(unix)]
     {
-        // When using native macOS APIs, no sudo is required
-        #[cfg(all(target_os = "macos", not(feature = "powermetrics")))]
+        // macOS with native APIs (IOReport, SMC) doesn't require sudo
+        #[cfg(target_os = "macos")]
         {
-            // Native macOS APIs (IOReport, SMC) don't require sudo
             true
         }
 
-        #[cfg(not(all(target_os = "macos", not(feature = "powermetrics"))))]
+        #[cfg(not(target_os = "macos"))]
         {
             // Check if we are already running as root
             if std::env::var("USER").unwrap_or_default() == "root"
@@ -160,7 +155,8 @@ pub fn ensure_sudo_permissions_for_api() -> bool {
 #[allow(dead_code)] // Used conditionally based on platform and feature flags
 pub fn ensure_sudo_permissions_with_fallback() -> bool {
     if cfg!(target_os = "macos") {
-        request_sudo_with_explanation(SudoPlatform::MacOS, true)
+        // macOS uses native APIs (IOReport, SMC) that don't require sudo
+        true
     } else if cfg!(target_os = "linux") {
         // On Linux, check if we have AMD GPUs that require sudo (glibc only)
         #[cfg(all(target_os = "linux", not(target_env = "musl")))]
@@ -186,18 +182,17 @@ pub fn ensure_sudo_permissions_with_fallback() -> bool {
     }
 }
 
-/// Platform-specific sudo messages
+/// Platform-specific sudo messages (Linux only - macOS uses native APIs without sudo)
 #[derive(Copy, Clone)]
-#[allow(dead_code)] // Variants used conditionally based on platform
+#[allow(dead_code)] // Used conditionally based on platform
 enum SudoPlatform {
-    MacOS,
     Linux,
 }
 
-/// Get platform-specific sudo explanation messages
-#[allow(dead_code)] // Used conditionally based on platform and feature flags
+/// Get platform-specific sudo explanation messages (Linux only)
+#[allow(dead_code)] // Used conditionally based on platform
 fn get_sudo_messages(
-    platform: SudoPlatform,
+    _platform: SudoPlatform,
 ) -> (
     &'static str,
     &'static str,
@@ -205,32 +200,19 @@ fn get_sudo_messages(
     Option<&'static str>,
     Option<&'static str>,
 ) {
-    match platform {
-        SudoPlatform::MacOS => (
-            // Required reasons
-            "   • Access to hardware metrics requires the 'powermetrics' command\n   • powermetrics needs elevated privileges to read low-level system data\n   • This includes GPU utilization, power consumption, and thermal information",
-            // Security info
-            "   • all-smi only reads system metrics - it does not modify your system\n   • The sudo access is used exclusively for running 'powermetrics'\n   • No data is transmitted externally without your explicit configuration",
-            // Monitored items
-            "   • GPU: Utilization, memory usage, temperature, power consumption\n   • CPU: Core utilization and performance metrics\n   • Memory: System RAM usage and allocation\n   • Storage: Disk usage and performance",
-            // Alternative (None for macOS)
-            None,
-            // Additional troubleshooting (None for macOS)
-            None,
-        ),
-        SudoPlatform::Linux => (
-            // Required reasons
-            "   • Access to AMD GPU devices requires read/write permissions on /dev/dri\n   • These devices are typically only accessible by root or video/render group\n   • This includes GPU utilization, memory usage, temperature, and power data",
-            // Security info
-            "   • all-smi only reads GPU metrics - it does not modify your system\n   • The sudo access is used exclusively for accessing AMD GPU devices\n   • No data is transmitted externally without your explicit configuration",
-            // Monitored items
-            "   • AMD GPU: Utilization, VRAM usage, temperature, power, clock speeds\n   • CPU: Core utilization and performance metrics\n   • Memory: System RAM usage and allocation\n   • Storage: Disk usage and performance",
-            // Alternative
-            Some("💡 Alternative: Add your user to the 'video' and 'render' groups:\n   sudo usermod -a -G video,render $USER\n   (requires logout/login to take effect)"),
-            // Additional troubleshooting
-            Some("   Alternative: Add your user to video/render groups:\n   → sudo usermod -a -G video,render $USER"),
-        ),
-    }
+    // Linux AMD GPU support
+    (
+        // Required reasons
+        "   • Access to AMD GPU devices requires read/write permissions on /dev/dri\n   • These devices are typically only accessible by root or video/render group\n   • This includes GPU utilization, memory usage, temperature, and power data",
+        // Security info
+        "   • all-smi only reads GPU metrics - it does not modify your system\n   • The sudo access is used exclusively for accessing AMD GPU devices\n   • No data is transmitted externally without your explicit configuration",
+        // Monitored items
+        "   • AMD GPU: Utilization, VRAM usage, temperature, power, clock speeds\n   • CPU: Core utilization and performance metrics\n   • Memory: System RAM usage and allocation\n   • Storage: Disk usage and performance",
+        // Alternative
+        Some("💡 Alternative: Add your user to the 'video' and 'render' groups:\n   sudo usermod -a -G video,render $USER\n   (requires logout/login to take effect)"),
+        // Additional troubleshooting
+        Some("   Alternative: Add your user to video/render groups:\n   → sudo usermod -a -G video,render $USER"),
+    )
 }
 
 /// Unified function to request sudo with platform-specific explanations
@@ -312,14 +294,7 @@ fn request_sudo_with_explanation(platform: SudoPlatform, return_bool: bool) -> b
         println!();
         println!("💡 Troubleshooting:");
         println!("   • Make sure you entered the correct password");
-        println!(
-            "   • Ensure your user account has {}",
-            if matches!(platform, SudoPlatform::MacOS) {
-                "administrator privileges"
-            } else {
-                "sudo privileges"
-            }
-        );
+        println!("   • Ensure your user account has sudo privileges");
         println!("   • Try running 'sudo -v' manually to test sudo access");
         println!();
 
