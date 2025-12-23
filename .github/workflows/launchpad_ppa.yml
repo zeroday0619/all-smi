@@ -114,7 +114,12 @@ jobs:
           dput \
           gpg \
           dpkg-dev \
-          build-essential
+          build-essential \
+          pkg-config \
+          libssl-dev \
+          protobuf-compiler \
+          cmake \
+          libdrm-dev
 
     # ───────────────────────────────────────────────────────────────────
     # Step 6: Prepare package version
