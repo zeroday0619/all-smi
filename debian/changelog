@@ -1,3 +1,17 @@
+all-smi (0.14.0-0) jammy; urgency=medium
+
+  * Add Windows x64 build target for cross-platform support
+  * Add native macOS APIs for Apple Silicon metrics (no sudo required)
+  * Add Chassis/Node-level monitoring with per-node power and BMC metrics
+  * Expose total power metrics for Apple Silicon
+  * Optimize CPU usage by caching expensive system calls
+  * Remove legacy powermetrics implementation
+  * Update repository URLs from inureyes to lablup
+  * Fix Dockerfile for protobuf compilation and TPU support
+  * Fix Ubuntu PPA builds for Cargo.lock v4 compatibility
+
+ -- Jeongkyu Shin <inureyes@gmail.com>  Wed, 25 Dec 2025 00:00:00 +0000
+
 all-smi (0.13.1-0) jammy; urgency=medium
 
   * Upgrade tonic to 0.14, prost to 0.14, wmi to 0.18, libloading to 0.9
