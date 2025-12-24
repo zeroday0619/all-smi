@@ -16,6 +16,9 @@ WORKDIR /app
 # Copy the Cargo.toml and Cargo.lock files
 COPY Cargo.toml Cargo.lock ./
 
+# Copy the build script (required for protobuf compilation)
+COPY build.rs ./
+
 # Copy the proto files (required for TPU support)
 COPY proto/ ./proto/
 
