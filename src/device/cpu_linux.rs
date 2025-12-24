@@ -101,15 +101,15 @@ impl LinuxCpuReader {
     }
 
     fn get_cpu_info_from_proc(&self) -> Result<CpuInfo, Box<dyn std::error::Error>> {
-        // On first call, do two refreshes to establish baseline
-        // This is needed for sysinfo to calculate deltas
+        // OPTIMIZATION: Refresh CPU usage ONCE per collection cycle
+        // On first call, do initial refresh with delay to establish baseline
         if !*self.first_refresh_done.read().unwrap() {
             self.system.write().unwrap().refresh_cpu_usage();
             // Minimal delay for initial measurement (only on first call)
             std::thread::sleep(std::time::Duration::from_millis(10));
             *self.first_refresh_done.write().unwrap() = true;
         }
-        // Regular refresh for current data
+        // Single refresh for current data
         self.system.write().unwrap().refresh_cpu_usage();
         let hostname = get_hostname();
         let instance = hostname.clone();
@@ -568,13 +568,19 @@ impl LinuxCpuReader {
     }
 
     fn parse_cpu_stat(&self, _content: &str, socket_count: u32) -> CpuStatParseResult {
-        // Ensure CPUs are refreshed before accessing them
-        if !*self.first_refresh_done.read().unwrap() {
-            self.system.write().unwrap().refresh_cpu_usage();
-            std::thread::sleep(std::time::Duration::from_millis(10));
-            *self.first_refresh_done.write().unwrap() = true;
+        // OPTIMIZATION: Don't refresh here - caller (get_cpu_info_from_proc) already refreshed
+        // This avoids duplicate refresh_cpu_usage() calls which was causing high CPU usage
+        // However, for direct calls (e.g., tests), we need to ensure cpus() is populated
+        {
+            let system = self.system.read().unwrap();
+            if system.cpus().is_empty() {
+                drop(system);
+                // Fallback: refresh if not yet initialized (for direct test calls)
+                self.system.write().unwrap().refresh_cpu_usage();
+                std::thread::sleep(std::time::Duration::from_millis(10));
+                self.system.write().unwrap().refresh_cpu_usage();
+            }
         }
-        self.system.write().unwrap().refresh_cpu_usage();
 
         let overall_utilization = self.system.read().unwrap().global_cpu_usage() as f64;
         let mut per_socket_info = Vec::new();

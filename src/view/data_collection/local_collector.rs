@@ -13,12 +13,16 @@
 // limitations under the License.
 
 use async_trait::async_trait;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use sysinfo::Disks;
 use tokio::sync::{Mutex, RwLock};
 use tokio::time::timeout;
+
+/// Type alias for the process cache using std::sync::RwLock for synchronous access
+type ProcessCache = std::sync::RwLock<HashMap<u32, ProcessInfo>>;
 
 use crate::app_state::AppState;
 #[cfg(target_os = "linux")]
@@ -27,7 +31,7 @@ use crate::device::{
     create_chassis_reader, get_cpu_readers, get_gpu_readers, get_memory_readers,
     get_nvml_status_message,
     platform_detection::has_nvidia,
-    process_list::{get_all_processes, merge_gpu_processes},
+    process_list::{merge_gpu_processes, update_process_cache},
     ChassisInfo, ChassisReader, CpuInfo, CpuReader, GpuInfo, GpuReader, MemoryInfo, MemoryReader,
     ProcessInfo,
 };
@@ -46,6 +50,15 @@ use super::strategy::{
     CollectionConfig, CollectionData, CollectionError, CollectionResult, DataCollectionStrategy,
 };
 
+/// Maximum number of processes to keep after collection.
+/// Processes are sorted by CPU usage (descending) and truncated to this limit
+/// to reduce CPU overhead from tracking thousands of processes.
+const MAX_DISPLAY_PROCESSES: usize = 500;
+
+/// How often to do a full process refresh to discover new high-CPU processes.
+/// Every N cycles, we refresh all processes; otherwise, we only refresh tracked PIDs.
+const FULL_REFRESH_INTERVAL: u32 = 5;
+
 pub struct LocalCollector {
     gpu_readers: Arc<RwLock<Vec<Box<dyn GpuReader>>>>,
     cpu_readers: Arc<RwLock<Vec<Box<dyn CpuReader>>>>,
@@ -53,6 +66,15 @@ pub struct LocalCollector {
     chassis_reader: Arc<RwLock<Option<Box<dyn ChassisReader>>>>,
     aggregator: DataAggregator,
     initialized: Arc<Mutex<bool>>,
+    /// PIDs of processes from the previous collection cycle (top N by CPU usage).
+    /// Used for selective process refresh to reduce CPU overhead.
+    tracked_pids: Arc<RwLock<Vec<sysinfo::Pid>>>,
+    /// Counter for refresh cycles; every FULL_REFRESH_INTERVAL cycles we do a full refresh.
+    refresh_cycle: Arc<AtomicU32>,
+    /// Cache of ProcessInfo objects by PID to reduce memory allocation overhead.
+    /// On each collection, existing objects are updated in place rather than reallocated.
+    /// Uses std::sync::RwLock for synchronous access within with_global_system closure.
+    process_cache: Arc<ProcessCache>,
 }
 
 impl LocalCollector {
@@ -64,6 +86,11 @@ impl LocalCollector {
             chassis_reader: Arc::new(RwLock::new(None)),
             aggregator: DataAggregator::new(),
             initialized: Arc::new(Mutex::new(false)),
+            tracked_pids: Arc::new(RwLock::new(Vec::new())),
+            refresh_cycle: Arc::new(AtomicU32::new(0)),
+            process_cache: Arc::new(std::sync::RwLock::new(HashMap::with_capacity(
+                MAX_DISPLAY_PROCESSES,
+            ))),
         }
     }
 
@@ -208,6 +235,7 @@ impl LocalCollector {
         let cpu_readers = Arc::clone(&self.cpu_readers);
         let memory_readers = Arc::clone(&self.memory_readers);
         let chassis_reader = Arc::clone(&self.chassis_reader);
+        let process_cache = Arc::clone(&self.process_cache);
 
         let (
             all_gpu_info,
@@ -272,17 +300,30 @@ impl LocalCollector {
                 },
                 // Full process collection - use spawn_blocking to avoid blocking tokio runtime
                 async move {
-                    let all_processes = tokio::task::spawn_blocking(|| {
+                    let all_processes = tokio::task::spawn_blocking(move || {
                         with_global_system(|system| {
                             use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, UpdateKind};
+                            // OPTIMIZATION: Only refresh fields we actually need
+                            // - CPU usage for cpu_percent
+                            // - Memory for memory_percent/memory_rss/memory_vms
+                            // - User only if not already set (avoid repeated lookups)
+                            // This is much cheaper than everything() which includes disk I/O, etc.
+                            let refresh_kind = ProcessRefreshKind::nothing()
+                                .with_cpu()
+                                .with_memory()
+                                .with_user(UpdateKind::OnlyIfNotSet);
                             system.refresh_processes_specifics(
                                 ProcessesToUpdate::All,
                                 true,
-                                ProcessRefreshKind::everything().with_user(UpdateKind::Always),
+                                refresh_kind,
                             );
                             system.refresh_memory();
+
+                            // OPTIMIZATION: Initialize process cache on first iteration
+                            // This populates the cache with all current processes
                             let gpu_pids: HashSet<u32> = HashSet::new();
-                            get_all_processes(system, &gpu_pids)
+                            let mut cache = process_cache.write().unwrap();
+                            update_process_cache(system, &gpu_pids, &mut cache)
                         })
                     })
                     .await
@@ -321,6 +362,26 @@ impl LocalCollector {
         let mut all_processes_merged = all_processes;
         merge_gpu_processes(&mut all_processes_merged, gpu_processes);
 
+        // Sort by CPU usage descending and limit to top MAX_DISPLAY_PROCESSES
+        all_processes_merged.sort_by(|a, b| {
+            b.cpu_percent
+                .partial_cmp(&a.cpu_percent)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        if all_processes_merged.len() > MAX_DISPLAY_PROCESSES {
+            all_processes_merged.truncate(MAX_DISPLAY_PROCESSES);
+        }
+
+        // Initialize tracked PIDs for selective refresh in subsequent cycles
+        let new_tracked_pids: Vec<sysinfo::Pid> = all_processes_merged
+            .iter()
+            .map(|p| sysinfo::Pid::from_u32(p.pid))
+            .collect();
+        *self.tracked_pids.write().await = new_tracked_pids;
+
+        // Reset refresh cycle counter (first iteration counts as cycle 0)
+        self.refresh_cycle.store(1, Ordering::Relaxed);
+
         CollectionData {
             gpu_info: all_gpu_info,
             cpu_info: all_cpu_info,
@@ -356,18 +417,68 @@ impl LocalCollector {
             .flat_map(|reader| reader.get_process_info())
             .collect();
 
+        // Determine if we should do a full refresh or selective refresh
+        let cycle = self.refresh_cycle.fetch_add(1, Ordering::Relaxed);
+        let do_full_refresh = cycle.is_multiple_of(FULL_REFRESH_INTERVAL);
+
+        // Read tracked PIDs for selective refresh (outside the closure)
+        let tracked_pids_for_refresh: Vec<sysinfo::Pid> = if do_full_refresh {
+            Vec::new() // Not needed for full refresh
+        } else {
+            self.tracked_pids.read().await.clone()
+        };
+
         let gpu_pids: HashSet<u32> = gpu_processes.iter().map(|p| p.pid).collect();
+        let process_cache = Arc::clone(&self.process_cache);
         let mut all_processes = with_global_system(|system| {
             use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, UpdateKind};
-            system.refresh_processes_specifics(
-                ProcessesToUpdate::All,
-                true,
-                ProcessRefreshKind::everything().with_user(UpdateKind::Always),
-            );
+            // OPTIMIZATION: Only refresh fields we actually need
+            // - CPU usage for cpu_percent
+            // - Memory for memory_percent/memory_rss/memory_vms
+            // - User only if not already set (avoid repeated lookups)
+            let refresh_kind = ProcessRefreshKind::nothing()
+                .with_cpu()
+                .with_memory()
+                .with_user(UpdateKind::OnlyIfNotSet);
+
+            // OPTIMIZATION: Selective process refresh
+            // Full refresh every N cycles to discover new high-CPU processes;
+            // otherwise only refresh tracked PIDs to significantly reduce CPU usage.
+            if do_full_refresh || tracked_pids_for_refresh.is_empty() {
+                system.refresh_processes_specifics(ProcessesToUpdate::All, true, refresh_kind);
+            } else {
+                system.refresh_processes_specifics(
+                    ProcessesToUpdate::Some(&tracked_pids_for_refresh),
+                    true,
+                    refresh_kind,
+                );
+            }
             system.refresh_memory();
-            get_all_processes(system, &gpu_pids)
+
+            // OPTIMIZATION: Use process cache to reduce memory allocation overhead
+            // Instead of creating new ProcessInfo objects every cycle, we update
+            // existing cached objects and only allocate for new processes.
+            let mut cache = process_cache.write().unwrap();
+            update_process_cache(system, &gpu_pids, &mut cache)
         });
         merge_gpu_processes(&mut all_processes, gpu_processes);
+
+        // Sort by CPU usage descending and limit to top MAX_DISPLAY_PROCESSES
+        all_processes.sort_by(|a, b| {
+            b.cpu_percent
+                .partial_cmp(&a.cpu_percent)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        if all_processes.len() > MAX_DISPLAY_PROCESSES {
+            all_processes.truncate(MAX_DISPLAY_PROCESSES);
+        }
+
+        // Update tracked PIDs for next cycle (after truncation to top N)
+        let new_tracked_pids: Vec<sysinfo::Pid> = all_processes
+            .iter()
+            .map(|p| sysinfo::Pid::from_u32(p.pid))
+            .collect();
+        *self.tracked_pids.write().await = new_tracked_pids;
 
         let all_storage_info = Self::collect_storage_info();
 
