@@ -95,6 +95,13 @@ name = "all-smi-mock-server"
 path = "src/bin/all-smi-mock-server.rs"
 required-features = ["mock"]
 
+[profile.release]
+strip = true          # Remove debug symbols
+lto = true            # Link-Time Optimization
+codegen-units = 1     # Single codegen unit for better optimization
+panic = "abort"       # Abort on panic (removes unwind code)
+opt-level = "z"       # Optimize for size
+
 [lints.clippy]
 # Enable the same lints that CI uses
 uninlined_format_args = "warn"
