@@ -1,3 +1,12 @@
+all-smi (0.15.0-0) jammy; urgency=medium
+
+  * Add Unix Domain Socket support for API mode (Linux/macOS)
+  * Add Windows CPU temperature fallback chain to handle WBEM_E_NOT_FOUND
+  * Add release profile for binary size optimization
+  * Change organization from inureyes to lablup
+
+ -- Jeongkyu Shin <inureyes@gmail.com>  Tue, 31 Dec 2025 00:00:00 +0000
+
 all-smi (0.14.0-0) jammy; urgency=medium
 
   * Add Windows x64 build target for cross-platform support
