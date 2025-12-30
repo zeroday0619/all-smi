@@ -1,3 +1,9 @@
+all-smi (0.15.1-0) jammy; urgency=medium
+
+  * Fix memory leak in IOReportIterator by releasing delta CFDictionaryRef
+
+ -- Jeongkyu Shin <inureyes@gmail.com>  Tue, 31 Dec 2025 00:00:00 +0000
+
 all-smi (0.15.0-0) jammy; urgency=medium
 
   * Add Unix Domain Socket support for API mode (Linux/macOS)
