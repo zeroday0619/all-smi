@@ -100,7 +100,35 @@ jobs:
         GH_TOKEN: ${{ github.token }}
 
     # ───────────────────────────────────────────────────────────────
-    # Step 5: Install build dependencies
+    # Step 5: Install Rust toolchain
+    # ───────────────────────────────────────────────────────────────
+    - name: Install Rust toolchain
+      if: steps.check_distro.outputs.should_run == 'true'
+      uses: dtolnay/rust-toolchain@stable
+
+    # ───────────────────────────────────────────────────────────────
+    # Step 6: Vendor Rust dependencies
+    # ───────────────────────────────────────────────────────────────
+    - name: Vendor Rust dependencies
+      if: steps.check_distro.outputs.should_run == 'true'
+      run: |
+        # Vendor all dependencies for offline Launchpad build
+        cargo vendor debian/vendor
+
+        # Create .cargo/config.toml to use vendored sources
+        mkdir -p .cargo
+        cat > .cargo/config.toml << 'EOF'
+        [source.crates-io]
+        replace-with = "vendored-sources"
+
+        [source.vendored-sources]
+        directory = "debian/vendor"
+        EOF
+
+        echo "Vendored dependencies created ($(du -sh debian/vendor | cut -f1))"
+
+    # ───────────────────────────────────────────────────────────────
+    # Step 7: Install build dependencies
     # ───────────────────────────────────────────────────────────────
     - name: Install build dependencies
       if: steps.check_distro.outputs.should_run == 'true'
@@ -122,7 +150,7 @@ jobs:
           libdrm-dev
 
     # ───────────────────────────────────────────────────────────────────
-    # Step 6: Prepare package version
+    # Step 8: Prepare package version
     # ───────────────────────────────────────────────────────────────
     - name: Prepare package version
       if: steps.check_distro.outputs.should_run == 'true'
@@ -144,7 +172,7 @@ jobs:
         }
 
     # ───────────────────────────────────────────────────────────────
-    # Step 7: Import GPG signing key
+    # Step 9: Import GPG signing key
     # ───────────────────────────────────────────────────────────────
     - name: Import GPG key
       if: steps.check_distro.outputs.should_run == 'true'
@@ -164,7 +192,7 @@ jobs:
         echo "${FINGERPRINT}:6:" | gpg --import-ownertrust
 
     # ───────────────────────────────────────────────────────────────
-    # Step 8: Configure GPG for non-interactive signing
+    # Step 10: Configure GPG for non-interactive signing
     # ───────────────────────────────────────────────────────────────
     - name: Configure GPG
       if: steps.check_distro.outputs.should_run == 'true'
@@ -198,7 +226,7 @@ jobs:
         gpgconf --kill gpg-agent || true
 
     # ───────────────────────────────────────────────────────────────
-    # Step 9: Build source package
+    # Step 11: Build source package
     # ───────────────────────────────────────────────────────────────
     - name: Build source package
       if: steps.check_distro.outputs.should_run == 'true'
@@ -240,7 +268,7 @@ jobs:
         echo "Source package built and signed successfully"
 
     # ───────────────────────────────────────────────────────────────
-    # Step 10: Upload to PPA
+    # Step 12: Upload to PPA
     # ───────────────────────────────────────────────────────────────
     - name: Upload to Ubuntu PPA
       if: steps.check_distro.outputs.should_run == 'true'

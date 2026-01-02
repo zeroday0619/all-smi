@@ -17,6 +17,10 @@ Cargo.lock
 # Vendor directories
 /vendor/
 .vendor/
+/debian/vendor/
+
+# Cargo config for vendored builds
+/.cargo/
 
 # Test and temporary files
 *.csv
