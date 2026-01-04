@@ -1,3 +1,14 @@
+all-smi (0.16.0-0) jammy; urgency=medium
+
+  * Add high-level AllSmi client struct with ergonomic API
+  * Add unified Error type using thiserror for library users
+  * Add prelude module for convenient imports
+  * Add comprehensive library API manual and examples
+  * Update cargo dependencies (axum, tower-http, sysinfo, regex, futures-util)
+  * Fix Launchpad offline builds with cargo vendor and .cargo/config.toml
+
+ -- Jeongkyu Shin <inureyes@gmail.com>  Sat, 04 Jan 2026 00:00:00 +0000
+
 all-smi (0.15.1-0) jammy; urgency=medium
 
   * Fix memory leak in IOReportIterator by releasing delta CFDictionaryRef
