@@ -122,6 +122,8 @@ pub struct AppState {
     pub runtime_environment: RuntimeEnvironment,
     /// Version counter that increments when data changes, used to detect if re-render is needed
     pub data_version: u64,
+    /// Filter to show only GPU processes (processes with used_memory > 0)
+    pub gpu_filter_enabled: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -213,6 +215,7 @@ impl AppState {
             is_local_mode: true, // Default to local mode
             runtime_environment: RuntimeEnvironment::detect(),
             data_version: 0,
+            gpu_filter_enabled: false, // GPU filter disabled by default
         }
     }
 
@@ -346,27 +349,42 @@ impl SortCriteria {
     ) -> Ordering {
         let base_ordering = match self {
             SortCriteria::Pid => a.pid.cmp(&b.pid),
-            SortCriteria::User => a.user.cmp(&b.user),
-            SortCriteria::Priority => a.priority.cmp(&b.priority),
-            SortCriteria::Nice => a.nice_value.cmp(&b.nice_value),
-            SortCriteria::VirtualMemory => a.memory_vms.cmp(&b.memory_vms),
-            SortCriteria::ResidentMemory => a.memory_rss.cmp(&b.memory_rss),
-            SortCriteria::State => a.state.cmp(&b.state),
+            SortCriteria::User => a.user.cmp(&b.user).then_with(|| a.pid.cmp(&b.pid)),
+            SortCriteria::Priority => a.priority.cmp(&b.priority).then_with(|| a.pid.cmp(&b.pid)),
+            SortCriteria::Nice => a
+                .nice_value
+                .cmp(&b.nice_value)
+                .then_with(|| a.pid.cmp(&b.pid)),
+            SortCriteria::VirtualMemory => a
+                .memory_vms
+                .cmp(&b.memory_vms)
+                .then_with(|| a.pid.cmp(&b.pid)),
+            SortCriteria::ResidentMemory => a
+                .memory_rss
+                .cmp(&b.memory_rss)
+                .then_with(|| a.pid.cmp(&b.pid)),
+            SortCriteria::State => a.state.cmp(&b.state).then_with(|| a.pid.cmp(&b.pid)),
             SortCriteria::CpuPercent => a
                 .cpu_percent
                 .partial_cmp(&b.cpu_percent)
-                .unwrap_or(Ordering::Equal),
+                .unwrap_or(Ordering::Equal)
+                .then_with(|| a.pid.cmp(&b.pid)),
             SortCriteria::MemoryPercent => a
                 .memory_percent
                 .partial_cmp(&b.memory_percent)
-                .unwrap_or(Ordering::Equal),
+                .unwrap_or(Ordering::Equal)
+                .then_with(|| a.pid.cmp(&b.pid)),
             SortCriteria::GpuPercent => a
                 .gpu_utilization
                 .partial_cmp(&b.gpu_utilization)
-                .unwrap_or(Ordering::Equal),
-            SortCriteria::GpuMemoryUsage => a.used_memory.cmp(&b.used_memory),
-            SortCriteria::CpuTime => a.cpu_time.cmp(&b.cpu_time),
-            SortCriteria::Command => a.command.cmp(&b.command),
+                .unwrap_or(Ordering::Equal)
+                .then_with(|| a.pid.cmp(&b.pid)),
+            SortCriteria::GpuMemoryUsage => a
+                .used_memory
+                .cmp(&b.used_memory)
+                .then_with(|| a.pid.cmp(&b.pid)),
+            SortCriteria::CpuTime => a.cpu_time.cmp(&b.cpu_time).then_with(|| a.pid.cmp(&b.pid)),
+            SortCriteria::Command => a.command.cmp(&b.command).then_with(|| a.pid.cmp(&b.pid)),
             // For GPU-related sorting or default, sort by PID
             _ => a.pid.cmp(&b.pid),
         };
@@ -396,5 +414,186 @@ mod tests {
         // Test case 3: Default is local mode
         let default_state = AppState::new();
         assert!(default_state.is_local_mode);
+    }
+
+    #[test]
+    fn test_gpu_filter_default() {
+        let state = AppState::new();
+        // GPU filter should be disabled by default
+        assert!(!state.gpu_filter_enabled);
+    }
+
+    #[test]
+    fn test_gpu_filter_toggle() {
+        let mut state = AppState::new();
+        assert!(!state.gpu_filter_enabled);
+
+        // Enable filter
+        state.gpu_filter_enabled = true;
+        assert!(state.gpu_filter_enabled);
+
+        // Disable filter
+        state.gpu_filter_enabled = false;
+        assert!(!state.gpu_filter_enabled);
+    }
+
+    #[test]
+    fn test_data_version_increment() {
+        let mut state = AppState::new();
+        let initial_version = state.data_version;
+
+        state.mark_data_changed();
+        assert_eq!(state.data_version, initial_version + 1);
+
+        state.mark_data_changed();
+        assert_eq!(state.data_version, initial_version + 2);
+    }
+
+    fn create_test_process(pid: u32, used_memory: u64) -> ProcessInfo {
+        ProcessInfo {
+            device_id: 0,
+            device_uuid: "test-uuid".to_string(),
+            pid,
+            used_memory,
+            process_name: format!("process_{pid}"),
+            user: "testuser".to_string(),
+            state: "S".to_string(),
+            command: format!("/usr/bin/process_{pid}"),
+            cpu_percent: 10.0,
+            memory_percent: 5.0,
+            gpu_utilization: 0.0,
+            priority: 20,
+            nice_value: 0,
+            memory_vms: 1024 * 1024,
+            memory_rss: 512 * 1024,
+            cpu_time: 100,
+            start_time: "00:00:00".to_string(),
+            ppid: 1,
+            threads: 1,
+            uses_gpu: used_memory > 0,
+        }
+    }
+
+    #[test]
+    fn test_sort_processes_by_pid_with_stability() {
+        // Test that sorting is stable - equal primary keys should be sorted by PID
+        let p1 = create_test_process(100, 1024);
+        let p2 = create_test_process(200, 1024);
+        let p3 = create_test_process(50, 1024);
+
+        let criteria = SortCriteria::GpuMemoryUsage;
+
+        // All have same GPU memory, so they should be sorted by PID as secondary key
+        // In descending order, higher PID comes first (reversed from ascending)
+        let ordering = criteria.sort_processes(&p1, &p2, SortDirection::Descending);
+        assert_eq!(
+            ordering,
+            Ordering::Greater,
+            "p1 (pid 100) should come after p2 (pid 200) in descending order"
+        );
+
+        // In ascending order, lower PID comes first
+        let ordering = criteria.sort_processes(&p3, &p1, SortDirection::Ascending);
+        assert_eq!(
+            ordering,
+            Ordering::Less,
+            "p3 (pid 50) should come before p1 (pid 100) in ascending order"
+        );
+    }
+
+    #[test]
+    fn test_sort_processes_by_gpu_memory() {
+        let p1 = create_test_process(100, 1024);
+        let p2 = create_test_process(200, 2048);
+
+        let criteria = SortCriteria::GpuMemoryUsage;
+
+        // In descending order, higher memory should come first
+        let ordering = criteria.sort_processes(&p1, &p2, SortDirection::Descending);
+        assert_eq!(
+            ordering,
+            Ordering::Greater,
+            "p1 (1024 MB) should come after p2 (2048 MB) in descending order"
+        );
+
+        // In ascending order, lower memory should come first
+        let ordering = criteria.sort_processes(&p1, &p2, SortDirection::Ascending);
+        assert_eq!(
+            ordering,
+            Ordering::Less,
+            "p1 (1024 MB) should come before p2 (2048 MB) in ascending order"
+        );
+    }
+
+    #[test]
+    fn test_sort_processes_by_cpu_percent_with_stability() {
+        let mut p1 = create_test_process(100, 0);
+        let mut p2 = create_test_process(200, 0);
+        let mut p3 = create_test_process(50, 0);
+
+        p1.cpu_percent = 50.0;
+        p2.cpu_percent = 50.0;
+        p3.cpu_percent = 50.0;
+
+        let criteria = SortCriteria::CpuPercent;
+
+        // All have same CPU%, so they should be sorted by PID as secondary key
+        // In ascending order, lower PID comes first
+        let ordering = criteria.sort_processes(&p1, &p2, SortDirection::Ascending);
+        assert_eq!(
+            ordering,
+            Ordering::Less,
+            "p1 (pid 100) should come before p2 (pid 200) when CPU% is equal (ascending)"
+        );
+
+        // In descending order, higher PID comes first (reversed)
+        let ordering = criteria.sort_processes(&p3, &p1, SortDirection::Descending);
+        assert_eq!(
+            ordering,
+            Ordering::Greater,
+            "p3 (pid 50) should come after p1 (pid 100) in descending order"
+        );
+    }
+
+    #[test]
+    fn test_sort_processes_multiple_criteria() {
+        let mut p1 = create_test_process(100, 1024);
+        let mut p2 = create_test_process(200, 2048);
+        let mut p3 = create_test_process(50, 1024);
+
+        p1.memory_percent = 10.0;
+        p2.memory_percent = 20.0;
+        p3.memory_percent = 10.0;
+
+        // Test MemoryPercent criteria
+        let criteria = SortCriteria::MemoryPercent;
+        let ordering = criteria.sort_processes(&p1, &p2, SortDirection::Descending);
+        assert_eq!(
+            ordering,
+            Ordering::Greater,
+            "p1 (10%) should come after p2 (20%) in descending order"
+        );
+
+        // p1 and p3 have same memory%, should be sorted by PID
+        // In descending order, the order is reversed: lower PID (p3=50) > higher PID (p1=100)
+        // So p1 (100) compared to p3 (50): base ordering = Less (100 > 50 in PID cmp)
+        // After reverse for descending: Greater
+        // Wait, let me think again:
+        // base_ordering: a.pid.cmp(&b.pid) where a=p1(100), b=p3(50) -> 100.cmp(&50) = Greater
+        // After reverse for descending: Less
+        let ordering = criteria.sort_processes(&p1, &p3, SortDirection::Descending);
+        assert_eq!(
+            ordering,
+            Ordering::Less,
+            "p1 (pid 100) should come before p3 (pid 50) in descending sort (reversed from ascending)"
+        );
+
+        // In ascending order, lower PID comes first
+        let ordering = criteria.sort_processes(&p1, &p3, SortDirection::Ascending);
+        assert_eq!(
+            ordering,
+            Ordering::Greater,
+            "p1 (pid 100) should come after p3 (pid 50) in ascending order"
+        );
     }
 }
