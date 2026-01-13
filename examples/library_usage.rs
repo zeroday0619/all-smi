@@ -39,7 +39,7 @@ fn main() -> Result<()> {
         println!("Found {} GPU(s)/NPU(s):\n", gpus.len());
 
         for (i, gpu) in gpus.iter().enumerate() {
-            println!("  [{}] {}", i, gpu.name);
+            println!("  [{i}] {}", gpu.name);
             println!("      Type: {}", gpu.device_type);
             println!("      Utilization: {:.1}%", gpu.utilization);
             println!(
@@ -57,7 +57,7 @@ fn main() -> Result<()> {
             println!("      Frequency: {} MHz", gpu.frequency);
 
             if let Some(cores) = gpu.gpu_core_count {
-                println!("      GPU Cores: {}", cores);
+                println!("      GPU Cores: {cores}");
             }
 
             println!();
@@ -114,11 +114,11 @@ fn main() -> Result<()> {
             );
 
             if let Some(temp) = cpu.temperature {
-                println!("  Temperature: {}C", temp);
+                println!("  Temperature: {temp}C");
             }
 
             if let Some(power) = cpu.power_consumption {
-                println!("  Power: {:.1}W", power);
+                println!("  Power: {power:.1}W");
             }
 
             // Apple Silicon specific info
@@ -135,10 +135,10 @@ fn main() -> Result<()> {
                 println!("    GPU cores: {}", apple_info.gpu_core_count);
 
                 if let Some(p_freq) = apple_info.p_cluster_frequency_mhz {
-                    println!("    P-cluster frequency: {} MHz", p_freq);
+                    println!("    P-cluster frequency: {p_freq} MHz");
                 }
                 if let Some(e_freq) = apple_info.e_cluster_frequency_mhz {
-                    println!("    E-cluster frequency: {} MHz", e_freq);
+                    println!("    E-cluster frequency: {e_freq} MHz");
                 }
             }
         }
@@ -159,24 +159,21 @@ fn main() -> Result<()> {
             let used_gb = mem.used_bytes as f64 / 1024.0 / 1024.0 / 1024.0;
             let available_gb = mem.available_bytes as f64 / 1024.0 / 1024.0 / 1024.0;
 
-            println!("  Total: {:.1} GB", total_gb);
-            println!("  Used: {:.1} GB ({:.1}%)", used_gb, mem.utilization);
-            println!("  Available: {:.1} GB", available_gb);
+            println!("  Total: {total_gb:.1} GB");
+            println!("  Used: {used_gb:.1} GB ({:.1}%)", mem.utilization);
+            println!("  Available: {available_gb:.1} GB");
 
             if mem.swap_total_bytes > 0 {
                 let swap_total_gb = mem.swap_total_bytes as f64 / 1024.0 / 1024.0 / 1024.0;
                 let swap_used_gb = mem.swap_used_bytes as f64 / 1024.0 / 1024.0 / 1024.0;
-                println!("  Swap: {:.1} GB / {:.1} GB", swap_used_gb, swap_total_gb);
+                println!("  Swap: {swap_used_gb:.1} GB / {swap_total_gb:.1} GB");
             }
 
             // Linux-specific metrics
             if mem.buffers_bytes > 0 || mem.cached_bytes > 0 {
                 let buffers_mb = mem.buffers_bytes as f64 / 1024.0 / 1024.0;
                 let cached_mb = mem.cached_bytes as f64 / 1024.0 / 1024.0;
-                println!(
-                    "  Buffers: {:.1} MB, Cached: {:.1} MB",
-                    buffers_mb, cached_mb
-                );
+                println!("  Buffers: {buffers_mb:.1} MB, Cached: {cached_mb:.1} MB");
             }
         }
     }
@@ -188,19 +185,19 @@ fn main() -> Result<()> {
     println!("--- Chassis Information ---");
     if let Some(chassis) = smi.get_chassis_info() {
         if let Some(power) = chassis.total_power_watts {
-            println!("  Total System Power: {:.1}W", power);
+            println!("  Total System Power: {power:.1}W");
         }
 
         if let Some(ref pressure) = chassis.thermal_pressure {
-            println!("  Thermal Pressure: {}", pressure);
+            println!("  Thermal Pressure: {pressure}");
         }
 
         if let Some(inlet) = chassis.inlet_temperature {
-            println!("  Inlet Temperature: {:.1}C", inlet);
+            println!("  Inlet Temperature: {inlet:.1}C");
         }
 
         if let Some(outlet) = chassis.outlet_temperature {
-            println!("  Outlet Temperature: {:.1}C", outlet);
+            println!("  Outlet Temperature: {outlet:.1}C");
         }
 
         if !chassis.fan_speeds.is_empty() {
@@ -249,8 +246,7 @@ fn main() -> Result<()> {
 
             println!("  [{}] {}", s.index, s.mount_point);
             println!(
-                "      Total: {:.1} GB, Used: {:.1} GB, Available: {:.1} GB ({:.1}% used)",
-                total_gb, used_gb, available_gb, usage_percent
+                "      Total: {total_gb:.1} GB, Used: {used_gb:.1} GB, Available: {available_gb:.1} GB ({usage_percent:.1}% used)"
             );
         }
     }

@@ -1,3 +1,14 @@
+all-smi (0.17.0-0) jammy; urgency=medium
+
+  * Add GPU process filter toggle ('f' key) to show only processes with GPU memory
+  * Improve process list sort stability using PID as secondary sort key
+  * Update status bar to indicate filter status when active
+  * Add get_storage_info() method to public library API
+  * Add StorageReader trait and LocalStorageReader implementation
+  * Export StorageInfo and StorageReader in prelude
+
+ -- Jeongkyu Shin <inureyes@gmail.com>  Mon, 13 Jan 2026 00:00:00 +0000
+
 all-smi (0.16.0-0) jammy; urgency=medium
 
   * Add high-level AllSmi client struct with ergonomic API
