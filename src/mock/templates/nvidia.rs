@@ -296,7 +296,7 @@ impl MockGenerator for NvidiaMockGenerator {
 
         // Generate initial GPU metrics
         // Create a single RNG instance outside the loop for better performance
-        use rand::{rng, Rng};
+        use rand::{rng, RngExt};
         let mut rng = rng();
 
         let gpus: Vec<GpuMetrics> = (0..config.device_count)

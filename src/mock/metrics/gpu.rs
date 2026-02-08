@@ -14,7 +14,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use rand::{rng, Rng};
+use rand::{rng, RngExt};
 
 #[derive(Clone)]
 pub struct GpuMetrics {
@@ -176,7 +176,7 @@ pub fn generate_uuid() -> String {
 
 /// Generate a UUID using an existing RNG instance for better performance
 /// when generating multiple UUIDs in a loop
-pub fn generate_uuid_with_rng<R: rand::Rng>(rng: &mut R) -> String {
+pub fn generate_uuid_with_rng<R: rand::RngExt>(rng: &mut R) -> String {
     let bytes: [u8; 16] = rng.random();
     format!(
         "{:02X}{:02X}{:02X}{:02X}-{:02X}{:02X}-{:02X}{:02X}-{:02X}{:02X}-{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}",

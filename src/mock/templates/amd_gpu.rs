@@ -18,7 +18,7 @@ use crate::mock::metrics::{CpuMetrics, GpuMetrics, MemoryMetrics};
 use all_smi::traits::mock_generator::{
     MockConfig, MockData, MockGenerator, MockPlatform, MockResult,
 };
-use rand::{rng, Rng};
+use rand::{rng, RngExt};
 
 // Fan speed constants (RPM)
 const FAN_SPEED_HIGH_TEMP: u32 = 70; // Temperature threshold for high fan speed
@@ -31,7 +31,7 @@ const FAN_RPM_LOW_MIN: u32 = 800; // Min RPM for low temperature
 const FAN_RPM_LOW_MAX: u32 = 1200; // Max RPM for low temperature
 
 /// Calculate fan RPM based on temperature thresholds
-fn calculate_fan_rpm<R: rand::Rng>(temperature: u32, rng: &mut R) -> u32 {
+fn calculate_fan_rpm<R: rand::RngExt>(temperature: u32, rng: &mut R) -> u32 {
     if temperature > FAN_SPEED_HIGH_TEMP {
         rng.random_range(FAN_RPM_HIGH_MIN..FAN_RPM_HIGH_MAX)
     } else if temperature > FAN_SPEED_MID_TEMP {

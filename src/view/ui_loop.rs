@@ -857,7 +857,7 @@ impl UiLoop {
             let available_rows = rows.saturating_sub(lines_used as u16 + 1 + function_key_rows);
 
             // Get current user for process coloring
-            let current_user = whoami::username();
+            let current_user = whoami::username().unwrap_or_default();
 
             // Apply GPU filter if enabled
             let processes_to_display: Cow<'_, [ProcessInfo]> = if state.gpu_filter_enabled {

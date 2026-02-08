@@ -20,7 +20,7 @@ use hyper::service::service_fn;
 use hyper::{Request, Response};
 use hyper_util::rt::TokioIo;
 use hyper_util::server::conn::auto::Builder;
-use rand::{rng, Rng};
+use rand::{rng, RngExt};
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::fs::File;
