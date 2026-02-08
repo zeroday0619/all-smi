@@ -25,7 +25,7 @@ runs:
       run: |
         set -euxo pipefail
         PB_REL="https://github.com/protocolbuffers/protobuf/releases"
-        curl -sSL "$PB_REL/download/v${{ inputs.version }}/protoc-${{ inputs.version }}-${{ inputs.platform }}.zip" -o protoc.zip
+        curl -fsSL --retry 3 --retry-delay 5 "$PB_REL/download/v${{ inputs.version }}/protoc-${{ inputs.version }}-${{ inputs.platform }}.zip" -o protoc.zip
         mkdir -p "$HOME/.local/protoc-${{ inputs.version }}"
         unzip -o protoc.zip -d "$HOME/.local/protoc-${{ inputs.version }}"
         rm -f protoc.zip
