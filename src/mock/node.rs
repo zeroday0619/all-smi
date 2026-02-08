@@ -19,7 +19,7 @@ use crate::mock::generator::{
 };
 use crate::mock::metrics::{CpuMetrics, GpuMetrics, MemoryMetrics, PlatformType};
 use crate::mock::template_engine::{build_response_template, render_response};
-use rand::{rng, Rng};
+use rand::{rng, RngExt};
 
 /// High-performance template-based mock node
 #[allow(dead_code)]

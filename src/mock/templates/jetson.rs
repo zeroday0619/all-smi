@@ -155,7 +155,7 @@ impl JetsonMockGenerator {
         response = super::common::render_basic_gpu_metrics(response, gpus);
 
         // Render DLA metrics
-        use rand::{rng, Rng};
+        use rand::{rng, RngExt};
         let mut rng = rng();
         for (i, _gpu) in gpus.iter().enumerate() {
             for dla_idx in 0..2 {

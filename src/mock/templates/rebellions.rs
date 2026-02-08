@@ -18,7 +18,7 @@ use crate::mock::metrics::GpuMetrics;
 use all_smi::traits::mock_generator::{
     MockConfig, MockData, MockGenerator, MockPlatform, MockResult,
 };
-use rand::{rng, Rng};
+use rand::{rng, RngExt};
 
 /// Rebellions NPU mock generator
 pub struct RebellionsMockGenerator {
