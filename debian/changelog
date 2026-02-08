@@ -1,3 +1,12 @@
+all-smi (0.17.1-0) jammy; urgency=medium
+
+  * Fix file descriptor leak in API mode by reusing resource handles
+  * Cache Nvml handle in NvidiaGpuReader with graceful reinit on invalidation
+  * Reuse sysinfo::System instance across get_process_info() calls
+  * Create Disks instance once and refresh in-place each API metrics cycle
+
+ -- Jeongkyu Shin <inureyes@gmail.com>  Sun, 08 Feb 2026 00:00:00 +0000
+
 all-smi (0.17.0-0) jammy; urgency=medium
 
   * Add GPU process filter toggle ('f' key) to show only processes with GPU memory

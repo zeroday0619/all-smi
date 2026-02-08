@@ -527,6 +527,7 @@ See the [LICENSE](./LICENSE) file for details.
 ## Changelog
 
 ### Recent Updates
+- **v0.17.1 (2026/02/08):** Fix file descriptor leak in API mode by reusing resource handles
 - **v0.17.0 (2026/01/13):** Add GPU process filter toggle ('f' key) and improve process list sort stability
 - **v0.16.0 (2026/01/04):** Add proper library API for external Rust projects with high-level AllSmi client, unified error handling, and comprehensive documentation
 - **v0.15.2 (2026/01/02):** Fix Rebellions NPU detection compatibility with rbln SDK 2.0.x
