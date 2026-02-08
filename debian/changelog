@@ -1,3 +1,11 @@
+all-smi (0.17.2-0) jammy; urgency=medium
+
+  * Fix file descriptor leaks in Jetson, Tenstorrent, and NVIDIA readers
+  * Replace per-call System::new() with with_global_system() for consistency
+  * Follow standard pattern already used by AMD, Apple Silicon, and local collector
+
+ -- Jeongkyu Shin <inureyes@gmail.com>  Sat, 08 Feb 2026 00:00:00 +0000
+
 all-smi (0.17.1-0) jammy; urgency=medium
 
   * Fix file descriptor leak in API mode by reusing resource handles
